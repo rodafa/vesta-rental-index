@@ -11,7 +11,7 @@ This app uses a **minimal schema with JSONField** because detailed BoomScreen AP
 ### ScreeningApplication
 Top-level screening application from BoomScreen.
 - `boompay_id` — BoomScreen application ID (unique)
-- `application` — **FK** to leasing.Application (links screening to the rental application)
+- `application` — **FK** to leasing.Application (nullable — BoomScreen screenings don't always map 1:1 to RentVine applications; when no direct link exists, resolve through unit + applicant_email matching)
 - `unit` — **FK** to properties.Unit
 - `applicant_name`, `applicant_email` — Applicant info
 - `status` — Pending / In Progress / Completed / Expired
@@ -29,7 +29,7 @@ Individual screening check within an application.
 - `raw_data` — Full API response
 
 ## Key Relationships
-- ScreeningApplication → leasing.Application (FK, links to RentVine application)
+- ScreeningApplication → leasing.Application (FK, nullable — loose coupling; may resolve via unit + email matching)
 - ScreeningApplication → properties.Unit (FK)
 - ScreeningReport → ScreeningApplication (FK, CASCADE)
 

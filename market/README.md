@@ -52,6 +52,17 @@ Monthly aggregated report. Replaces the monthly Slack report from Apps Script.
 - Leasing totals: `total_leads`, `total_showings`, `total_missed_showings`, `total_applications`
 - Conversion metrics: `lead_to_show_rate`, `show_to_app_rate`
 
+### DailySegmentStats
+Segmented daily market statistics. One row per (date, segment_type, segment_value) combination. This is what makes it an *index* — the ability to say "your 3BR in 92840 is underperforming the portfolio average for that segment."
+- `snapshot_date` — Date of stats
+- `segment_type` — Zip Code / Bedrooms / Property Type / Portfolio / Price Band
+- `segment_value` — The value for this segment (e.g. "92840", "3", "single_family")
+- `active_unit_count` — Units in this segment
+- `average_dom`, `average_price`, `count_30_plus_dom` — Market metrics for segment
+- `leads_count`, `showings_count`, `applications_count` — Leasing activity for segment
+- `lead_to_show_rate`, `show_to_app_rate` — Conversion metrics
+- **Unique constraint:** (`snapshot_date`, `segment_type`, `segment_value`)
+
 ### PriceDrop
 Tracks price changes on units over time. Detected by comparing consecutive daily snapshots.
 - `unit` — **FK** to properties.Unit (CASCADE)
@@ -65,7 +76,8 @@ Tracks price changes on units over time. Detected by comparing consecutive daily
 - PriceDrop is derived from consecutive DailyUnitSnapshot records
 
 ## Future Services
-- **InventorySnapshotService** — Daily job to fetch all units from RentEngine and create DailyUnitSnapshot rows (replaces Apps Script `runDailyUpdate`)
+- **InventorySnapshotService** — Daily job to fetch all units from RentEngine and create DailyUnitSnapshot rows (replaces Apps Script `runDailyUpdate`). Note: at 1,000 units × 365 days = 365K rows/year with frozen unit details — acceptable storage trade-off for query simplicity. Could optimize later to only write if something changed.
+- **SegmentStatsAggregator** — Compute DailySegmentStats from that day's snapshots and leasing events, grouped by zip code, bedrooms, property type, portfolio, and price band
 - **DailyStatsAggregator** — Compute DailyMarketStats from that day's snapshots
 - **DailyLeasingSummaryService** — Aggregate yesterday's LeasingEvents into per-unit summaries (replaces `runDailySummary`)
 - **WeeklyLeasingSummaryService** — Aggregate last 7 days with conversion ratios (replaces `runWeeklySummary`)

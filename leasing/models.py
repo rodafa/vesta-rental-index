@@ -95,6 +95,16 @@ class Lease(models.Model):
     forwarding_email = models.EmailField(blank=True)
     forwarding_phone = models.CharField(max_length=50, blank=True)
 
+    # Renewal tracking
+    is_renewal = models.BooleanField(default=False, db_index=True)
+    previous_lease = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="renewals",
+    )
+
     # Application link
     rentvine_application_id = models.IntegerField(null=True, blank=True)
 

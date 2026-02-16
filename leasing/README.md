@@ -31,6 +31,8 @@ Signed lease agreement from RentVine.
 - Insurance: `renters_insurance_company`, `renters_insurance_policy_number`, `renters_insurance_expiration_date`
 - Move-out: `move_out_reason_id`, `move_out_tenant_remarks`
 - Forwarding address fields
+- `is_renewal` — Whether this lease is a renewal of a previous lease
+- `previous_lease` — **FK** to self (SET_NULL) — links to the prior lease in a renewal chain
 - `rentvine_application_id` — Links to the application that originated this lease
 - `raw_data` — Full API response
 
@@ -85,10 +87,12 @@ Individual person on a RentVine application.
 - Showing → Prospect, Unit (FK)
 - Application → Unit (FK)
 - Applicant → Application (FK, CASCADE)
+- Lease → Lease (self-FK for renewal chains)
 
 ## Future Services
 - **WebhookHandlerService** — Process incoming RentEngine webhooks into LeasingEvent and Prospect records
 - **LeaseSyncService** — Daily pull from RentVine `/leases/export` to sync lease data
 - **ApplicationSyncService** — Daily pull from RentVine `/screening/applications/export`
+- **RenewalTracker** — Track renewal rates by property, zip code, and price band from the `is_renewal` / `previous_lease` chain
 - **ConversionTracker** — Calculate lead-to-show and show-to-app ratios from LeasingEvent data
 - **SlackNotifier** — Send daily/weekly leasing summaries to Slack (replaces Apps Script `sendSlackMessage`)

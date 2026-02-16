@@ -6,6 +6,13 @@ class ScreeningApplication(models.Model):
     Tenant screening application from BoomScreen. Minimal model with
     JSONField for raw data since full BoomScreen API schema is not yet
     available. Will be refined once detailed docs are provided.
+
+    Note: The FK to leasing.Application is intentionally nullable because
+    BoomScreen screenings don't always map 1:1 to RentVine applications.
+    A prospect may be screened before a formal application exists, or a
+    group application may generate multiple BoomScreen screenings. When
+    no direct FK link exists, the linkage should be resolved through
+    unit + applicant_email matching.
     """
 
     boompay_id = models.CharField(

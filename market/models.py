@@ -189,6 +189,64 @@ class MonthlyMarketReport(models.Model):
         return f"Monthly Report - {self.report_month.strftime('%B %Y')}"
 
 
+class DailySegmentStats(models.Model):
+    """
+    Segmented daily market statistics. One row per (date, segment_type,
+    segment_value) combination. Enables comparisons like "your 3BR in 92840
+    vs the portfolio average for that segment."
+
+    Segment types include zip_code, bedrooms, property_type, portfolio, and
+    price_band. New dimensions can be added without schema changes.
+    """
+
+    snapshot_date = models.DateField(db_index=True)
+
+    SEGMENT_TYPE_CHOICES = [
+        ("zip_code", "Zip Code"),
+        ("bedrooms", "Bedrooms"),
+        ("property_type", "Property Type"),
+        ("portfolio", "Portfolio"),
+        ("price_band", "Price Band"),
+    ]
+    segment_type = models.CharField(
+        max_length=30, choices=SEGMENT_TYPE_CHOICES, db_index=True
+    )
+    segment_value = models.CharField(max_length=100, db_index=True)
+
+    active_unit_count = models.IntegerField(default=0)
+    average_dom = models.IntegerField(default=0)
+    average_price = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0
+    )
+    count_30_plus_dom = models.IntegerField(default=0)
+
+    # Leasing activity for this segment
+    leads_count = models.IntegerField(default=0)
+    showings_count = models.IntegerField(default=0)
+    applications_count = models.IntegerField(default=0)
+
+    # Conversion metrics
+    lead_to_show_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+    show_to_app_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ["snapshot_date", "segment_type", "segment_value"]
+        verbose_name_plural = "daily segment stats"
+        ordering = ["-snapshot_date"]
+        indexes = [
+            models.Index(fields=["segment_type", "segment_value"]),
+        ]
+
+    def __str__(self):
+        return f"{self.segment_type}={self.segment_value} - {self.snapshot_date}"
+
+
 class PriceDrop(models.Model):
     """
     Tracks price changes (drops or increases) on units over time.
