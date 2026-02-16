@@ -153,3 +153,12 @@ RENTENGINE = {
     ),
     "API_TOKEN": os.environ.get("RENTENGINE_API_TOKEN", ""),
 }
+
+# BoomPay / BoomScreen API
+BOOMPAY = {
+    "BASE_URL": os.environ.get(
+        "BOOMPAY_BASE_URL", "https://screen.boompay.app/api/v1"
+    ),
+    "API_KEY": os.environ.get("BOOMPAY_API_KEY", ""),
+    "API_SECRET": os.environ.get("BOOMPAY_API_SECRET", ""),
+}
