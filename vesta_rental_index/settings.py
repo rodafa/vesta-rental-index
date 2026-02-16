@@ -138,3 +138,10 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Rentvine API
+RENTVINE = {
+    "SUBDOMAIN": os.environ.get("RENTVINE_SUBDOMAIN", ""),
+    "API_KEY": os.environ.get("RENTVINE_API_KEY", ""),
+    "API_SECRET": os.environ.get("RENTVINE_API_SECRET", ""),
+}
