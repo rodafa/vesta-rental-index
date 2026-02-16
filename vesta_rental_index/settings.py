@@ -145,3 +145,11 @@ RENTVINE = {
     "API_KEY": os.environ.get("RENTVINE_API_KEY", ""),
     "API_SECRET": os.environ.get("RENTVINE_API_SECRET", ""),
 }
+
+# RentEngine API
+RENTENGINE = {
+    "BASE_URL": os.environ.get(
+        "RENTENGINE_BASE_URL", "https://app.rentengine.io/api/public/v1"
+    ),
+    "API_TOKEN": os.environ.get("RENTENGINE_API_TOKEN", ""),
+}
