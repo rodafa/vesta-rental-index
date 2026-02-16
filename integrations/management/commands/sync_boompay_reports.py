@@ -1,9 +1,10 @@
 import json
 import logging
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from integrations.boompay.client import BoompayClient
+from integrations.boompay.client import BoompayAPIError, BoompayClient
 from integrations.boompay.services import ReportSyncService
 from screening.models import ScreeningApplication
 
@@ -25,7 +26,8 @@ class Command(BaseCommand):
 
         if dry_run:
             self.stdout.write("=== DRY RUN: Fetching screening reports ===")
-            client = BoompayClient()
+            base_url = settings.BOOMPAY.get("BASE_URL", "")
+            self.stdout.write(f"BASE_URL: {base_url}")
             app = ScreeningApplication.objects.filter(
                 boompay_id__isnull=False,
             ).exclude(boompay_id="").first()
@@ -33,11 +35,17 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f"Fetching reports for application {app.boompay_id}..."
                 )
-                data = client.get(
-                    f"/applications/{app.boompay_id}/reports",
-                    params={"page": 1, "page_size": 5},
-                )
-                self.stdout.write(json.dumps(data, indent=2, default=str))
+                try:
+                    client = BoompayClient()
+                    data = client.get(
+                        f"/applications/{app.boompay_id}/reports",
+                        params={"page": 1, "page_size": 5},
+                    )
+                    self.stdout.write(json.dumps(data, indent=2, default=str))
+                except BoompayAPIError as exc:
+                    self.stdout.write(self.style.WARNING(f"API error: {exc}"))
+                    if exc.response_body:
+                        self.stdout.write(f"Response body (first 500 chars):\n{exc.response_body[:500]}")
             else:
                 self.stdout.write(
                     "No synced screening applications found. "
