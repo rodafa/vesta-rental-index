@@ -36,7 +36,10 @@ class Command(BaseCommand):
                 )
                 data = client.get(
                     f"/reporting/leasing-performance/units/{unit.rentengine_id}",
-                    params={"start": today, "end": today},
+                    params={
+                        "start": f"{today}T00:00:00Z",
+                        "end": f"{today}T23:59:59Z",
+                    },
                 )
                 self.stdout.write(json.dumps(data, indent=2, default=str))
             else:

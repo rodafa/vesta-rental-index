@@ -10,6 +10,7 @@ Each service:
 """
 
 import logging
+import re
 
 from django.db.models import Q
 from django.utils import timezone
@@ -147,13 +148,51 @@ class UnitSyncService(_BaseSyncService):
             "errors": len(errors),
         }
 
+    @staticmethod
+    def _extract_unit_id(unit):
+        """
+        Extract the unit/apartment identifier from a Rentvine Unit record.
+
+        Checks (in order):
+        - address_line_2: "Unit 5", "Apt B", "Unit A - Upstairs Unit", "Unit #7", "A"
+        - name: "1", "A", "Unit 4", "245 - 3"
+        - address_line_1 suffix: "130 Reems Creek Road - 1", "588 Ray Hill Road - A"
+
+        Returns the normalised identifier (e.g. "5", "B", "A") or empty string.
+        """
+        # Pattern: "Unit 5", "Unit #7", "Apt B", "Unit A - Top Level", "#7"
+        unit_id_re = re.compile(
+            r'(?:unit|apt|#)\s*#?\s*([A-Za-z0-9]+)', re.IGNORECASE
+        )
+
+        for field in (unit.address_line_2, unit.name):
+            val = (field or "").strip()
+            if not val:
+                continue
+            m = unit_id_re.search(val)
+            if m:
+                return m.group(1).upper()
+            # Bare single token like "A", "3", "B"
+            if re.fullmatch(r'[A-Za-z0-9]+', val):
+                return val.upper()
+
+        # address_line_1 suffix: "130 Reems Creek Road - 1"
+        addr = (unit.address_line_1 or "").strip()
+        m = re.search(r'\s*[-–]\s*([A-Za-z0-9]+)\s*$', addr)
+        if m:
+            return m.group(1).upper()
+
+        return ""
+
     def _match_unit(self, rentengine_id, defaults):
         """
         Match a RentEngine unit to an existing Unit record.
 
         Priority:
         1. By rentengine_id (already linked)
-        2. By address (address_line_1 + city + state + postal_code)
+        2. By postal_code + street_number — unique match
+        3. By postal_code + street_number + unit_number disambiguation
+        4. Fallback: full address_line_1 iexact match
         """
         # 1. Direct match by rentengine_id
         try:
@@ -161,29 +200,51 @@ class UnitSyncService(_BaseSyncService):
         except Unit.DoesNotExist:
             pass
 
-        # 2. Address match
-        addr = defaults.get("address_line_1", "").strip()
-        city = defaults.get("city", "").strip()
-        state = defaults.get("state", "").strip()
         postal = defaults.get("postal_code", "").strip()
+        street_num = defaults.get("street_number", "").strip()
+        unit_num = defaults.get("unit_number", "").strip().upper()
+        addr = defaults.get("address_line_1", "").strip()
 
+        # 2. Match by postal_code + address starts with street_number
+        if postal and street_num:
+            matches = list(Unit.objects.filter(
+                postal_code=postal,
+                address_line_1__istartswith=f"{street_num} ",
+                rentengine_id__isnull=True,
+            ))
+            if len(matches) == 1:
+                return matches[0]
+
+            # 3. Multiple candidates — disambiguate by unit number
+            if len(matches) > 1 and unit_num:
+                for candidate in matches:
+                    if self._extract_unit_id(candidate) == unit_num:
+                        return candidate
+                logger.warning(
+                    "Unit number '%s' did not match any candidate at postal_code=%s street_number=%s",
+                    unit_num, postal, street_num,
+                )
+                return None
+
+            if len(matches) > 1:
+                logger.warning(
+                    "Multiple units match postal_code=%s street_number=%s and no unit number to disambiguate",
+                    postal, street_num,
+                )
+                return None
+
+        # 4. Fallback: exact address match
         if addr:
+            city = defaults.get("city", "").strip()
             query = Q(address_line_1__iexact=addr)
             if city:
                 query &= Q(city__iexact=city)
-            if state:
-                query &= Q(state__iexact=state)
             if postal:
                 query &= Q(postal_code=postal)
 
             matches = Unit.objects.filter(query, rentengine_id__isnull=True)
             if matches.count() == 1:
                 return matches.first()
-            elif matches.count() > 1:
-                logger.warning(
-                    "Multiple units match address '%s, %s, %s %s' — skipping ambiguous match",
-                    addr, city, state, postal,
-                )
 
         return None
 
@@ -217,7 +278,10 @@ class LeasingPerformanceSyncService(_BaseSyncService):
             try:
                 data = self.client.get(
                     f"/reporting/leasing-performance/units/{unit.rentengine_id}",
-                    params={"start": today_str, "end": today_str},
+                    params={
+                        "start": f"{today_str}T00:00:00Z",
+                        "end": f"{today_str}T23:59:59Z",
+                    },
                 )
             except Exception as exc:
                 msg = f"Error fetching leasing performance for unit {unit.rentengine_id}: {exc}"
