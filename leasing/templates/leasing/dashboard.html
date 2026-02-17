@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leasing Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; padding: 2rem; }
+    h1 { margin-bottom: 1.5rem; font-size: 1.6rem; }
+    .stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .stat-card { background: #fff; border-radius: 8px; padding: 1rem 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); min-width: 140px; }
+    .stat-card .label { font-size: .75rem; text-transform: uppercase; color: #888; letter-spacing: .5px; }
+    .stat-card .value { font-size: 1.5rem; font-weight: 700; margin-top: .25rem; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    th { background: #1a1a2e; color: #fff; text-align: left; padding: .75rem 1rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; }
+    td { padding: .65rem 1rem; border-bottom: 1px solid #eee; font-size: .9rem; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f9f9ff; }
+    .badge { display: inline-block; padding: .2rem .6rem; border-radius: 12px; font-size: .75rem; font-weight: 600; }
+    .badge-active { background: #d4edda; color: #155724; }
+    .badge-pending { background: #fff3cd; color: #856404; }
+    .badge-closed { background: #f8d7da; color: #721c24; }
+    .tenant-list { font-size: .82rem; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Leasing Dashboard</h1>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="label">Vacant Units</div>
+      <div class="value" style="color:#0c5460">{{ vacant_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Total Leases</div>
+      <div class="value">{{ leases|length }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Active</div>
+      <div class="value" style="color:#155724">{{ active_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Pending</div>
+      <div class="value" style="color:#856404">{{ pending_count }}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Closed</div>
+      <div class="value" style="color:#721c24">{{ closed_count }}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Lease #</th>
+        <th>Property</th>
+        <th>Unit</th>
+        <th>Tenants</th>
+        <th>Status</th>
+        <th>Start</th>
+        <th>End</th>
+        <th>Renewal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lease in leases %}
+      <tr>
+        <td>{{ lease.rentvine_id }}</td>
+        <td>{{ lease.property.address_line_1 }}, {{ lease.property.city }}</td>
+        <td>{{ lease.unit.name|default:lease.unit.address_line_1 }}</td>
+        <td class="tenant-list">
+          {% for t in lease.tenants.all %}{{ t.name }}{% if not forloop.last %}, {% endif %}{% empty %}&mdash;{% endfor %}
+        </td>
+        <td>
+          {% if lease.primary_lease_status == 2 %}
+            <span class="badge badge-active">Active</span>
+          {% elif lease.primary_lease_status == 1 %}
+            <span class="badge badge-pending">Pending</span>
+          {% elif lease.primary_lease_status == 3 %}
+            <span class="badge badge-closed">Closed</span>
+          {% else %}
+            <span class="badge">Unknown</span>
+          {% endif %}
+        </td>
+        <td>{{ lease.start_date|date:"M d, Y"|default:"&mdash;" }}</td>
+        <td>{{ lease.end_date|date:"M d, Y"|default:"&mdash;" }}</td>
+        <td>{% if lease.is_renewal %}Yes{% else %}No{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" style="text-align:center;padding:2rem;color:#888;">No leases found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2 style="margin-top:2rem;margin-bottom:1rem;font-size:1.3rem;">Vacant / Available Units</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Property</th>
+        <th>Unit</th>
+        <th>City</th>
+        <th>Beds</th>
+        <th>Baths</th>
+        <th>Sq Ft</th>
+        <th>Target Rent</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for unit in vacant_units %}
+      <tr>
+        <td>{{ unit.property.address_line_1 }}</td>
+        <td>{{ unit.name|default:"&mdash;" }}</td>
+        <td>{{ unit.city }}, {{ unit.state }}</td>
+        <td>{{ unit.bedrooms|default:"&mdash;" }}</td>
+        <td>{{ unit.full_bathrooms|default:0 }}{% if unit.half_bathrooms %}.5{% endif %}</td>
+        <td>{{ unit.square_feet|default:"&mdash;" }}</td>
+        <td>{% if unit.target_rental_rate %}${{ unit.target_rental_rate|floatformat:0 }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" style="text-align:center;padding:2rem;color:#888;">No vacant units.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

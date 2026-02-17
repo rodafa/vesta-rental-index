@@ -14,6 +14,10 @@ services:
     build: .
     ports:
       - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/.venv
+    command: python manage.py runserver 0.0.0.0:8000
     environment:
       DJANGO_SECRET_KEY: change-me-in-production
       DJANGO_DEBUG: "True"
