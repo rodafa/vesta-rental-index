@@ -23,9 +23,9 @@ class DailyUnitSnapshot(models.Model):
 
     STATUS_CHOICES = [
         ("active", "Active"),
-        ("inactive", "Inactive"),
-        ("leased", "Leased"),
-        ("off_market", "Off Market"),
+        ("leased_pending", "Leased Pending"),
+        ("occupied", "Occupied"),
+        ("make_ready", "Make Ready"),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, blank=True)
 
@@ -66,6 +66,11 @@ class DailyMarketStats(models.Model):
         max_digits=10, decimal_places=2, default=0
     )
     count_30_plus_dom = models.IntegerField(default=0)
+
+    # Average signed lease amount for occupied units (distinct from average_price which tracks list prices)
+    average_portfolio_rent = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -249,20 +254,21 @@ class DailySegmentStats(models.Model):
 
 class PriceDrop(models.Model):
     """
-    Tracks price changes (drops or increases) on units over time.
+    Tracks downward price changes on units over time.
+    Only records drops (new_price < previous_price).
     Detected by comparing consecutive DailyUnitSnapshot records.
     """
 
     unit = models.ForeignKey(
         "properties.Unit",
         on_delete=models.CASCADE,
-        related_name="price_changes",
+        related_name="price_drops",
     )
 
     previous_price = models.DecimalField(max_digits=10, decimal_places=2)
     new_price = models.DecimalField(max_digits=10, decimal_places=2)
-    change_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    change_percent = models.DecimalField(max_digits=5, decimal_places=2)
+    drop_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    drop_percent = models.DecimalField(max_digits=5, decimal_places=2)
 
     detected_date = models.DateField(db_index=True)
 
@@ -270,7 +276,69 @@ class PriceDrop(models.Model):
 
     class Meta:
         ordering = ["-detected_date"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(new_price__lt=models.F("previous_price")),
+                name="price_drop_must_be_downward",
+            ),
+        ]
 
     def __str__(self):
-        direction = "drop" if self.change_amount < 0 else "increase"
-        return f"Price {direction} ${abs(self.change_amount)} - {self.unit}"
+        return f"Price drop ${self.drop_amount} - {self.unit}"
+
+
+class ListingCycle(models.Model):
+    """
+    Bridges RentEngine market data to RentVine lease outcomes.
+    One record per unit listing cycle — from listed to lease signed.
+    """
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="listing_cycles",
+    )
+
+    listed_date = models.DateField(db_index=True)
+    leased_date = models.DateField(null=True, blank=True)
+    lease_start_date = models.DateField(null=True, blank=True)
+
+    original_list_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    final_list_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    signed_lease_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+
+    total_dom = models.IntegerField(null=True, blank=True)
+    total_price_drops = models.IntegerField(default=0)
+    total_drop_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0
+    )
+
+    list_to_lease_ratio = models.DecimalField(
+        max_digits=5, decimal_places=4, null=True, blank=True,
+        help_text="signed_lease_amount / original_list_price",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-listed_date"]
+        indexes = [
+            models.Index(fields=["unit", "listed_date"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.signed_lease_amount and self.original_list_price:
+            self.list_to_lease_ratio = (
+                self.signed_lease_amount / self.original_list_price
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"ListingCycle {self.unit} - listed {self.listed_date}"

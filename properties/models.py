@@ -87,6 +87,15 @@ class Property(models.Model):
     )
     is_multi_unit = models.BooleanField(default=False)
 
+    SERVICE_TYPE_CHOICES = [
+        ("full_management", "Full Management"),
+        ("leasing_only", "Leasing Only"),
+        ("maintenance_only", "Maintenance Only"),
+    ]
+    service_type = models.CharField(
+        max_length=20, choices=SERVICE_TYPE_CHOICES, default="full_management"
+    )
+
     # Address
     street_number = models.CharField(max_length=20, blank=True)
     street_name = models.CharField(max_length=255, blank=True)
