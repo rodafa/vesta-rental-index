@@ -34,6 +34,7 @@ services:
       BOOMPAY_BASE_URL: ${BOOMPAY_BASE_URL:-}
       BOOMPAY_API_KEY: ${BOOMPAY_API_KEY:-}
       BOOMPAY_API_SECRET: ${BOOMPAY_API_SECRET:-}
+      VESTA_API_KEY: ${VESTA_API_KEY:-}
     depends_on:
       - db
 

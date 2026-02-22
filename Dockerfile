@@ -25,4 +25,4 @@ RUN find . -name '*.py' -exec sed -i 's/\r$//' {} + \
 EXPOSE 8000
 
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["gunicorn", "vesta_rental_index.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD gunicorn vesta_rental_index.wsgi:application --bind 0.0.0.0:${PORT:-8000}

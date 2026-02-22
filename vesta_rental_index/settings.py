@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -30,6 +32,9 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+
+_csrf_origins = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(",") if o.strip()]
 
 
 # Application definition
@@ -55,6 +60,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -87,14 +93,15 @@ WSGI_APPLICATION = 'vesta_rental_index.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB", "vesta_rental_index"),
-        "USER": os.environ.get("POSTGRES_USER", "vesta"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "vesta"),
-        "HOST": os.environ.get("POSTGRES_HOST", "db"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-    }
+    "default": dj_database_url.config(
+        default="postgresql://{user}:{password}@{host}:{port}/{name}".format(
+            user=os.environ.get("POSTGRES_USER", "vesta"),
+            password=os.environ.get("POSTGRES_PASSWORD", "vesta"),
+            host=os.environ.get("POSTGRES_HOST", "db"),
+            port=os.environ.get("POSTGRES_PORT", "5432"),
+            name=os.environ.get("POSTGRES_DB", "vesta_rental_index"),
+        )
+    )
 }
 
 
@@ -133,6 +140,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -164,3 +177,7 @@ BOOMPAY = {
     "API_KEY": os.environ.get("BOOMPAY_API_KEY", ""),
     "API_SECRET": os.environ.get("BOOMPAY_API_SECRET", ""),
 }
+
+# Vesta API Authentication
+# When set, all API endpoints require X-API-Key header. Unset = no auth (local dev).
+VESTA_API_KEY = os.environ.get("VESTA_API_KEY", "")
