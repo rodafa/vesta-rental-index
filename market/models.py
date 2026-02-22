@@ -342,3 +342,58 @@ class ListingCycle(models.Model):
 
     def __str__(self):
         return f"ListingCycle {self.unit} - listed {self.listed_date}"
+
+
+class MonthlySegmentStats(models.Model):
+    """
+    Monthly aggregated stats by zip code and bedroom count.
+    Powers the historical rental index lookup and trend charts.
+    One row per (month, zip_code, bedroom_count) combination.
+    """
+
+    month = models.DateField(
+        db_index=True, help_text="First day of the month"
+    )
+    zip_code = models.CharField(max_length=20, db_index=True)
+    bedroom_count = models.IntegerField(db_index=True)
+
+    # Rent and pricing
+    avg_occupied_rent = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0
+    )
+    avg_list_price = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0
+    )
+    avg_dom = models.IntegerField(default=0)
+    avg_lease_length_months = models.DecimalField(
+        max_digits=5, decimal_places=1, default=0
+    )
+
+    # Leasing activity
+    leases_written_count = models.IntegerField(default=0)
+    total_leads = models.IntegerField(default=0)
+    total_showings = models.IntegerField(default=0)
+    total_applications = models.IntegerField(default=0)
+
+    # BoomPay / BoomScreen screening data
+    avg_credit_score = models.IntegerField(null=True, blank=True)
+    avg_applicant_income = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+
+    # Occupancy
+    occupied_unit_count = models.IntegerField(default=0)
+    vacant_unit_count = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ["month", "zip_code", "bedroom_count"]
+        verbose_name_plural = "monthly segment stats"
+        ordering = ["-month"]
+        indexes = [
+            models.Index(fields=["zip_code", "bedroom_count"]),
+        ]
+
+    def __str__(self):
+        return f"{self.zip_code} / {self.bedroom_count}BR - {self.month.strftime('%b %Y')}"

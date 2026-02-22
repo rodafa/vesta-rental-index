@@ -139,6 +139,9 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Django-Ninja API
+NINJA_PAGINATION_PER_PAGE = 100
+
 # Rentvine API
 RENTVINE = {
     "SUBDOMAIN": os.environ.get("RENTVINE_SUBDOMAIN", ""),

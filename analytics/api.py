@@ -1,0 +1,454 @@
+import calendar
+from collections import defaultdict
+from datetime import date
+from typing import Optional
+
+from django.db.models import (
+    Avg,
+    Count,
+    DateField,
+    DecimalField,
+    Max,
+    Min,
+    OuterRef,
+    Q,
+    Subquery,
+)
+from ninja import Router
+from ninja.pagination import LimitOffsetPagination, paginate
+
+from leasing.models import Application, Lease, Prospect, Showing
+from properties.models import Property, Unit
+
+from .schemas import (
+    LeaseExpirationDetailSchema,
+    LeaseExpirationMonthSchema,
+    LeasingFunnelSchema,
+    PortfolioSummarySchema,
+    PropertyPerformanceSchema,
+    ProspectSourceSchema,
+    RentSegmentSchema,
+    VacantUnitSchema,
+)
+
+router = Router(tags=["Analytics"])
+
+
+def _pct(numerator: int, denominator: int) -> float:
+    """Safe percentage: (numerator / denominator) * 100, rounded to 2 decimals."""
+    return round(numerator / denominator * 100, 2) if denominator else 0.0
+
+
+# ---------------------------------------------------------------------------
+# 1. Portfolio Summary
+# ---------------------------------------------------------------------------
+
+
+@router.get("/portfolio-summary", response=PortfolioSummarySchema)
+def portfolio_summary(request):
+    total_properties = Property.objects.count()
+    total_units = Unit.objects.count()
+    occupied_units = (
+        Unit.objects.filter(leases__primary_lease_status=2).distinct().count()
+    )
+    vacant_units = total_units - occupied_units
+
+    avg_target = Unit.objects.aggregate(avg=Avg("target_rental_rate"))["avg"]
+    avg_lease_rent = Lease.objects.filter(primary_lease_status=2).aggregate(
+        avg=Avg("lease_return_charge_amount")
+    )["avg"]
+
+    lease_counts = Lease.objects.aggregate(
+        active=Count("id", filter=Q(primary_lease_status=2)),
+        pending=Count("id", filter=Q(primary_lease_status=1)),
+        closed=Count("id", filter=Q(primary_lease_status=3)),
+    )
+
+    return {
+        "total_properties": total_properties,
+        "total_units": total_units,
+        "occupied_units": occupied_units,
+        "vacant_units": vacant_units,
+        "vacancy_rate": _pct(vacant_units, total_units),
+        "avg_target_rent": avg_target,
+        "avg_active_lease_rent": avg_lease_rent,
+        "active_leases": lease_counts["active"],
+        "pending_leases": lease_counts["pending"],
+        "closed_leases": lease_counts["closed"],
+        "total_prospects": Prospect.objects.count(),
+        "total_showings": Showing.objects.count(),
+        "total_applications": Application.objects.count(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 2. Leasing Funnel
+# ---------------------------------------------------------------------------
+
+
+@router.get("/leasing-funnel", response=LeasingFunnelSchema)
+def leasing_funnel(
+    request,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    property_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
+):
+    prospect_f = Q()
+    showing_f = Q()
+    app_f = Q()
+    lease_f = Q(is_renewal=False)
+
+    if date_from:
+        prospect_f &= Q(created_at__date__gte=date_from)
+        showing_f &= Q(created_at__date__gte=date_from)
+        app_f &= Q(created_at__date__gte=date_from)
+        lease_f &= Q(start_date__gte=date_from)
+    if date_to:
+        prospect_f &= Q(created_at__date__lte=date_to)
+        showing_f &= Q(created_at__date__lte=date_to)
+        app_f &= Q(created_at__date__lte=date_to)
+        lease_f &= Q(start_date__lte=date_to)
+
+    if property_id:
+        prospect_f &= Q(unit_of_interest__property_id=property_id)
+        showing_f &= Q(unit__property_id=property_id)
+        app_f &= Q(unit__property_id=property_id)
+        lease_f &= Q(property_id=property_id)
+    if portfolio_id:
+        prospect_f &= Q(unit_of_interest__property__portfolio_id=portfolio_id)
+        showing_f &= Q(unit__property__portfolio_id=portfolio_id)
+        app_f &= Q(unit__property__portfolio_id=portfolio_id)
+        lease_f &= Q(property__portfolio_id=portfolio_id)
+
+    total_prospects = Prospect.objects.filter(prospect_f).count()
+    total_showings_completed = Showing.objects.filter(
+        showing_f, status="completed"
+    ).count()
+    total_showings_missed = Showing.objects.filter(
+        showing_f, status="missed"
+    ).count()
+    total_applications = Application.objects.filter(app_f).count()
+    total_approved = Application.objects.filter(app_f, primary_status=6).count()
+    total_declined = Application.objects.filter(app_f, primary_status=7).count()
+    total_leases_signed = Lease.objects.filter(lease_f).count()
+
+    return {
+        "total_prospects": total_prospects,
+        "total_showings_completed": total_showings_completed,
+        "total_showings_missed": total_showings_missed,
+        "total_applications": total_applications,
+        "total_approved": total_approved,
+        "total_declined": total_declined,
+        "total_leases_signed": total_leases_signed,
+        "lead_to_show_rate": _pct(total_showings_completed, total_prospects),
+        "show_to_app_rate": _pct(total_applications, total_showings_completed),
+        "app_to_lease_rate": _pct(total_leases_signed, total_applications),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 3. Prospect Sources
+# ---------------------------------------------------------------------------
+
+
+@router.get("/prospect-sources", response=list[ProspectSourceSchema])
+def prospect_sources(
+    request,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+):
+    prospect_qs = Prospect.objects.exclude(source="")
+    if date_from:
+        prospect_qs = prospect_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        prospect_qs = prospect_qs.filter(created_at__date__lte=date_to)
+
+    # Showings date filter applied within the annotation
+    showing_filter = Q(showings__status="completed")
+    if date_from:
+        showing_filter &= Q(showings__created_at__date__gte=date_from)
+    if date_to:
+        showing_filter &= Q(showings__created_at__date__lte=date_to)
+
+    sources = (
+        prospect_qs.values("source")
+        .annotate(
+            prospect_count=Count("id", distinct=True),
+            showing_count=Count("showings", filter=showing_filter, distinct=True),
+        )
+        .order_by("-prospect_count")
+    )
+
+    # Application counts joined through unit_of_interest (no direct FK)
+    app_qs = Application.objects.all()
+    if date_from:
+        app_qs = app_qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        app_qs = app_qs.filter(created_at__date__lte=date_to)
+
+    source_units = (
+        prospect_qs.exclude(unit_of_interest__isnull=True)
+        .values_list("source", "unit_of_interest")
+        .distinct()
+    )
+    source_unit_map = defaultdict(set)
+    for src, unit_id in source_units:
+        source_unit_map[src].add(unit_id)
+
+    unit_app_counts = dict(
+        app_qs.values_list("unit_id")
+        .annotate(c=Count("id"))
+        .values_list("unit_id", "c")
+    )
+
+    results = []
+    for src in sources:
+        name = src["source"]
+        p_count = src["prospect_count"]
+        s_count = src["showing_count"]
+        a_count = sum(
+            unit_app_counts.get(uid, 0) for uid in source_unit_map.get(name, set())
+        )
+        results.append(
+            {
+                "source": name,
+                "prospect_count": p_count,
+                "showing_count": s_count,
+                "application_count": a_count,
+                "lead_to_show_rate": _pct(s_count, p_count),
+                "show_to_app_rate": _pct(a_count, s_count),
+            }
+        )
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 4. Vacancy Report
+# ---------------------------------------------------------------------------
+
+
+@router.get("/vacancy", response=list[VacantUnitSchema])
+@paginate(LimitOffsetPagination)
+def vacancy_report(
+    request,
+    city: Optional[str] = None,
+    state: Optional[str] = None,
+    portfolio_id: Optional[int] = None,
+    bedrooms: Optional[int] = None,
+    property_type: Optional[str] = None,
+):
+    qs = (
+        Unit.objects.exclude(leases__primary_lease_status=2)
+        .select_related("property", "property__portfolio")
+        .annotate(
+            last_lease_end=Subquery(
+                Lease.objects.filter(unit=OuterRef("pk"))
+                .order_by("-end_date")
+                .values("end_date")[:1],
+                output_field=DateField(),
+            ),
+            prospect_count_ann=Count("prospects", distinct=True),
+        )
+    )
+
+    if city:
+        qs = qs.filter(Q(city__iexact=city) | Q(property__city__iexact=city))
+    if state:
+        qs = qs.filter(Q(state__iexact=state) | Q(property__state__iexact=state))
+    if portfolio_id:
+        qs = qs.filter(property__portfolio_id=portfolio_id)
+    if bedrooms is not None:
+        qs = qs.filter(bedrooms=bedrooms)
+    if property_type:
+        qs = qs.filter(property__property_type=property_type)
+
+    return qs
+
+
+# ---------------------------------------------------------------------------
+# 5. Rent Analysis
+# ---------------------------------------------------------------------------
+
+
+@router.get("/rent-analysis", response=list[RentSegmentSchema])
+def rent_analysis(
+    request,
+    city: Optional[str] = None,
+    state: Optional[str] = None,
+    postal_code: Optional[str] = None,
+    bedrooms: Optional[int] = None,
+    property_type: Optional[str] = None,
+):
+    qs = Unit.objects.all()
+
+    if city:
+        qs = qs.filter(Q(city__iexact=city) | Q(property__city__iexact=city))
+    if state:
+        qs = qs.filter(Q(state__iexact=state) | Q(property__state__iexact=state))
+    if postal_code:
+        qs = qs.filter(postal_code=postal_code)
+    if bedrooms is not None:
+        qs = qs.filter(bedrooms=bedrooms)
+    if property_type:
+        qs = qs.filter(property__property_type=property_type)
+
+    segments = (
+        qs.values("postal_code", "bedrooms")
+        .annotate(
+            unit_count=Count("id", distinct=True),
+            occupied_count=Count(
+                "id",
+                filter=Q(leases__primary_lease_status=2),
+                distinct=True,
+            ),
+            avg_target_rent=Avg("target_rental_rate"),
+            min_target_rent=Min("target_rental_rate"),
+            max_target_rent=Max("target_rental_rate"),
+            avg_active_lease_rent=Avg(
+                "leases__lease_return_charge_amount",
+                filter=Q(leases__primary_lease_status=2),
+            ),
+        )
+        .order_by("postal_code", "bedrooms")
+    )
+
+    results = []
+    for seg in segments:
+        pc = seg["postal_code"] or "Unknown"
+        br = seg["bedrooms"]
+        br_label = f"{br}BR" if br is not None else "N/A"
+        vacant = seg["unit_count"] - seg["occupied_count"]
+        results.append(
+            {
+                "segment_label": f"{pc} / {br_label}",
+                "unit_count": seg["unit_count"],
+                "occupied_count": seg["occupied_count"],
+                "vacant_count": vacant,
+                "avg_target_rent": seg["avg_target_rent"],
+                "min_target_rent": seg["min_target_rent"],
+                "max_target_rent": seg["max_target_rent"],
+                "avg_active_lease_rent": seg["avg_active_lease_rent"],
+                "vacancy_rate": _pct(vacant, seg["unit_count"]),
+            }
+        )
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 6. Property Performance
+# ---------------------------------------------------------------------------
+
+
+@router.get("/property-performance", response=list[PropertyPerformanceSchema])
+@paginate(LimitOffsetPagination)
+def property_performance(
+    request,
+    portfolio_id: Optional[int] = None,
+    city: Optional[str] = None,
+    state: Optional[str] = None,
+    is_active: Optional[bool] = None,
+):
+    qs = Property.objects.select_related("portfolio").annotate(
+        unit_count_ann=Count("units", distinct=True),
+        occupied_count_ann=Count(
+            "units",
+            filter=Q(units__leases__primary_lease_status=2),
+            distinct=True,
+        ),
+        # Subquery for Avg to avoid cross-join inflation
+        avg_rent_ann=Subquery(
+            Unit.objects.filter(property=OuterRef("pk"))
+            .values("property")
+            .annotate(avg=Avg("target_rental_rate"))
+            .values("avg"),
+            output_field=DecimalField(),
+        ),
+        lease_count_ann=Count(
+            "leases",
+            filter=Q(leases__primary_lease_status=2),
+            distinct=True,
+        ),
+        prospect_count_ann=Count("units__prospects", distinct=True),
+        showing_count_ann=Count("units__showings", distinct=True),
+        application_count_ann=Count("units__applications", distinct=True),
+    )
+
+    if portfolio_id:
+        qs = qs.filter(portfolio_id=portfolio_id)
+    if city:
+        qs = qs.filter(city__iexact=city)
+    if state:
+        qs = qs.filter(state__iexact=state)
+    if is_active is not None:
+        qs = qs.filter(is_active=is_active)
+
+    return qs
+
+
+# ---------------------------------------------------------------------------
+# 7. Lease Expirations
+# ---------------------------------------------------------------------------
+
+
+@router.get("/lease-expirations", response=list[LeaseExpirationMonthSchema])
+def lease_expirations(
+    request,
+    months_ahead: int = 6,
+    portfolio_id: Optional[int] = None,
+):
+    months_ahead = max(1, min(months_ahead, 24))
+
+    today = date.today()
+    target_month = today.month + months_ahead
+    target_year = today.year + (target_month - 1) // 12
+    target_month = (target_month - 1) % 12 + 1
+    last_day = calendar.monthrange(target_year, target_month)[1]
+    end_date_limit = date(target_year, target_month, last_day)
+
+    leases = (
+        Lease.objects.filter(
+            primary_lease_status=2,
+            end_date__gte=today,
+            end_date__lte=end_date_limit,
+        )
+        .select_related("unit", "unit__property")
+        .prefetch_related("tenants")
+        .order_by("end_date")
+    )
+
+    if portfolio_id:
+        leases = leases.filter(property__portfolio_id=portfolio_id)
+
+    months_map = defaultdict(list)
+    for lease in leases:
+        month_key = lease.end_date.replace(day=1)
+        months_map[month_key].append(lease)
+
+    results = []
+    for month in sorted(months_map.keys()):
+        lease_list = months_map[month]
+        results.append(
+            {
+                "month": month,
+                "expiring_count": len(lease_list),
+                "leases": [
+                    {
+                        "lease_id": l.id,
+                        "unit_address": (
+                            l.unit.address_line_1 if l.unit else ""
+                        ),
+                        "tenant_names": ", ".join(
+                            t.name for t in l.tenants.all()
+                        ),
+                        "end_date": l.end_date,
+                        "monthly_rent": l.lease_return_charge_amount,
+                    }
+                    for l in lease_list
+                ],
+            }
+        )
+
+    return results

@@ -7,6 +7,7 @@ from .models import (
     DailyUnitSnapshot,
     ListingCycle,
     MonthlyMarketReport,
+    MonthlySegmentStats,
     PriceDrop,
     WeeklyLeasingSummary,
 )
@@ -58,6 +59,18 @@ class PriceDropAdmin(admin.ModelAdmin):
     list_display = ("unit", "detected_date", "previous_price", "new_price", "drop_amount", "drop_percent")
     date_hierarchy = "detected_date"
     search_fields = ("unit__address_line_1",)
+
+
+@admin.register(MonthlySegmentStats)
+class MonthlySegmentStatsAdmin(admin.ModelAdmin):
+    list_display = (
+        "month", "zip_code", "bedroom_count",
+        "avg_occupied_rent", "avg_list_price", "avg_dom",
+        "occupied_unit_count", "vacant_unit_count",
+    )
+    list_filter = ("bedroom_count", "zip_code")
+    search_fields = ("zip_code",)
+    date_hierarchy = "month"
 
 
 @admin.register(ListingCycle)
