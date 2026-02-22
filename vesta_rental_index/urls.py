@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
+from django.db import connection
 from django.urls import include, path
 from ninja import NinjaAPI
 from ninja.security import APIKeyHeader
@@ -28,6 +29,16 @@ api = NinjaAPI(
     description="Internal rental performance index for Vesta Property Management.",
     auth=[VestaAPIKey()],
 )
+
+
+@api.get("/health", auth=None, tags=["System"])
+def health_check(request):
+    try:
+        connection.ensure_connection()
+        return {"status": "ok", "db": "connected"}
+    except Exception as e:
+        return {"status": "error", "db": str(e)}
+
 
 api.add_router("/properties/", properties_router)
 api.add_router("/leasing/", leasing_router)
