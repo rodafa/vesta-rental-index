@@ -26,4 +26,6 @@ for u in units:
         print(f"  status: {u.get('status', '')}")
         print(f"  bedrooms: {u.get('bedrooms', '')}")
         print(f"  sqft: {u.get('sqft', '')}")
+        print(f"  extracted_from: {u.get('extracted_from', '')}")
+        print(f"  all_keys: {list(u.keys())}")
         print("---")
