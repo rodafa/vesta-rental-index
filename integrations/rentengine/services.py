@@ -200,6 +200,15 @@ class UnitSyncService(_BaseSyncService):
         except Unit.DoesNotExist:
             pass
 
+        # 1.5. Match via RentVine listing ID from extracted_from URL
+        extracted_from = defaults.get("extracted_from") or ""
+        if extracted_from and "/listings/" in extracted_from:
+            try:
+                rv_id = int(extracted_from.rsplit("/", 1)[-1])
+                return Unit.objects.get(rentvine_id=rv_id)
+            except (ValueError, Unit.DoesNotExist):
+                pass
+
         postal = defaults.get("postal_code", "").strip()
         street_num = defaults.get("street_number", "").strip()
         unit_num = defaults.get("unit_number", "").strip().upper()

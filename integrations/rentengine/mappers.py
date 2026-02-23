@@ -118,6 +118,7 @@ def map_re_unit(data):
         "square_feet": _safe_int(
             _get(data, "size", "squareFeet", "square_feet", "sqft", default=None)
         ),
+        "extracted_from": str(_get(data, "extracted_from", default="") or ""),
         "raw_data": data,
     }
 
