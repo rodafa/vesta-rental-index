@@ -15,6 +15,8 @@ from integrations.rentvine.mappers import (
     _get,
 )
 
+import re
+
 logger = logging.getLogger(__name__)
 
 # US state name -> 2-letter code for normalising RentEngine's full state names
@@ -221,4 +223,112 @@ def map_leasing_performance(data):
                 default=0,
             )
         ) or 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Webhook mappers
+# ---------------------------------------------------------------------------
+
+def _normalize_event_type(raw_value):
+    """
+    Normalize a RentEngine event type string to our EVENT_TYPE_CHOICES key.
+
+    Examples:
+        "Showing Complete"  -> "showing_complete"
+        "Application Sent to Prospect" -> "application_sent_to_prospect"
+        "Prescreen Rejected - Credit" -> "prescreen_rejected_credit"
+        "HOA Application Sent To Prospect" -> "hoa_application_sent"
+    """
+    if not raw_value:
+        return ""
+    # Lowercase, replace hyphens/dashes with spaces, collapse whitespace
+    s = str(raw_value).strip().lower()
+    s = re.sub(r"[\-–—]+", " ", s)
+    # Strip dangling prepositions/articles for matching
+    s = re.sub(r"\s+", "_", s.strip())
+    # Remove non-alphanumeric except underscores
+    s = re.sub(r"[^a-z0-9_]", "", s)
+
+    # Direct lookup against known choices
+    from leasing.models import LeasingEvent
+    valid_keys = {choice[0] for choice in LeasingEvent.EVENT_TYPE_CHOICES}
+    if s in valid_keys:
+        return s
+
+    # Try common abbreviations/aliases
+    aliases = {
+        "hoa_application_sent_to_prospect": "hoa_application_sent",
+        "contacted_awaiting_info": "contacted_awaiting_information",
+        "showing_cancelled": "showing_canceled",
+    }
+    if s in aliases:
+        return aliases[s]
+
+    logger.warning("Unknown RentEngine event type: %r (normalized: %r)", raw_value, s)
+    return s
+
+
+def map_prospect_webhook(record):
+    """
+    Map a RentEngine prospect webhook record to Prospect model fields.
+
+    Returns a dict of defaults for Prospect.objects.update_or_create().
+    """
+    # Name: try "name", then "first_name" + "last_name", then "full_name"
+    name = str(_get(record, "name", "full_name", default="") or "")
+    if not name:
+        first = str(record.get("first_name", "") or "")
+        last = str(record.get("last_name", "") or "")
+        name = f"{first} {last}".strip()
+
+    return {
+        "name": name,
+        "email": str(_get(record, "email", default="") or ""),
+        "phone": str(_get(record, "phone", "phone_number", default="") or ""),
+        "source": str(_get(record, "source", "lead_source", default="") or ""),
+        "status": str(_get(record, "status", default="") or ""),
+        "source_created_at": _safe_datetime(
+            _get(record, "created_at", "createdAt", default=None)
+        ),
+        "raw_data": record,
+    }
+
+
+def map_leasing_event_webhook(record):
+    """
+    Map a RentEngine leasing event webhook record to LeasingEvent model fields.
+
+    Returns a dict of defaults for LeasingEvent.objects.update_or_create().
+    """
+    event_type = _normalize_event_type(
+        _get(record, "event_type", "eventType", "type", "status", default="")
+    )
+
+    event_timestamp = _safe_datetime(
+        _get(record, "created_at", "createdAt", "event_timestamp", "eventTimestamp", default=None)
+    )
+
+    event_date = None
+    if event_timestamp:
+        event_date = event_timestamp.date()
+    else:
+        event_date = _safe_date(
+            _get(record, "event_date", "eventDate", "date", default=None)
+        )
+
+    # Build context from extra fields not covered by explicit columns
+    known_keys = {
+        "id", "prospect_id", "unit_id", "event_type", "eventType", "type",
+        "status", "created_at", "createdAt", "event_timestamp", "eventTimestamp",
+        "event_date", "eventDate", "date",
+    }
+    context = {k: v for k, v in record.items() if k not in known_keys}
+
+    return {
+        "event_type": event_type,
+        "event_timestamp": event_timestamp,
+        "event_date": event_date,
+        "context": context,
+        "raw_data": record,
     }

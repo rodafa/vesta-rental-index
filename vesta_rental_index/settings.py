@@ -165,6 +165,7 @@ RENTENGINE = {
         "RENTENGINE_BASE_URL", "https://app.rentengine.io/api/public/v1"
     ),
     "API_TOKEN": os.environ.get("RENTENGINE_API_TOKEN", ""),
+    "WEBHOOK_SECRET": os.environ.get("RENTENGINE_WEBHOOK_SECRET", ""),
 }
 
 # BoomPay / BoomScreen API
