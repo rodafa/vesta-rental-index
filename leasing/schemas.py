@@ -63,6 +63,7 @@ class LeaseListSchema(ModelSchema):
             "start_date",
             "end_date",
             "move_in_date",
+            "rent_amount",
             "is_renewal",
         ]
 
@@ -111,6 +112,7 @@ class LeaseSchema(ModelSchema):
             "notice_date",
             "expected_move_out_date",
             "move_out_date",
+            "rent_amount",
             "lease_return_charge_amount",
             "is_renewal",
             "previous_lease",

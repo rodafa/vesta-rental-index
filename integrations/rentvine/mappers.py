@@ -399,3 +399,174 @@ def map_unit(data):
     }
 
     return rentvine_id, property_rentvine_id, defaults
+
+
+def map_lease(data):
+    """
+    Map Rentvine lease JSON to Lease model fields.
+
+    API response wraps each record in {"lease": {...}, "property": {...}, "unit": {...}}.
+    Returns (rentvine_id, unit_rentvine_id, property_rentvine_id, defaults_dict).
+    """
+    raw_data = data
+
+    # Unwrap nested keys to extract FK IDs from sibling objects
+    unit_rentvine_id = None
+    property_rentvine_id = None
+    if "unit" in data and isinstance(data["unit"], dict):
+        unit_rentvine_id = _safe_int(data["unit"].get("unitID"))
+    if "property" in data and isinstance(data["property"], dict):
+        property_rentvine_id = _safe_int(data["property"].get("propertyID"))
+
+    # Unwrap the lease envelope
+    if "lease" in data and isinstance(data["lease"], dict):
+        data = data["lease"]
+
+    rentvine_id = _safe_int(
+        _get(data, "leaseID", "lease_id", "id")
+    )
+    if rentvine_id is None:
+        raise ValueError(f"Lease record missing ID: {data}")
+
+    # FK IDs from the lease object itself (fallbacks)
+    if unit_rentvine_id is None:
+        unit_rentvine_id = _safe_int(_get(data, "unitID", "unit_id", default=None))
+    if property_rentvine_id is None:
+        property_rentvine_id = _safe_int(_get(data, "propertyID", "property_id", default=None))
+
+    defaults = {
+        "primary_lease_status": _safe_int(
+            _get(data, "primaryLeaseStatusID", "primary_lease_status_id", default=None)
+        ),
+        "lease_status_id": _safe_int(
+            _get(data, "leaseStatusID", "lease_status_id", default=None)
+        ),
+        "move_out_status": _safe_int(
+            _get(data, "moveOutStatusID", "move_out_status_id", default=None)
+        ),
+        "move_in_date": _safe_date(
+            _get(data, "dateMoveIn", "moveInDate", "move_in_date", default=None)
+        ),
+        "start_date": _safe_date(
+            _get(data, "dateLeaseStart", "startDate", "start_date", default=None)
+        ),
+        "end_date": _safe_date(
+            _get(data, "dateLeaseEnd", "endDate", "end_date", default=None)
+        ),
+        "closed_date": _safe_date(
+            _get(data, "dateClosed", "closedDate", "closed_date", default=None)
+        ),
+        "notice_date": _safe_date(
+            _get(data, "dateNotice", "noticeDate", "notice_date", default=None)
+        ),
+        "expected_move_out_date": _safe_date(
+            _get(data, "dateExpectedMoveOut", "expectedMoveOutDate", default=None)
+        ),
+        "move_out_date": _safe_date(
+            _get(data, "dateMoveOut", "moveOutDate", "move_out_date", default=None)
+        ),
+        "deposit_refund_due_date": _safe_date(
+            _get(data, "dateDepositRefundDue", "depositRefundDueDate", default=None)
+        ),
+        "lease_return_charge_amount": _safe_decimal(
+            _get(data, "leaseReturnChargeAmount", "lease_return_charge_amount", default=0)
+        ) or Decimal("0"),
+        "renters_insurance_company": str(
+            _get(data, "rentersInsuranceCompany", default="")
+        ),
+        "renters_insurance_policy_number": str(
+            _get(data, "rentersInsurancePolicyNumber", default="")
+        ),
+        "renters_insurance_expiration_date": _safe_date(
+            _get(data, "dateRentersInsuranceExpires", default=None)
+        ),
+        "move_out_reason_id": _safe_int(
+            _get(data, "moveOutReasonID", "move_out_reason_id", default=None)
+        ),
+        "move_out_tenant_remarks": str(
+            _get(data, "moveOutTenantRemarks", "move_out_tenant_remarks", default="")
+        ),
+        "forwarding_name": str(_get(data, "forwardingName", default="")),
+        "forwarding_address": str(_get(data, "forwardingAddress", default="")),
+        "forwarding_city": str(_get(data, "forwardingCity", default="")),
+        "forwarding_state": str(_get(data, "forwardingState", default=""))[:2],
+        "forwarding_postal_code": str(_get(data, "forwardingPostalCode", default="")),
+        "forwarding_email": str(_get(data, "forwardingEmail", default="")),
+        "forwarding_phone": str(_get(data, "forwardingPhone", default="")),
+        "rentvine_application_id": _safe_int(
+            _get(data, "applicationID", "application_id", default=None)
+        ),
+        "raw_data": raw_data,
+        "source_created_at": _safe_datetime(
+            _get(data, "dateTimeCreated", "createdAt", "created_at", default=None)
+        ),
+    }
+
+    return rentvine_id, unit_rentvine_id, property_rentvine_id, defaults
+
+
+def map_tenant_from_lease(data):
+    """
+    Map Rentvine lease tenant JSON to Tenant model fields.
+
+    API response from /leases/{id}/tenants wraps each record in
+    {"leaseTenant": {...}, "contact": {...}}.
+    Returns (rentvine_contact_id, is_primary, defaults_dict).
+    """
+    raw_data = data
+
+    # Extract primary flag from leaseTenant envelope
+    is_primary = False
+    if "leaseTenant" in data and isinstance(data["leaseTenant"], dict):
+        is_primary = _safe_bool(
+            _get(data["leaseTenant"], "isPrimary", "is_primary", default=False)
+        )
+
+    # Unwrap contact envelope
+    if "contact" in data and isinstance(data["contact"], dict):
+        data = data["contact"]
+
+    rentvine_contact_id = _safe_int(
+        _get(data, "contactID", "contact_id", "id")
+    )
+    if rentvine_contact_id is None:
+        raise ValueError(f"Tenant record missing contact ID: {data}")
+
+    first = str(_get(data, "firstName", "first_name", default=""))
+    last = str(_get(data, "lastName", "last_name", default=""))
+    full_name = str(_get(data, "name", "fullName", "full_name", "contactName", default=""))
+    if not full_name and (first or last):
+        full_name = f"{first} {last}".strip()
+
+    # Extract email/phone from nested structures or flat fields
+    email = ""
+    emails_field = data.get("emails")
+    if isinstance(emails_field, list) and emails_field:
+        email = str(emails_field[0].get("email", "")) if isinstance(emails_field[0], dict) else str(emails_field[0])
+    elif isinstance(emails_field, str) and emails_field:
+        email = emails_field
+    else:
+        email = str(_get(data, "email", "emailAddress", default=""))
+
+    phone = ""
+    phones_field = data.get("phones")
+    if isinstance(phones_field, list) and phones_field:
+        phone = str(phones_field[0].get("phone", "")) if isinstance(phones_field[0], dict) else str(phones_field[0])
+    elif isinstance(phones_field, str) and phones_field:
+        phone = phones_field
+    else:
+        phone = str(_get(data, "phone", "phoneNumber", default=""))
+
+    defaults = {
+        "name": full_name,
+        "first_name": first,
+        "last_name": last,
+        "email": email,
+        "phone": phone,
+        "is_active": _safe_bool(
+            _get(data, "isActive", "is_active", "active", default=True), default=True
+        ),
+        "raw_data": raw_data,
+    }
+
+    return rentvine_contact_id, is_primary, defaults

@@ -14,11 +14,17 @@ from datetime import datetime
 
 from django.utils import timezone
 
+from decimal import Decimal
+
 from integrations.models import APISyncLog
+from leasing.models import Lease, Tenant
 from properties.models import Portfolio, Owner, Property, Unit
 
 from .client import RentvineClient
-from .mappers import map_portfolio, map_owner, map_property, map_unit
+from .mappers import (
+    map_portfolio, map_owner, map_property, map_unit,
+    map_lease, map_tenant_from_lease,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -305,3 +311,180 @@ class UnitSyncService(_BaseSyncService):
             "updated": updated_count,
             "errors": len(errors),
         }
+
+
+class LeaseSyncService(_BaseSyncService):
+    """
+    Sync leases from Rentvine including inline tenant and recurring charge sync.
+
+    For each lease:
+    1. Fetch lease list via /leases/search
+    2. Map and upsert Lease record (resolve Unit/Property FKs)
+    3. Fetch /leases/{id}/tenants → upsert Tenant records → set M2M
+    4. Fetch /leases/{id}/recurring-charges → sum isRent charges → update rent_amount
+    5. Detect renewals: if another lease exists for the same unit, mark as renewal
+    """
+
+    endpoint = "leases/search"
+
+    def sync(self, dry_run=False):
+        log = self._create_log()
+        try:
+            records = self.client.get_all("/leases/search")
+        except Exception as exc:
+            self._fail_log(log, exc)
+            raise
+
+        created_count = 0
+        updated_count = 0
+        errors = []
+
+        for record in records:
+            try:
+                rentvine_id, unit_rentvine_id, property_rentvine_id, defaults = map_lease(record)
+
+                if dry_run:
+                    logger.info(
+                        "DRY RUN lease %s: unit=%s, property=%s, status=%s",
+                        rentvine_id, unit_rentvine_id, property_rentvine_id,
+                        defaults.get("primary_lease_status"),
+                    )
+                    continue
+
+                # Resolve Unit FK
+                unit = None
+                if unit_rentvine_id:
+                    try:
+                        unit = Unit.objects.get(rentvine_id=unit_rentvine_id)
+                    except Unit.DoesNotExist:
+                        logger.warning("Unit %s not found for lease %s", unit_rentvine_id, rentvine_id)
+
+                # Resolve Property FK
+                prop = None
+                if property_rentvine_id:
+                    try:
+                        prop = Property.objects.get(rentvine_id=property_rentvine_id)
+                    except Property.DoesNotExist:
+                        logger.warning("Property %s not found for lease %s", property_rentvine_id, rentvine_id)
+
+                # Fall back to unit's property
+                if not prop and unit and unit.property:
+                    prop = unit.property
+
+                if not unit or not prop:
+                    msg = f"Lease {rentvine_id}: missing unit ({unit_rentvine_id}) or property ({property_rentvine_id}), skipping"
+                    logger.warning(msg)
+                    errors.append(msg)
+                    continue
+
+                defaults["unit"] = unit
+                defaults["property"] = prop
+
+                # Renewal detection: another lease exists for this unit
+                existing_for_unit = Lease.objects.filter(
+                    unit=unit
+                ).exclude(rentvine_id=rentvine_id)
+                if existing_for_unit.exists():
+                    defaults["is_renewal"] = True
+                    # Link to most recent previous lease
+                    previous = existing_for_unit.order_by("-start_date", "-rentvine_id").first()
+                    if previous:
+                        defaults["previous_lease"] = previous
+
+                lease_obj, was_created = Lease.objects.update_or_create(
+                    rentvine_id=rentvine_id,
+                    defaults=defaults,
+                )
+                if was_created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+
+                # --- Sync tenants for this lease ---
+                self._sync_lease_tenants(lease_obj, rentvine_id, errors)
+
+                # --- Sync recurring charges to compute rent_amount ---
+                self._sync_rent_amount(lease_obj, rentvine_id, errors)
+
+            except Exception as exc:
+                msg = f"Error syncing lease record {record}: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            fetched=len(records),
+            errors=errors,
+        )
+        return {
+            "fetched": len(records),
+            "created": created_count,
+            "updated": updated_count,
+            "errors": len(errors),
+        }
+
+    def _sync_lease_tenants(self, lease_obj, rentvine_id, errors):
+        """Fetch and upsert tenants for a lease, then set the M2M relationship."""
+        try:
+            tenant_records = self.client.get(f"/leases/{rentvine_id}/tenants")
+            if not isinstance(tenant_records, list):
+                # Single record or nested response
+                tenant_records = tenant_records if isinstance(tenant_records, list) else [tenant_records]
+        except Exception as exc:
+            msg = f"Error fetching tenants for lease {rentvine_id}: {exc}"
+            logger.warning(msg)
+            errors.append(msg)
+            return
+
+        tenant_ids = []
+        for t_record in tenant_records:
+            try:
+                contact_id, is_primary, t_defaults = map_tenant_from_lease(t_record)
+                tenant_obj, _ = Tenant.objects.update_or_create(
+                    rentvine_contact_id=contact_id,
+                    defaults=t_defaults,
+                )
+                tenant_ids.append(tenant_obj.pk)
+            except Exception as exc:
+                msg = f"Error syncing tenant for lease {rentvine_id}: {exc}"
+                logger.warning(msg)
+                errors.append(msg)
+
+        if tenant_ids:
+            lease_obj.tenants.set(tenant_ids)
+
+    def _sync_rent_amount(self, lease_obj, rentvine_id, errors):
+        """Fetch recurring charges and compute rent_amount as sum of isRent charges."""
+        try:
+            charge_records = self.client.get(f"/leases/{rentvine_id}/recurring-charges")
+            if not isinstance(charge_records, list):
+                charge_records = charge_records if isinstance(charge_records, list) else [charge_records]
+        except Exception as exc:
+            msg = f"Error fetching recurring charges for lease {rentvine_id}: {exc}"
+            logger.warning(msg)
+            errors.append(msg)
+            return
+
+        rent_total = Decimal("0")
+        found_rent = False
+        for charge_data in charge_records:
+            try:
+                # Unwrap envelope: {"recurringCharge": {...}, "account": {...}}
+                account = charge_data.get("account", {}) if isinstance(charge_data, dict) else {}
+                charge = charge_data.get("recurringCharge", charge_data) if isinstance(charge_data, dict) else {}
+
+                is_rent = str(account.get("isRent", "0")) == "1"
+                if is_rent:
+                    amount = charge.get("amount") or charge.get("chargeAmount") or 0
+                    rent_total += Decimal(str(amount))
+                    found_rent = True
+            except Exception as exc:
+                msg = f"Error parsing charge for lease {rentvine_id}: {exc}"
+                logger.warning(msg)
+                errors.append(msg)
+
+        if found_rent:
+            lease_obj.rent_amount = rent_total
+            lease_obj.save(update_fields=["rent_amount"])

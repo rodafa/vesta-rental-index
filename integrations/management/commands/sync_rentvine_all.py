@@ -9,6 +9,7 @@ from integrations.rentvine.services import (
     OwnerSyncService,
     PropertySyncService,
     UnitSyncService,
+    LeaseSyncService,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,11 +19,12 @@ SYNC_ORDER = [
     ("owners", OwnerSyncService),
     ("properties", PropertySyncService),
     ("units", UnitSyncService),
+    ("leases", LeaseSyncService),
 ]
 
 
 class Command(BaseCommand):
-    help = "Sync all entities from Rentvine in dependency order: portfolios -> owners -> properties -> units"
+    help = "Sync all entities from Rentvine in dependency order: portfolios -> owners -> properties -> units -> leases"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -33,7 +35,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip",
             nargs="+",
-            choices=["portfolios", "owners", "properties", "units"],
+            choices=["portfolios", "owners", "properties", "units", "leases"],
             default=[],
             help="Skip specific entity types (e.g., --skip portfolios owners)",
         )

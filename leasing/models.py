@@ -71,6 +71,10 @@ class Lease(models.Model):
     deposit_refund_due_date = models.DateField(null=True, blank=True)
 
     # Financial
+    rent_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Monthly rent from recurring charges where account.isRent",
+    )
     lease_return_charge_amount = models.DecimalField(
         max_digits=10, decimal_places=2, default=0
     )

@@ -19,7 +19,7 @@ class ApplicantInline(admin.TabularInline):
 class LeaseAdmin(admin.ModelAdmin):
     list_display = (
         "rentvine_id", "property", "unit",
-        "primary_lease_status", "start_date", "end_date", "is_renewal",
+        "primary_lease_status", "rent_amount", "start_date", "end_date", "is_renewal",
     )
     search_fields = ("rentvine_id", "property__address_line_1", "unit__address_line_1")
     list_filter = ("primary_lease_status", "is_renewal")
