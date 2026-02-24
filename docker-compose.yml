@@ -18,7 +18,7 @@ services:
       - .:/app
       - /app/.venv
     command: python manage.py runserver 0.0.0.0:8000
-    environment:
+    environment: &app-env
       DJANGO_SECRET_KEY: change-me-in-production
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
@@ -38,6 +38,24 @@ services:
       VESTA_API_KEY: ${VESTA_API_KEY:-}
     depends_on:
       - db
+
+  scheduler:
+    build: .
+    volumes:
+      - .:/app
+      - /app/.venv
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apt-get update && apt-get install -y --no-install-recommends cron && rm -rf /var/lib/apt/lists/*
+        sed -i 's/\r$//' /app/cron/crontab /app/cron/run_command.sh
+        chmod +x /app/cron/run_command.sh
+        crontab /app/cron/crontab
+        echo "Scheduler started — cron jobs loaded"
+        cron -f
+    environment: *app-env
+    depends_on:
+      - web
 
 volumes:
   pgdata:

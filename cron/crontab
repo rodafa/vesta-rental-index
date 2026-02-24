@@ -1,0 +1,6 @@
+# Vesta Rental Index — daily data pipeline (UTC)
+0 2 * * * /app/cron/run_command.sh sync_rentvine_all
+0 3 * * * /app/cron/run_command.sh sync_rentengine_all
+0 4 * * * /app/cron/run_command.sh aggregate_market_data --all
+
+# trailing newline required for cron

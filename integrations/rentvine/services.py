@@ -10,7 +10,7 @@ Each service:
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 from django.utils import timezone
 
@@ -456,7 +456,7 @@ class LeaseSyncService(_BaseSyncService):
             lease_obj.tenants.set(tenant_ids)
 
     def _sync_rent_amount(self, lease_obj, rentvine_id, errors):
-        """Fetch recurring charges and compute rent_amount as sum of isRent charges."""
+        """Fetch recurring charges and compute rent_amount as sum of active isRent charges."""
         try:
             charge_records = self.client.get(f"/leases/{rentvine_id}/recurring-charges")
             if not isinstance(charge_records, list):
@@ -467,7 +467,9 @@ class LeaseSyncService(_BaseSyncService):
             errors.append(msg)
             return
 
+        today = date.today()
         rent_total = Decimal("0")
+        pet_rent_total = Decimal("0")
         found_rent = False
         for charge_data in charge_records:
             try:
@@ -476,10 +478,23 @@ class LeaseSyncService(_BaseSyncService):
                 charge = charge_data.get("recurringCharge", charge_data) if isinstance(charge_data, dict) else {}
 
                 is_rent = str(account.get("isRent", "0")) == "1"
-                if is_rent:
-                    amount = charge.get("amount") or charge.get("chargeAmount") or 0
-                    rent_total += Decimal(str(amount))
-                    found_rent = True
+                if not is_rent:
+                    continue
+
+                # Skip expired charges (one-time pro-rates, old rent amounts)
+                end_date_str = charge.get("endDate")
+                if end_date_str:
+                    if date.fromisoformat(end_date_str) < today:
+                        continue
+
+                amount = Decimal(str(charge.get("amount") or charge.get("chargeAmount") or 0))
+                rent_total += amount
+                found_rent = True
+
+                # Track pet rent separately
+                acct_name = account.get("name", "")
+                if acct_name == "Pet Rent":
+                    pet_rent_total += amount
             except Exception as exc:
                 msg = f"Error parsing charge for lease {rentvine_id}: {exc}"
                 logger.warning(msg)
@@ -487,4 +502,5 @@ class LeaseSyncService(_BaseSyncService):
 
         if found_rent:
             lease_obj.rent_amount = rent_total
-            lease_obj.save(update_fields=["rent_amount"])
+            lease_obj.pet_rent_amount = pet_rent_total or None
+            lease_obj.save(update_fields=["rent_amount", "pet_rent_amount"])

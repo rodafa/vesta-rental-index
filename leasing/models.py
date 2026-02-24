@@ -73,7 +73,11 @@ class Lease(models.Model):
     # Financial
     rent_amount = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True,
-        help_text="Monthly rent from recurring charges where account.isRent",
+        help_text="Gross monthly rent from active recurring charges where account.isRent",
+    )
+    pet_rent_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Pet rent portion (subset of rent_amount) from Pet Rent account charges",
     )
     lease_return_charge_amount = models.DecimalField(
         max_digits=10, decimal_places=2, default=0
