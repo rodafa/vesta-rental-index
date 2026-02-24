@@ -166,10 +166,11 @@ def map_daily_snapshot(data, snapshot_date):
 
     return {
         "listed_price": _safe_decimal(
-            _get(data, "price", "listedPrice", "listed_price", "rent", "rentAmount", default=None)
+            _get(data, "target_rental_rate", "price", "listedPrice", "listed_price",
+                 "rent", "rentAmount", default=None)
         ),
         "days_on_market": _safe_int(
-            _get(data, "daysOnMarket", "days_on_market", "dom", default=None)
+            _get(data, "days_on_market", "daysOnMarket", "dom", default=None)
         ),
         "status": status,
         "bedrooms": _safe_int(
@@ -180,7 +181,7 @@ def map_daily_snapshot(data, snapshot_date):
             _get(data, "size", "squareFeet", "square_feet", "sqft", default=None)
         ),
         "date_listed": _safe_date(
-            _get(data, "dateListed", "date_listed", "listedDate", default=None)
+            _get(data, "created_at", "dateListed", "date_listed", "listedDate", default=None)
         ),
         "date_off_market": _safe_date(
             _get(data, "dateOffMarket", "date_off_market", "offMarketDate", default=None)
@@ -192,38 +193,45 @@ def map_leasing_performance(data):
     """
     Map RentEngine leasing performance JSON to DailyLeasingSummary defaults.
 
-    Returns a dict of defaults for DailyLeasingSummary.update_or_create().
-    Fields: leads_count, showings_completed_count, showings_missed_count, applications_count.
+    RentEngine /reporting/leasing-performance/units/{id} returns:
+      new_prospects, showings_scheduled, showings_completed,
+      applications_requested, applications_submitted, days_on_market, etc.
+
+    Returns (summary_defaults, extra) where extra contains fields for
+    updating the DailyUnitSnapshot (days_on_market).
     """
-    return {
+    scheduled = _safe_int(
+        _get(data, "showings_scheduled", "showingsScheduled", default=0)
+    ) or 0
+    completed = _safe_int(
+        _get(data, "showings_completed", "showingsCompleted",
+             "completedShowings", default=0)
+    ) or 0
+
+    summary = {
         "leads_count": _safe_int(
-            _get(data, "leads", "leadsCount", "leads_count", "totalLeads", default=0)
+            _get(data, "new_prospects", "leads", "leadsCount", "leads_count",
+                 "totalLeads", default=0)
         ) or 0,
-        "showings_completed_count": _safe_int(
-            _get(
-                data,
-                "showingsCompleted", "showings_completed", "completedShowings",
-                "showingsCompletedCount", "completed_showings",
-                default=0,
-            )
-        ) or 0,
+        "showings_completed_count": completed,
         "showings_missed_count": _safe_int(
-            _get(
-                data,
-                "showingsMissed", "showings_missed", "missedShowings",
-                "showingsMissedCount", "missed_showings",
-                default=0,
-            )
-        ) or 0,
+            _get(data, "showings_missed", "showingsMissed", "missedShowings",
+                 default=None)
+        ) or max(scheduled - completed, 0),
         "applications_count": _safe_int(
-            _get(
-                data,
-                "applications", "applicationsCount", "applications_count",
-                "totalApplications",
-                default=0,
-            )
+            _get(data, "applications_submitted", "applications",
+                 "applicationsCount", "applications_count",
+                 "totalApplications", default=0)
         ) or 0,
     }
+
+    extra = {
+        "days_on_market": _safe_int(
+            _get(data, "days_on_market", "daysOnMarket", "dom", default=None)
+        ),
+    }
+
+    return summary, extra
 
 
 # ---------------------------------------------------------------------------

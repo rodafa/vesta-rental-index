@@ -1,0 +1,101 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_portfolio %}active{% endblock %}
+{% block title %}Portfolio Analytics{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Portfolio Analytics</h1>
+<p class="page-subtitle">Portfolio-wide trends, segment comparisons, and leasing funnel metrics</p>
+
+<div class="filter-bar">
+  <div class="filter-group">
+    <label for="filter-zip">Zip Code</label>
+    <input type="text" id="filter-zip" placeholder="e.g. 85001" maxlength="10">
+  </div>
+  <div class="filter-group">
+    <label for="filter-beds">Bedrooms</label>
+    <select id="filter-beds">
+      <option value="">All</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5+</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label for="filter-sqft-min">Sq Ft Min</label>
+    <input type="number" id="filter-sqft-min" placeholder="Min">
+  </div>
+  <div class="filter-group">
+    <label for="filter-sqft-max">Sq Ft Max</label>
+    <input type="number" id="filter-sqft-max" placeholder="Max">
+  </div>
+  <div class="filter-group">
+    <label for="filter-status">Status</label>
+    <select id="filter-status">
+      <option value="">All</option>
+      <option value="occupied">Occupied</option>
+      <option value="vacant">Vacant</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <button id="filter-apply" class="btn btn-primary">Apply</button>
+  </div>
+</div>
+
+<div id="portfolio-stats" class="stats-grid">
+  <div class="loading">Loading portfolio stats...</div>
+</div>
+
+<div class="charts-grid">
+  <div class="chart-card">
+    <div class="chart-title">Avg List Price</div>
+    <canvas id="chart-list-price" height="200"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Avg Occupied Rent</div>
+    <canvas id="chart-occ-rent" height="200"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Avg DOM</div>
+    <canvas id="chart-dom" height="200"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Leases Written</div>
+    <canvas id="chart-leases" height="200"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Leads, Showings &amp; Apps</div>
+    <canvas id="chart-leads" height="200"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Avg Lease Length (Months)</div>
+    <canvas id="chart-lease-len" height="200"></canvas>
+  </div>
+</div>
+
+<h2 class="section-title">Segment Comparison</h2>
+<table id="segment-table">
+  <thead>
+    <tr>
+      <th>Segment</th>
+      <th>Units</th>
+      <th>Occupied</th>
+      <th>Vacant</th>
+      <th>Vacancy %</th>
+      <th>Avg Target Rent</th>
+      <th>Avg Lease Rent</th>
+    </tr>
+  </thead>
+  <tbody id="segment-body">
+    <tr><td colspan="7" class="loading">Loading segment data...</td></tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/charts.js' %}"></script>
+<script src="{% static 'dashboard/js/portfolio_analytics.js' %}"></script>
+{% endblock %}

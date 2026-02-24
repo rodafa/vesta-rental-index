@@ -14,6 +14,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models.functions import Coalesce
 
 from leasing.models import Lease
 from market.models import (
@@ -67,7 +68,7 @@ class DailyMarketStatsAggregator:
         agg = snapshots.aggregate(
             active_count=Count("id"),
             avg_dom=Avg("days_on_market"),
-            avg_price=Avg("listed_price"),
+            avg_price=Avg(Coalesce("listed_price", "unit__target_rental_rate")),
             count_30_plus=Count("id", filter=Q(days_on_market__gte=30)),
         )
 

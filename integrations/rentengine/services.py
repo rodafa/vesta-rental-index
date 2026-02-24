@@ -264,8 +264,9 @@ class LeasingPerformanceSyncService(_BaseSyncService):
     /reporting/leasing-performance/units/{unitId} endpoint.
 
     - Iterates all units with rentengine_id set
-    - Fetches leasing performance with today as start/end date
+    - Fetches cumulative leasing performance (full listing period to today)
     - Creates DailyLeasingSummary with showing counts (completed vs missed)
+    - Writes days_on_market from leasing report to DailyUnitSnapshot
     - Per-unit error isolation
     """
 
@@ -275,6 +276,9 @@ class LeasingPerformanceSyncService(_BaseSyncService):
         log = self._create_log()
         today = timezone.now().date()
         today_str = today.isoformat()
+        # Query the full year to capture cumulative leasing stats
+        from datetime import timedelta
+        start_date = (today - timedelta(days=365)).isoformat()
 
         units = Unit.objects.filter(rentengine_id__isnull=False)
 
@@ -288,7 +292,7 @@ class LeasingPerformanceSyncService(_BaseSyncService):
                 data = self.client.get(
                     f"/reporting/leasing-performance/units/{unit.rentengine_id}",
                     params={
-                        "start": f"{today_str}T00:00:00Z",
+                        "start": f"{start_date}T00:00:00Z",
                         "end": f"{today_str}T23:59:59Z",
                     },
                 )
@@ -308,18 +312,25 @@ class LeasingPerformanceSyncService(_BaseSyncService):
                     )
                     continue
 
-                defaults = map_leasing_performance(data)
-                defaults["property_display_name"] = str(unit.property) if unit.property_id else ""
+                summary_defaults, extra = map_leasing_performance(data)
+                summary_defaults["property_display_name"] = str(unit.property) if unit.property_id else ""
 
                 _, was_created = DailyLeasingSummary.objects.update_or_create(
                     unit=unit,
                     summary_date=today,
-                    defaults=defaults,
+                    defaults=summary_defaults,
                 )
                 if was_created:
                     created_count += 1
                 else:
                     updated_count += 1
+
+                # Write days_on_market to the DailyUnitSnapshot if available
+                dom = extra.get("days_on_market")
+                if dom is not None:
+                    DailyUnitSnapshot.objects.filter(
+                        unit=unit, snapshot_date=today,
+                    ).update(days_on_market=dom)
 
             except Exception as exc:
                 msg = f"Error syncing leasing performance for unit {unit.rentengine_id}: {exc}"

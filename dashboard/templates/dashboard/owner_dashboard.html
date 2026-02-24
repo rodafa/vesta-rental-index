@@ -1,0 +1,109 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ portfolio.name }} — Owner Dashboard</title>
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
+</head>
+<body class="owner-view">
+
+  <div class="owner-header">
+    <h1>{{ portfolio.name }}</h1>
+    <p>Property Portfolio Overview</p>
+  </div>
+
+  <div class="owner-body">
+
+    {# ── Portfolio Summary Stats ── #}
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">Total Units</div>
+        <div class="value">{{ total_units }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Occupied</div>
+        <div class="value">{{ total_occupied }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Vacant</div>
+        <div class="value">{{ total_vacant }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Occupancy Rate</div>
+        <div class="value">{{ occupancy_rate }}%</div>
+      </div>
+      {% if avg_rent %}
+      <div class="stat-card">
+        <div class="label">Avg Lease Rent</div>
+        <div class="value">${{ avg_rent|floatformat:0 }}</div>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Per-property cards with unit performance tables ── #}
+    {% for prop_data in properties %}
+    <div class="card">
+      <div class="card-title">
+        {{ prop_data.property.name }}
+        <span style="font-weight:400; color:var(--text-muted); font-size:.82rem;">
+          — {{ prop_data.property.address_line_1 }}, {{ prop_data.property.city }}, {{ prop_data.property.state }} {{ prop_data.property.postal_code }}
+        </span>
+      </div>
+      <p style="font-size:.82rem; color:var(--text-muted); margin-bottom:.75rem;">
+        {{ prop_data.occupied }}/{{ prop_data.total_units }} occupied
+        {% if prop_data.vacant > 0 %}
+          <span class="badge badge-red" style="margin-left:.5rem;">{{ prop_data.vacant }} vacant</span>
+        {% else %}
+          <span class="badge badge-green" style="margin-left:.5rem;">Fully occupied</span>
+        {% endif %}
+      </p>
+
+      {% if prop_data.units %}
+      <table>
+        <thead>
+          <tr>
+            <th>Unit</th>
+            <th>Beds</th>
+            <th>Baths</th>
+            <th>Sq Ft</th>
+            <th>Target Rent</th>
+            <th>Current Rent</th>
+            <th>Lease End</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in prop_data.units %}
+          <tr>
+            <td>{{ row.unit.name|default:row.unit.address_line_1 }}</td>
+            <td class="num">{{ row.unit.bedrooms|default:"—" }}</td>
+            <td class="num">{{ row.unit.full_bathrooms|default:"—" }}</td>
+            <td class="num">{% if row.unit.square_feet %}{{ row.unit.square_feet|floatformat:0 }}{% else %}—{% endif %}</td>
+            <td class="num">{% if row.unit.target_rental_rate %}${{ row.unit.target_rental_rate|floatformat:0 }}{% else %}—{% endif %}</td>
+            <td class="num">{% if row.current_rent %}${{ row.current_rent|floatformat:0 }}{% else %}—{% endif %}</td>
+            <td>{% if row.lease_end %}{{ row.lease_end|date:"M j, Y" }}{% else %}—{% endif %}</td>
+            <td>
+              {% if row.is_occupied %}
+                <span class="badge badge-green">Occupied</span>
+              {% else %}
+                <span class="badge badge-red">Vacant</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">No units for this property</div>
+      {% endif %}
+    </div>
+    {% empty %}
+    <div class="empty-state">No properties in this portfolio</div>
+    {% endfor %}
+
+  </div>
+
+</body>
+</html>

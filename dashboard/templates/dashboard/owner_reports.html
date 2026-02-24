@@ -1,0 +1,36 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_owners %}active{% endblock %}
+{% block title %}Owner Reports{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Owner Reports</h1>
+<p class="page-subtitle" id="report-date">Loading...</p>
+
+<div class="split-layout">
+  <div class="panel-left">
+    <div class="card">
+      <div class="card-title">Owners with Vacancies</div>
+      <div id="owner-list">
+        <div class="loading">Loading owners...</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel-right">
+    <div class="card">
+      <div id="owner-detail">
+        <div class="empty-state">Select an owner from the list</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: .5rem;">
+  <button class="btn btn-success" id="send-all-btn">Send All Reviewed</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/owner_reports.js' %}"></script>
+{% endblock %}

@@ -258,6 +258,7 @@ class ShowingSchema(ModelSchema):
             "status",
             "scheduled_at",
             "completed_at",
+            "feedback",
             "created_at",
             "updated_at",
         ]

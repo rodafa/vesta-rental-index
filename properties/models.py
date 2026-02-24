@@ -15,10 +15,25 @@ class Portfolio(models.Model):
     fiscal_year_end_month = models.IntegerField(null=True, blank=True)
     hold_distributions = models.BooleanField(default=False)
 
+    slug = models.SlugField(max_length=255, unique=True, blank=True)
+
     raw_data = models.JSONField(default=dict, blank=True)
     source_created_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+
+            base = slugify(self.name) or "portfolio"
+            slug = base
+            n = 1
+            while Portfolio.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

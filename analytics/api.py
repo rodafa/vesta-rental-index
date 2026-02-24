@@ -13,6 +13,7 @@ from django.db.models import (
     OuterRef,
     Q,
     Subquery,
+    Sum,
 )
 from ninja import Router
 from ninja.pagination import LimitOffsetPagination, paginate
@@ -20,10 +21,17 @@ from ninja.pagination import LimitOffsetPagination, paginate
 from leasing.models import Application, Lease, Prospect, Showing
 from properties.models import Property, Unit
 
+from django.db.models.functions import Coalesce
+
+from market.models import DailyLeasingSummary, DailyUnitSnapshot
+from properties.models import Owner, Portfolio
+
 from .schemas import (
+    ActiveListingSchema,
     LeaseExpirationDetailSchema,
     LeaseExpirationMonthSchema,
     LeasingFunnelSchema,
+    OwnerVacancySchema,
     PortfolioSummarySchema,
     PropertyPerformanceSchema,
     ProspectSourceSchema,
@@ -55,7 +63,7 @@ def portfolio_summary(request):
 
     avg_target = Unit.objects.aggregate(avg=Avg("target_rental_rate"))["avg"]
     avg_lease_rent = Lease.objects.filter(primary_lease_status=2).aggregate(
-        avg=Avg("lease_return_charge_amount")
+        avg=Avg("rent_amount")
     )["avg"]
 
     lease_counts = Lease.objects.aggregate(
@@ -307,7 +315,7 @@ def rent_analysis(
             min_target_rent=Min("target_rental_rate"),
             max_target_rent=Max("target_rental_rate"),
             avg_active_lease_rent=Avg(
-                "leases__lease_return_charge_amount",
+                "leases__rent_amount",
                 filter=Q(leases__primary_lease_status=2),
             ),
         )
@@ -451,4 +459,122 @@ def lease_expirations(
             }
         )
 
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 8. Active Listings (Daily Pulse alert table)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/active-listings", response=list[ActiveListingSchema])
+def active_listings(request):
+    """Active units with leads_per_active_day for the Daily Pulse alert table."""
+    latest_date = (
+        DailyUnitSnapshot.objects.order_by("-snapshot_date")
+        .values_list("snapshot_date", flat=True)
+        .first()
+    )
+    if not latest_date:
+        return []
+
+    snapshots = DailyUnitSnapshot.objects.filter(
+        snapshot_date=latest_date, status="active"
+    ).select_related("unit", "unit__property", "unit__property__portfolio")
+
+    # Batch-fetch leasing aggregates for all active units
+    active_unit_ids = [s.unit_id for s in snapshots]
+    leasing_agg = (
+        DailyLeasingSummary.objects.filter(unit_id__in=active_unit_ids)
+        .values("unit_id")
+        .annotate(
+            total_leads=Coalesce(Sum("leads_count"), 0),
+            total_showings=Coalesce(Sum("showings_completed_count"), 0),
+            total_missed=Coalesce(Sum("showings_missed_count"), 0),
+            total_apps=Coalesce(Sum("applications_count"), 0),
+        )
+    )
+    leasing_map = {row["unit_id"]: row for row in leasing_agg}
+
+    results = []
+    for snap in snapshots:
+        unit = snap.unit
+        prop = unit.property
+        dom = snap.days_on_market or 0
+        agg = leasing_map.get(unit.id, {})
+        total_leads = agg.get("total_leads", 0)
+        active_days = max(dom, 1)
+        lpd = round(total_leads / active_days, 2)
+
+        results.append({
+            "unit_id": unit.id,
+            "address": unit.address_line_1 or (prop.address_line_1 if prop else ""),
+            "city": unit.city or (prop.city if prop else ""),
+            "state": unit.state or (prop.state if prop else ""),
+            "property_name": prop.name if prop else "",
+            "portfolio_name": (
+                prop.portfolio.name if prop and prop.portfolio else None
+            ),
+            "bedrooms": snap.bedrooms or unit.bedrooms,
+            "bathrooms": snap.bathrooms or unit.full_bathrooms,
+            "square_feet": snap.square_feet or unit.square_feet,
+            "listed_price": snap.listed_price or unit.target_rental_rate,
+            "days_on_market": dom,
+            "date_listed": snap.date_listed or snap.snapshot_date,
+            "total_leads": total_leads,
+            "total_showings": agg.get("total_showings", 0),
+            "total_missed": agg.get("total_missed", 0),
+            "total_apps": agg.get("total_apps", 0),
+            "leads_per_active_day": lpd,
+            "is_flagged": lpd < 0.5,
+        })
+
+    results.sort(key=lambda x: x["leads_per_active_day"])
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 9. Owners with Vacancies (Owner Reports)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/owners-with-vacancies", response=list[OwnerVacancySchema])
+def owners_with_vacancies(request):
+    """Owners who have at least one vacant unit across their portfolios."""
+    active_lease_unit_ids = set(
+        Lease.objects.filter(primary_lease_status=2).values_list("unit_id", flat=True)
+    )
+
+    owners = Owner.objects.filter(is_active=True).prefetch_related(
+        "portfolios__properties__units"
+    )
+
+    results = []
+    for owner in owners:
+        vacant_units = []
+        for portfolio in owner.portfolios.all():
+            for prop in portfolio.properties.filter(is_active=True):
+                for unit in prop.units.filter(is_active=True):
+                    if unit.id not in active_lease_unit_ids:
+                        vacant_units.append({
+                            "unit_id": unit.id,
+                            "address": unit.address_line_1 or prop.address_line_1,
+                            "city": unit.city or prop.city,
+                            "state": unit.state or prop.state,
+                            "bedrooms": unit.bedrooms,
+                            "target_rent": unit.target_rental_rate,
+                            "portfolio_name": portfolio.name,
+                            "property_name": prop.name or prop.address_line_1,
+                        })
+
+        if vacant_units:
+            results.append({
+                "owner_id": owner.id,
+                "owner_name": owner.name,
+                "owner_email": owner.email,
+                "vacant_unit_count": len(vacant_units),
+                "vacant_units": vacant_units,
+            })
+
+    results.sort(key=lambda x: -x["vacant_unit_count"])
     return results

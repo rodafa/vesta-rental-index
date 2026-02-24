@@ -6,6 +6,8 @@ from ninja import NinjaAPI
 from ninja.security import APIKeyHeader
 
 from analytics.api import router as analytics_router
+from dashboard.api import router as dashboard_api_router
+from dashboard.views import owner_dashboard
 from integrations.api import router as webhooks_router
 from leasing.api import router as leasing_router
 from market.api import router as market_router
@@ -45,10 +47,13 @@ api.add_router("/properties/", properties_router)
 api.add_router("/leasing/", leasing_router)
 api.add_router("/market/", market_router)
 api.add_router("/analytics/", analytics_router)
+api.add_router("/dashboard/", dashboard_api_router)
 api.add_router("/webhooks/", webhooks_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", api.urls),
+    path("dashboard/", include("dashboard.urls")),
+    path("owner/<slug:portfolio_slug>/", owner_dashboard, name="owner_dashboard"),
     path("", include("leasing.urls")),
 ]

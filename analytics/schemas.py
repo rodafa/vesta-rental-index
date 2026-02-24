@@ -188,6 +188,46 @@ class PropertyPerformanceSchema(Schema):
         return getattr(obj, "application_count_ann", 0)
 
 
+class ActiveListingSchema(Schema):
+    unit_id: int
+    address: str
+    city: str
+    state: str
+    property_name: str
+    portfolio_name: Optional[str] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[Decimal] = None
+    square_feet: Optional[int] = None
+    listed_price: Optional[Decimal] = None
+    days_on_market: int
+    date_listed: Optional[date] = None
+    total_leads: int
+    total_showings: int
+    total_missed: int
+    total_apps: int
+    leads_per_active_day: float
+    is_flagged: bool
+
+
+class VacantUnitDetailSchema(Schema):
+    unit_id: int
+    address: str
+    city: str
+    state: str
+    bedrooms: Optional[int] = None
+    target_rent: Optional[Decimal] = None
+    portfolio_name: str
+    property_name: str
+
+
+class OwnerVacancySchema(Schema):
+    owner_id: int
+    owner_name: str
+    owner_email: str
+    vacant_unit_count: int
+    vacant_units: list[VacantUnitDetailSchema]
+
+
 class LeaseExpirationDetailSchema(Schema):
     lease_id: int
     unit_address: str

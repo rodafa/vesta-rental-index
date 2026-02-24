@@ -1,0 +1,58 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block title %}Property Detail{% endblock %}
+
+{% block content %}
+<div id="unit-header" class="unit-header">
+  <div class="loading">Loading unit details...</div>
+</div>
+
+<div class="grid-2">
+  <div class="card" id="weekly-perf">
+    <div class="card-title">Weekly Performance</div>
+    <div class="loading">Loading weekly data...</div>
+  </div>
+  <div class="card" id="market-context">
+    <div class="card-title">Market Context</div>
+    <div class="loading">Loading market data...</div>
+  </div>
+</div>
+
+<div class="card" id="alltime-perf">
+  <div class="card-title">All-Time Performance</div>
+  <div class="loading">Loading performance data...</div>
+</div>
+
+<div class="card" id="price-history">
+  <div class="card-title">Price History</div>
+  <canvas id="price-chart" height="200"></canvas>
+</div>
+
+<div class="section-title">Showing Feedback</div>
+<div id="feedback-cards" class="feedback-cards">
+  <div class="loading">Loading feedback...</div>
+</div>
+
+<div class="section-title">Activity Log</div>
+<table id="activity-log">
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Event</th>
+      <th>Details</th>
+    </tr>
+  </thead>
+  <tbody id="activity-log-body">
+    <tr><td colspan="3" class="loading">Loading activity...</td></tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block head_extra %}{% endblock %}
+
+{% block scripts %}
+<script>const UNIT_ID = {{ unit_id }};</script>
+<script src="{% static 'dashboard/js/charts.js' %}"></script>
+<script src="{% static 'dashboard/js/property_detail.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_pulse %}active{% endblock %}
+{% block title %}Daily Pulse{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Daily Pulse</h1>
+<p class="page-subtitle">{{ today|date:"l, F j, Y" }}</p>
+
+<div id="headline-stats" class="stats-grid">
+  <div class="loading">Loading headline stats...</div>
+</div>
+
+<h2 class="section-title">Active Listings</h2>
+<table id="alert-table">
+  <thead>
+    <tr>
+      <th>Address</th>
+      <th>Beds</th>
+      <th>Price</th>
+      <th>DOM</th>
+      <th>Listed</th>
+      <th>Leads</th>
+      <th>Showings</th>
+      <th>Missed</th>
+      <th>Apps</th>
+      <th>Leads/Day</th>
+    </tr>
+  </thead>
+  <tbody id="alert-body">
+    <tr><td colspan="10" class="loading">Loading active listings...</td></tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/daily_pulse.js' %}"></script>
+{% endblock %}
