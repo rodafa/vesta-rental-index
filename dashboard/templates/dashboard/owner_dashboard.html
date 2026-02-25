@@ -1,11 +1,11 @@
-{% load static %}
+{% load static dashboard_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ portfolio.name }} — Owner Dashboard</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=2">
 </head>
 <body class="owner-view">
 
@@ -92,6 +92,28 @@
               {% endif %}
             </td>
           </tr>
+          {% with unit_notes=notes_by_unit|get_unit_notes:row.unit.id %}
+          {% if unit_notes %}
+          <tr>
+            <td colspan="8" style="padding:.4rem 1rem; background:#fafafa; border-left:3px solid var(--accent);">
+              <details>
+                <summary style="font-size:.75rem; color:var(--text-muted); cursor:pointer;">
+                  Staff Notes ({{ unit_notes|length }})
+                </summary>
+                <div style="margin-top:.35rem;">
+                  {% for note in unit_notes %}
+                  <div style="font-size:.8rem; margin-bottom:.3rem;">
+                    <strong>{{ note.author }}</strong>
+                    <span style="color:var(--text-muted);">— {{ note.created_at|date:"M j, Y g:i A" }}</span>
+                    <br>{{ note.note_text }}
+                  </div>
+                  {% endfor %}
+                </div>
+              </details>
+            </td>
+          </tr>
+          {% endif %}
+          {% endwith %}
           {% endfor %}
         </tbody>
       </table>

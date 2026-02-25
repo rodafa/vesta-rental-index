@@ -1,11 +1,13 @@
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
 from django.db.models import Avg
 from django.shortcuts import get_object_or_404, render
 
+from dashboard.models import UnitNote
 from leasing.models import Lease
-from properties.models import Portfolio, Property
+from properties.models import Portfolio, Property, Unit
 
 
 def daily_pulse(request):
@@ -49,8 +51,18 @@ def owner_dashboard(request, portfolio_slug):
     rent_sum = Decimal("0")
     rent_count = 0
 
+    # IDs of non-revenue units to exclude
+    non_revenue_ids = set(
+        Unit.objects.filter(
+            raw_data__unit__isNonRevenue="1"
+        ).values_list("id", flat=True)
+    )
+
     for prop in properties:
-        prop_units = list(prop.units.filter(is_active=True))
+        prop_units = [
+            u for u in prop.units.filter(is_active=True)
+            if u.id not in non_revenue_ids
+        ]
         units_with_rent = []
         occupied = 0
         for u in prop_units:
@@ -89,6 +101,13 @@ def owner_dashboard(request, portfolio_slug):
     )
     avg_rent = round(rent_sum / rent_count, 0) if rent_count else None
 
+    # Staff notes grouped by unit_id for this portfolio
+    notes_by_unit = defaultdict(list)
+    for note in UnitNote.objects.filter(
+        unit__property__portfolio=portfolio
+    ).order_by("-created_at"):
+        notes_by_unit[note.unit_id].append(note)
+
     return render(
         request,
         "dashboard/owner_dashboard.html",
@@ -101,5 +120,6 @@ def owner_dashboard(request, portfolio_slug):
             "occupancy_rate": occupancy_rate,
             "avg_rent": avg_rent,
             "active_lease_unit_ids": active_lease_unit_ids,
+            "notes_by_unit": dict(notes_by_unit),
         },
     )

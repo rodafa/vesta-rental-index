@@ -218,6 +218,13 @@ class Unit(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @classmethod
+    def revenue_units(cls):
+        """Active units excluding non-revenue (storage, garages, etc.)."""
+        return cls.objects.filter(is_active=True).exclude(
+            raw_data__unit__isNonRevenue="1"
+        )
+
     def __str__(self):
         return self.name or self.address_line_1 or f"Unit #{self.pk}"
 

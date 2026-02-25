@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Router, Schema
 
-from .models import OwnerReportNote
+from .models import OwnerReportNote, UnitNote
 
 router = Router(tags=["Dashboard"])
 
@@ -117,3 +117,75 @@ def send_owner_note(request, note_id: int):
     note.sent_at = timezone.now()
     note.save(update_fields=["status", "sent_at"])
     return _note_to_dict(note)
+
+
+# ---------------------------------------------------------------------------
+# Unit Notes — staff notes on individual units
+# ---------------------------------------------------------------------------
+
+
+class UnitNoteSchema(Schema):
+    id: int
+    unit_id: int
+    author: str
+    note_text: str
+    created_at: str
+    updated_at: str
+
+
+class UnitNoteCreateSchema(Schema):
+    unit_id: int
+    author: str
+    note_text: str
+
+
+class UnitNoteUpdateSchema(Schema):
+    note_text: Optional[str] = None
+    author: Optional[str] = None
+
+
+def _unit_note_to_dict(note):
+    return {
+        "id": note.id,
+        "unit_id": note.unit_id,
+        "author": note.author,
+        "note_text": note.note_text,
+        "created_at": note.created_at.isoformat(),
+        "updated_at": note.updated_at.isoformat(),
+    }
+
+
+@router.get("/unit-notes", response=list[UnitNoteSchema])
+def list_unit_notes(request, unit_id: Optional[int] = None):
+    qs = UnitNote.objects.all()
+    if unit_id:
+        qs = qs.filter(unit_id=unit_id)
+    return [_unit_note_to_dict(n) for n in qs]
+
+
+@router.post("/unit-notes", response=UnitNoteSchema)
+def create_unit_note(request, data: UnitNoteCreateSchema):
+    note = UnitNote.objects.create(
+        unit_id=data.unit_id,
+        author=data.author,
+        note_text=data.note_text,
+    )
+    return _unit_note_to_dict(note)
+
+
+@router.put("/unit-notes/{note_id}", response=UnitNoteSchema)
+def update_unit_note(request, note_id: int, data: UnitNoteUpdateSchema):
+    note = get_object_or_404(UnitNote, pk=note_id)
+    if data.note_text is not None:
+        note.note_text = data.note_text
+    if data.author is not None:
+        note.author = data.author
+    note.save()
+    return _unit_note_to_dict(note)
+
+
+@router.delete("/unit-notes/{note_id}")
+def delete_unit_note(request, note_id: int):
+    note = get_object_or_404(UnitNote, pk=note_id)
+    note.delete()
+    return {"success": True}

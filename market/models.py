@@ -67,6 +67,11 @@ class DailyMarketStats(models.Model):
     )
     count_30_plus_dom = models.IntegerField(default=0)
 
+    median_dom = models.IntegerField(default=0)
+    median_price = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0
+    )
+
     # Average signed lease amount for occupied units (distinct from average_price which tracks list prices)
     average_portfolio_rent = models.DecimalField(
         max_digits=10, decimal_places=2, default=0

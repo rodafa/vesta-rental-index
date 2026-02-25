@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Dashboard{% endblock %} — Vesta</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}">
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=2">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   {% block head_extra %}{% endblock %}
 </head>
@@ -21,7 +21,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <script src="{% static 'dashboard/js/api.js' %}"></script>
+  <script src="{% static 'dashboard/js/api.js' %}?v=2"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

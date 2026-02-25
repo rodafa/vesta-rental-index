@@ -99,6 +99,18 @@ class PortfolioSyncService(_BaseSyncService):
                 logger.error(msg)
                 errors.append(msg)
 
+        # Link owners to portfolios from portfolio.contacts JSON
+        from integrations.management.commands.link_owner_portfolios import (
+            link_owners_from_portfolio_contacts,
+        )
+        if not dry_run:
+            link_result = link_owners_from_portfolio_contacts()
+            logger.info(
+                "Owner-portfolio links: %d linked, %d skipped",
+                link_result["linked"],
+                link_result["skipped"],
+            )
+
         self._complete_log(
             log,
             created=created_count,

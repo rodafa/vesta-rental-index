@@ -120,6 +120,7 @@ class RentSegmentSchema(Schema):
     max_target_rent: Optional[Decimal] = None
     avg_active_lease_rent: Optional[Decimal] = None
     vacancy_rate: float
+    property_names: list[str] = []
 
 
 class PropertyPerformanceSchema(Schema):

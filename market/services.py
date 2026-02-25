@@ -61,6 +61,18 @@ def _price_band(price):
 class DailyMarketStatsAggregator:
     """Aggregate daily market stats from DailyUnitSnapshot + Lease data."""
 
+    @staticmethod
+    def _median(values):
+        """Compute median of a sorted list. Returns 0 if empty."""
+        if not values:
+            return 0
+        values = sorted(values)
+        n = len(values)
+        mid = n // 2
+        if n % 2 == 0:
+            return (values[mid - 1] + values[mid]) / 2
+        return values[mid]
+
     def run(self, target_date):
         snapshots = DailyUnitSnapshot.objects.filter(
             snapshot_date=target_date, status="active"
@@ -71,6 +83,20 @@ class DailyMarketStatsAggregator:
             avg_price=Avg(Coalesce("listed_price", "unit__target_rental_rate")),
             count_30_plus=Count("id", filter=Q(days_on_market__gte=30)),
         )
+
+        # Compute medians in Python (Django ORM has no Median aggregate)
+        dom_values = list(
+            snapshots.filter(days_on_market__isnull=False)
+            .values_list("days_on_market", flat=True)
+        )
+        price_values = list(
+            snapshots.filter(listed_price__isnull=False)
+            .values_list("listed_price", flat=True)
+        )
+        median_dom = int(self._median(dom_values))
+        median_price = Decimal(str(round(float(self._median(
+            [float(p) for p in price_values]
+        )), 2))) if price_values else Decimal("0")
 
         # Average portfolio rent from active leases with rent data
         rent_agg = Lease.objects.filter(
@@ -85,6 +111,8 @@ class DailyMarketStatsAggregator:
                 "average_dom": int(agg["avg_dom"] or 0),
                 "average_price": agg["avg_price"] or Decimal("0"),
                 "count_30_plus_dom": agg["count_30_plus"] or 0,
+                "median_dom": median_dom,
+                "median_price": median_price,
                 "average_portfolio_rent": rent_agg["avg_rent"] or Decimal("0"),
             },
         )

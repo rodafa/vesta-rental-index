@@ -58,6 +58,8 @@ class DailyMarketStatsSchema(ModelSchema):
             "average_dom",
             "average_price",
             "count_30_plus_dom",
+            "median_dom",
+            "median_price",
             "average_portfolio_rent",
             "created_at",
         ]

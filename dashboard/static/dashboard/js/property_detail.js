@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderAllTimePerformance(dailyItems);
     renderPriceHistory(priceDrops);
     renderShowingFeedback(showings);
+    await loadAndRenderNotes();
     renderActivityLog(events);
   } catch (err) {
     console.error('Property Detail load error:', err);
@@ -328,6 +329,62 @@ function renderActivityLog(events) {
   }
 
   VestaAPI.render('activity-log-body', rows);
+}
+
+// ── Staff Notes ─────────────────────────────────────────────────────────
+
+async function loadAndRenderNotes() {
+  try {
+    var notes = await VestaAPI.get('/dashboard/unit-notes?unit_id=' + UNIT_ID);
+    renderNotes(notes);
+  } catch (err) {
+    console.error('Notes load error:', err);
+    VestaAPI.render('notes-list', '<div class="empty-state">Error loading notes</div>');
+  }
+
+  // Bind submit handler
+  var submitBtn = document.getElementById('note-submit');
+  if (submitBtn && !submitBtn._bound) {
+    submitBtn._bound = true;
+    submitBtn.addEventListener('click', async function () {
+      var author = document.getElementById('note-author').value.trim();
+      var text = document.getElementById('note-text').value.trim();
+      if (!author || !text) return;
+
+      try {
+        await VestaAPI.post('/dashboard/unit-notes', {
+          unit_id: UNIT_ID,
+          author: author,
+          note_text: text,
+        });
+        document.getElementById('note-text').value = '';
+        await loadAndRenderNotes();
+      } catch (err) {
+        console.error('Note create error:', err);
+      }
+    });
+  }
+}
+
+function renderNotes(notes) {
+  if (!notes || notes.length === 0) {
+    VestaAPI.render('notes-list', '<div class="empty-state">No notes yet</div>');
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < notes.length; i++) {
+    var n = notes[i];
+    var ts = new Date(n.created_at);
+    var dateStr = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    var timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    html +=
+      '<div class="feedback-card" style="margin-bottom:.5rem;">' +
+        '<div class="fc-header">' + escapeHtml(n.author) + ' &middot; ' + dateStr + ' ' + timeStr + '</div>' +
+        '<div class="fc-body">' + escapeHtml(n.note_text) + '</div>' +
+      '</div>';
+  }
+  VestaAPI.render('notes-list', html);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

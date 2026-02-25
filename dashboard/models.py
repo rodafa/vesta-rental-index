@@ -35,3 +35,24 @@ class OwnerReportNote(models.Model):
 
     def __str__(self):
         return f"Note for {self.owner.name} - {self.report_date}"
+
+
+class UnitNote(models.Model):
+    """Timestamped internal staff notes on a unit."""
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="staff_notes",
+    )
+    author = models.CharField(max_length=100)
+    note_text = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Note by {self.author} on Unit #{self.unit_id}"

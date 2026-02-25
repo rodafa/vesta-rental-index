@@ -53,20 +53,36 @@ def _pct(numerator: int, denominator: int) -> float:
 
 
 @router.get("/portfolio-summary", response=PortfolioSummarySchema)
-def portfolio_summary(request):
-    total_properties = Property.objects.count()
-    total_units = Unit.objects.count()
+def portfolio_summary(
+    request,
+    postal_code: Optional[str] = None,
+    bedrooms: Optional[int] = None,
+):
+    unit_qs = Unit.revenue_units()
+    if postal_code:
+        unit_qs = unit_qs.filter(postal_code=postal_code)
+    if bedrooms is not None:
+        unit_qs = unit_qs.filter(bedrooms=bedrooms)
+
+    # Properties that own at least one matching revenue unit
+    property_ids = unit_qs.values_list("property_id", flat=True).distinct()
+    total_properties = Property.objects.filter(id__in=property_ids).count()
+
+    total_units = unit_qs.count()
     occupied_units = (
-        Unit.objects.filter(leases__primary_lease_status=2).distinct().count()
+        unit_qs.filter(leases__primary_lease_status=2).distinct().count()
     )
     vacant_units = total_units - occupied_units
 
-    avg_target = Unit.objects.aggregate(avg=Avg("target_rental_rate"))["avg"]
-    avg_lease_rent = Lease.objects.filter(primary_lease_status=2).aggregate(
+    avg_target = unit_qs.aggregate(avg=Avg("target_rental_rate"))["avg"]
+
+    lease_filter = Q(primary_lease_status=2, unit__in=unit_qs)
+    avg_lease_rent = Lease.objects.filter(lease_filter).aggregate(
         avg=Avg("rent_amount")
     )["avg"]
 
-    lease_counts = Lease.objects.aggregate(
+    lease_qs = Lease.objects.filter(unit__in=unit_qs)
+    lease_counts = lease_qs.aggregate(
         active=Count("id", filter=Q(primary_lease_status=2)),
         pending=Count("id", filter=Q(primary_lease_status=1)),
         closed=Count("id", filter=Q(primary_lease_status=3)),
@@ -289,7 +305,7 @@ def rent_analysis(
     bedrooms: Optional[int] = None,
     property_type: Optional[str] = None,
 ):
-    qs = Unit.objects.all()
+    qs = Unit.revenue_units()
 
     if city:
         qs = qs.filter(Q(city__iexact=city) | Q(property__city__iexact=city))
@@ -322,12 +338,24 @@ def rent_analysis(
         .order_by("postal_code", "bedrooms")
     )
 
+    # Build property names lookup per (postal_code, bedrooms) segment
+    prop_names_qs = (
+        qs.values("postal_code", "bedrooms")
+        .annotate(prop_name=Min("property__name"))
+        .values_list("postal_code", "bedrooms", "property__name")
+    )
+    seg_prop_names = defaultdict(set)
+    for pc, br, pname in prop_names_qs:
+        if pname:
+            seg_prop_names[(pc, br)].add(pname)
+
     results = []
     for seg in segments:
         pc = seg["postal_code"] or "Unknown"
         br = seg["bedrooms"]
         br_label = f"{br}BR" if br is not None else "N/A"
         vacant = seg["unit_count"] - seg["occupied_count"]
+        names = sorted(seg_prop_names.get((seg["postal_code"], br), []))
         results.append(
             {
                 "segment_label": f"{pc} / {br_label}",
@@ -339,6 +367,7 @@ def rent_analysis(
                 "max_target_rent": seg["max_target_rent"],
                 "avg_active_lease_rent": seg["avg_active_lease_rent"],
                 "vacancy_rate": _pct(vacant, seg["unit_count"]),
+                "property_names": names,
             }
         )
 

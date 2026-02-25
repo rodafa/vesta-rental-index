@@ -34,6 +34,18 @@
   <div class="loading">Loading feedback...</div>
 </div>
 
+<div class="section-title">Staff Notes</div>
+<div id="notes-section" class="card">
+  <div id="notes-list" class="loading">Loading notes...</div>
+  <div style="margin-top:.75rem; border-top:1px solid var(--border); padding-top:.75rem;">
+    <div style="display:flex; gap:.5rem; margin-bottom:.5rem;">
+      <input type="text" id="note-author" placeholder="Your name" style="padding:.4rem .6rem; border:1px solid var(--border-medium); border-radius:6px; font-size:.82rem; width:160px;">
+    </div>
+    <textarea id="note-text" placeholder="Add a note..." style="min-height:60px;"></textarea>
+    <button class="btn btn-primary btn-sm" id="note-submit">Add Note</button>
+  </div>
+</div>
+
 <div class="section-title">Activity Log</div>
 <table id="activity-log">
   <thead>
@@ -53,6 +65,6 @@
 
 {% block scripts %}
 <script>const UNIT_ID = {{ unit_id }};</script>
-<script src="{% static 'dashboard/js/charts.js' %}"></script>
-<script src="{% static 'dashboard/js/property_detail.js' %}"></script>
+<script src="{% static 'dashboard/js/charts.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/property_detail.js' %}?v=2"></script>
 {% endblock %}

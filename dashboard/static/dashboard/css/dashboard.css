@@ -119,6 +119,9 @@ body {
   font-size: .75rem;
   margin-top: .1rem;
 }
+.stat-card.clickable { cursor: pointer; transition: box-shadow .15s, border-color .15s; border: 2px solid transparent; }
+.stat-card.clickable:hover { box-shadow: 0 2px 8px rgba(0,0,0,.12); border-color: var(--accent); }
+.stat-card.active-filter { border-color: var(--accent); background: var(--blue-bg); }
 .change.positive { color: var(--green); }
 .change.negative { color: var(--red-accent); }
 
