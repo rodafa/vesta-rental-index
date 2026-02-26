@@ -54,7 +54,12 @@ def _prop_note_to_dict(note):
 
 def _render_owner_email(owner, report_data, note):
     """Render the HTML email for an owner report using the Django template."""
+    from django.db.models import Sum
+    from django.db.models.functions import Coalesce
+    from market.models import DailyLeasingSummary, DailyUnitSnapshot
+
     week_date = note.report_date
+    week_end = week_date + timedelta(days=6)
     summary_text = note.email_body or note.notes_text or ""
 
     # Gather property notes for this week
@@ -63,7 +68,7 @@ def _render_owner_email(owner, report_data, note):
     for pn in PropertyWeeklyNote.objects.filter(unit_id__in=unit_ids, week_date=week_date):
         notes_map[pn.unit_id] = pn.note_text
 
-    # Attach notes and pre-compute WoW deltas for the template
+    # Attach notes, WoW deltas, and avg/wk for the template
     units_with_notes = []
     for u in report_data.get("units", []):
         u_copy = dict(u)
@@ -72,16 +77,98 @@ def _render_owner_email(owner, report_data, note):
         p = u.get("prev_weekly", {})
         u_copy["leads_delta"] = w.get("leads", 0) - p.get("leads", 0)
         u_copy["showings_delta"] = w.get("showings", 0) - p.get("showings", 0)
-        u_copy["missed_delta"] = w.get("missed", 0) - p.get("missed", 0)
         u_copy["apps_delta"] = w.get("apps", 0) - p.get("apps", 0)
+
+        # Avg per week (all-time / weeks active)
+        dom = u.get("days_on_market") or 0
+        weeks = max(dom / 7.0, 1)
+        a = u.get("all_time", {})
+        u_copy["avg_leads_per_week"] = round(a.get("leads", 0) / weeks, 1)
+        u_copy["avg_showings_per_week"] = round(a.get("showings", 0) / weeks, 1)
+        u_copy["avg_apps_per_week"] = round(a.get("apps", 0) / weeks, 1)
+
+        # Formatted price string with commas
+        price = u.get("current_list_price")
+        u_copy["formatted_list_price"] = "${:,.2f}".format(float(price)) if price else None
+
         units_with_notes.append(u_copy)
+
+    # ── Global market data (all active Vesta listings) ────────────────────
+    latest_date = (
+        DailyUnitSnapshot.objects.order_by("-snapshot_date")
+        .values_list("snapshot_date", flat=True)
+        .first()
+    )
+    global_dom_map = {}
+    if latest_date:
+        for snap in DailyUnitSnapshot.objects.filter(
+            snapshot_date=latest_date, status="active"
+        ).values("unit_id", "days_on_market"):
+            global_dom_map[snap["unit_id"]] = snap["days_on_market"] or 0
+
+    active_count = len(global_dom_map)
+
+    # All-time leasing for all active units
+    global_leasing = {}
+    if global_dom_map:
+        for row in DailyLeasingSummary.objects.filter(
+            unit_id__in=global_dom_map.keys()
+        ).values("unit_id").annotate(
+            leads=Coalesce(Sum("leads_count"), 0),
+            showings=Coalesce(Sum("showings_completed_count"), 0),
+            apps=Coalesce(Sum("applications_count"), 0),
+        ):
+            global_leasing[row["unit_id"]] = row
+
+    # Compute global totals and market averages
+    g_total_leads = 0
+    g_total_showings = 0
+    g_total_apps = 0
+    per_unit_lpw = []
+    per_unit_spw = []
+    g_dom_vals = []
+    for uid, dom in global_dom_map.items():
+        gl = global_leasing.get(uid, {})
+        leads = gl.get("leads", 0)
+        showings = gl.get("showings", 0)
+        apps = gl.get("apps", 0)
+        g_total_leads += leads
+        g_total_showings += showings
+        g_total_apps += apps
+        if dom:
+            g_dom_vals.append(dom)
+        weeks = max(dom / 7.0, 1)
+        per_unit_lpw.append(leads / weeks)
+        per_unit_spw.append(showings / weeks)
+
+    g_avg_dom = round(sum(g_dom_vals) / len(g_dom_vals), 1) if g_dom_vals else 0
+    g_lts = round(g_total_showings / g_total_leads * 100, 1) if g_total_leads else 0
+    g_sta = round(g_total_apps / g_total_showings * 100, 1) if g_total_showings else 0
+    mkt_avg_lpw = round(sum(per_unit_lpw) / len(per_unit_lpw), 1) if per_unit_lpw else 0
+    mkt_avg_spw = round(sum(per_unit_spw) / len(per_unit_spw), 1) if per_unit_spw else 0
 
     context = {
         "owner_name": owner.name.split()[0] if owner.name else "Owner",
+        "owner_full_name": owner.name or "Owner",
         "report_date": week_date,
+        "week_end_date": week_end,
         "summary_text": summary_text,
         "units": units_with_notes,
-        "portfolio_averages": report_data.get("portfolio_averages", {}),
+        "portfolio_totals": {
+            "total_leads": g_total_leads,
+            "total_showings": g_total_showings,
+            "total_apps": g_total_apps,
+            "avg_dom": g_avg_dom,
+            "lead_to_show_pct": g_lts,
+            "show_to_app_pct": g_sta,
+            "listing_count": active_count,
+        },
+        "market_avg": {
+            "leads_per_week": mkt_avg_lpw,
+            "showings_per_week": mkt_avg_spw,
+            "avg_dom": g_avg_dom,
+            "active_count": active_count,
+        },
     }
     return render_to_string("emails/owner_report.html", context)
 

@@ -1,17 +1,24 @@
 /**
- * Owner Reports — weekly vacancy report builder for property owners.
- * Rich per-property cards with leasing metrics, notes, and email workflow.
- * Auto-refreshes every 60s (skips detail while editing).
+ * Leasing Updates — accordion layout grouped by portfolio.
+ * Each portfolio is a collapsible section; each listing has property basics,
+ * lead insights (compact grid with WoW pills), and an editable message.
+ * Auto-refreshes every 60s (skips re-render while editing).
  */
-document.addEventListener('DOMContentLoaded', async () => {
-  // State
-  var owners = [];
-  var currentOwnerIndex = -1;
-  var currentReport = null;  // rich report data for selected owner
-  var noteMap = {};
-  var lastSentMap = {};
+document.addEventListener('DOMContentLoaded', function () {
 
-  // Week date: Monday of the current week
+  // ── State ──────────────────────────────────────────────────────────────
+
+  var owners = [];
+  var ownerReports = {};      // keyed by owner_id
+  var noteMap = {};            // OwnerReportNote per owner_id
+  var propNoteMap = {};        // keyed by unit_id, textarea content (in-memory)
+  var expandedSections = {};   // keyed by portfolio name
+  var lastSentMap = {};        // last sent_at per owner
+  var dirtyUnits = {};         // modified textareas
+  var portfolioGroups = {};    // keyed by portfolio name → {owners, units, medians}
+  var unitOwnerMap = {};       // unit_id → owner_id (for draft/save)
+
+  // Week date
   function weekMonday() {
     var d = new Date();
     var day = d.getDay();
@@ -24,19 +31,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   var dateEl = document.getElementById('report-date');
   if (dateEl) dateEl.textContent = VestaAPI.dateStr(weekDate);
 
-  // Wire up buttons
+  // Wire up page-level buttons
+  document.getElementById('save-all-btn').addEventListener('click', saveAllDrafts);
   document.getElementById('send-all-btn').addEventListener('click', sendAllReviewed);
   document.getElementById('close-preview-btn').addEventListener('click', closePreview);
 
   // ── Load ────────────────────────────────────────────────────────────────
 
-  async function loadAll() {
-    try {
-      var [ownerData, weekNotes, sentNotes] = await Promise.all([
-        VestaAPI.get('/analytics/owners-with-vacancies'),
-        VestaAPI.get('/dashboard/owner-notes?report_date=' + weekDate),
-        VestaAPI.get('/dashboard/owner-notes?status=sent'),
-      ]);
+  function loadAll() {
+    Promise.all([
+      VestaAPI.get('/analytics/owners-with-active-listings'),
+      VestaAPI.get('/dashboard/owner-notes?report_date=' + weekDate),
+      VestaAPI.get('/dashboard/owner-notes?status=sent'),
+    ]).then(function (results) {
+      var ownerData = results[0];
+      var weekNotes = results[1];
+      var sentNotes = results[2];
 
       owners = ownerData.items || ownerData;
 
@@ -56,22 +66,86 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (!owners.length) {
-        VestaAPI.render('owner-list', '<div class="empty-state">No owners with vacancies</div>');
+        VestaAPI.render('owner-accordion', '<div class="empty-state">No leasing updates this week</div>');
+        updateReadyCount();
         return;
       }
 
-      renderOwnerList();
-      if (currentOwnerIndex >= 0 && !isEditing()) {
-        loadOwnerDetail(owners[currentOwnerIndex]);
+      // Fetch all owner reports in parallel
+      var fetches = [];
+      for (var k = 0; k < owners.length; k++) {
+        fetches.push(fetchOwnerReport(owners[k].owner_id));
       }
-    } catch (err) {
-      console.error('Owner Reports load error:', err);
-      VestaAPI.render('owner-list', '<div class="loading">Error loading owners</div>');
-    }
+
+      Promise.all(fetches).then(function () {
+        buildPortfolioGroups();
+        if (!isEditing()) {
+          renderPage();
+        }
+        updateReadyCount();
+      });
+    }).catch(function (err) {
+      console.error('Leasing Updates load error:', err);
+      VestaAPI.render('owner-accordion', '<div class="loading">Error loading owners</div>');
+    });
   }
 
-  await loadAll();
+  function fetchOwnerReport(ownerId) {
+    return VestaAPI.get('/analytics/owner-report-detail/' + ownerId + '?week_date=' + weekDate)
+      .then(function (report) {
+        ownerReports[ownerId] = report;
+        // Seed propNoteMap from API data (only if user hasn't already edited)
+        for (var i = 0; i < report.units.length; i++) {
+          var u = report.units[i];
+          if (propNoteMap[u.unit_id] === undefined) {
+            if (u.property_note) {
+              propNoteMap[u.unit_id] = u.property_note;
+            }
+            // else leave undefined so generateDraft runs on first render
+          }
+        }
+      }).catch(function (err) {
+        console.error('Error fetching report for owner ' + ownerId + ':', err);
+      });
+  }
+
+  loadAll();
   setInterval(loadAll, 60000);
+
+  // ── Portfolio Grouping ────────────────────────────────────────────────
+
+  function buildPortfolioGroups() {
+    portfolioGroups = {};
+    unitOwnerMap = {};
+    var seenUnits = {};
+
+    for (var i = 0; i < owners.length; i++) {
+      var owner = owners[i];
+      var report = ownerReports[owner.owner_id];
+      if (!report || !report.units) continue;
+
+      for (var j = 0; j < report.units.length; j++) {
+        var u = report.units[j];
+        var pName = u.portfolio_name || 'Other';
+
+        // Deduplicate units by unit_id (M2M safety)
+        if (seenUnits[u.unit_id]) continue;
+        seenUnits[u.unit_id] = true;
+
+        if (!portfolioGroups[pName]) {
+          portfolioGroups[pName] = {
+            owners: {},
+            units: [],
+            medians: report.portfolio_medians || {}
+          };
+        }
+
+        portfolioGroups[pName].owners[owner.owner_id] = owner;
+        portfolioGroups[pName].units.push(u);
+        unitOwnerMap[u.unit_id] = owner.owner_id;
+      }
+    }
+  }
 
   // ── Edit Guard ──────────────────────────────────────────────────────────
 
@@ -82,412 +156,578 @@ document.addEventListener('DOMContentLoaded', async () => {
     return t === 'textarea' || t === 'input';
   }
 
-  // ── Owner List ──────────────────────────────────────────────────────────
+  // ── Rendering ───────────────────────────────────────────────────────────
 
-  function renderOwnerList() {
+  function renderPage() {
     var html = '';
-    for (var i = 0; i < owners.length; i++) {
-      var o = owners[i];
-      var note = noteMap[o.owner_id];
-      var statusClass = note ? note.status : 'none';
-      var activeClass = i === currentOwnerIndex ? ' active' : '';
-
-      var lastSentHtml = '';
-      var sentAt = lastSentMap[o.owner_id];
-      if (sentAt) {
-        lastSentHtml = '<div class="owner-last-sent">Sent ' +
-          VestaAPI.dateStr(sentAt.split('T')[0]) + '</div>';
-      }
-
-      html +=
-        '<div class="owner-list-item' + activeClass + '" data-index="' + i + '">' +
-          '<div>' +
-            '<span class="status-dot ' + esc(statusClass) + '"></span>' +
-            esc(o.owner_name) +
-            lastSentHtml +
-          '</div>' +
-          '<span class="count-badge">' + o.vacant_unit_count + '</span>' +
-        '</div>';
+    var names = Object.keys(portfolioGroups).sort();
+    for (var i = 0; i < names.length; i++) {
+      html += renderPortfolioSection(names[i], portfolioGroups[names[i]]);
     }
-    VestaAPI.render('owner-list', html);
-
-    var items = document.querySelectorAll('#owner-list .owner-list-item');
-    for (var j = 0; j < items.length; j++) {
-      items[j].addEventListener('click', onOwnerClick);
-    }
+    VestaAPI.render('owner-accordion', html);
+    bindAccordionEvents();
   }
 
-  function onOwnerClick(e) {
-    var idx = parseInt(e.currentTarget.getAttribute('data-index'), 10);
-    selectOwner(idx);
-  }
+  function renderPortfolioSection(name, group) {
+    var expanded = expandedSections[name] ? ' expanded' : '';
+    var listingCount = group.units.length;
 
-  function selectOwner(idx) {
-    currentOwnerIndex = idx;
-    renderOwnerList();
-    loadOwnerDetail(owners[idx]);
-  }
+    // Find first owner for this portfolio (for preview/send)
+    var ownerIds = Object.keys(group.owners);
+    var firstOwnerId = ownerIds.length ? ownerIds[0] : '';
 
-  // ── Owner Detail ────────────────────────────────────────────────────────
-
-  async function loadOwnerDetail(owner) {
-    VestaAPI.render('owner-detail', '<div class="loading">Loading report data...</div>');
-
-    try {
-      var report = await VestaAPI.get('/analytics/owner-report-detail/' + owner.owner_id + '?week_date=' + weekDate);
-      currentReport = report;
-
-      var note = noteMap[owner.owner_id] || null;
-      if (!note) {
-        var notesData = await VestaAPI.get('/dashboard/owner-notes?owner_id=' + owner.owner_id + '&report_date=' + weekDate);
-        var notes = notesData.items || notesData;
-        note = notes.length ? notes[0] : null;
-        if (note) {
-          noteMap[owner.owner_id] = note;
-          renderOwnerList();
-        }
-      }
-
-      renderOwnerDetail(owner, report, note);
-    } catch (err) {
-      console.error('Owner detail load error:', err);
-      VestaAPI.render('owner-detail', '<div class="loading">Error loading report</div>');
-    }
-  }
-
-  function renderOwnerDetail(owner, report, note) {
-    var notesText = note ? (note.notes_text || '') : '';
-    var emailBody = note ? (note.email_body || '') : '';
-    var emailSubject = note ? (note.email_subject || '') : '';
-    var noteId = note ? note.id : '';
-    var statusLabel = note ? note.status : 'new';
-
-    var html =
-      '<h2 class="section-title">' + esc(owner.owner_name) + '</h2>' +
-      '<p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem;">' +
-        esc(owner.owner_email || 'No email on file') +
-        ' &middot; Status: <strong>' + esc(statusLabel) + '</strong>' +
-        (note && note.opened_at ? ' &middot; <span style="color:#28a745;">Opened</span>' : '') +
-      '</p>';
-
-    // Email subject + summary fields
-    html +=
-      '<div class="section-title" style="font-size:.95rem;">Email Subject</div>' +
-      '<input type="text" id="email-subject" value="' + escAttr(emailSubject || 'Weekly Vacancy Update \u2014 ' + VestaAPI.dateStr(weekDate)) + '" ' +
-        'style="width:100%;padding:.5rem .75rem;border:1px solid var(--border-medium);border-radius:6px;font-size:.85rem;margin-bottom:.75rem;">' +
-      '<div class="section-title" style="font-size:.95rem;">Summary for Owner <span style="font-weight:400;color:var(--text-muted);">(appears in email)</span></div>' +
-      '<textarea id="email-body" placeholder="Weekly summary message for the owner...">' +
-        esc(emailBody) + '</textarea>';
-
-    // Per-property cards
-    html += '<div class="section-title" style="font-size:.95rem;">Properties (' + report.units.length + ')</div>';
-
-    for (var i = 0; i < report.units.length; i++) {
-      html += renderUnitCard(report.units[i]);
-    }
-
-    // Internal notes
-    html +=
-      '<div class="section-title" style="font-size:.95rem;margin-top:1rem;">Internal Notes <span style="font-weight:400;color:var(--text-muted);">(not in email)</span></div>' +
-      '<textarea id="notes-text" placeholder="Internal notes...">' + esc(notesText) + '</textarea>' +
-      '<input type="hidden" id="note-id" value="' + (noteId || '') + '">';
-
-    // Action buttons
-    html +=
-      '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;">' +
-        '<button class="btn btn-secondary" id="btn-save-draft">Save Draft</button>' +
-        '<button class="btn btn-primary" id="btn-mark-reviewed">Mark Reviewed</button>' +
-        '<button class="btn btn-secondary" id="btn-preview-email">Preview Email</button>' +
-        '<button class="btn btn-success" id="btn-send-email">Send Email</button>' +
-        '<button class="btn btn-primary" id="btn-save-next">Save &amp; Next</button>' +
-      '</div>';
-
-    VestaAPI.render('owner-detail', html);
-
-    // Bind buttons
-    document.getElementById('btn-save-draft').addEventListener('click', function () { saveNote(owner, 'draft'); });
-    document.getElementById('btn-mark-reviewed').addEventListener('click', function () { saveNote(owner, 'reviewed'); });
-    document.getElementById('btn-preview-email').addEventListener('click', function () { previewEmail(owner); });
-    document.getElementById('btn-send-email').addEventListener('click', function () { sendEmail(owner); });
-    document.getElementById('btn-save-next').addEventListener('click', function () { saveNoteAndNext(owner); });
-
-    // Bind property note save buttons
-    var noteButtons = document.querySelectorAll('.btn-save-prop-note');
-    for (var k = 0; k < noteButtons.length; k++) {
-      noteButtons[k].addEventListener('click', onSavePropNote);
-    }
-  }
-
-  // ── Unit Card ───────────────────────────────────────────────────────────
-
-  function renderUnitCard(u) {
-    var flagged = u.leads_per_active_day < 0.5;
-    var borderColor = flagged ? 'var(--red-accent)' : 'var(--accent)';
-
-    var html = '<div class="card" style="border-left:3px solid ' + borderColor + ';margin-bottom:1rem;padding:1rem;">';
+    var html = '<div class="portfolio-section' + expanded + '" data-portfolio="' + esc(name) + '">';
 
     // Header
     html +=
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem;">' +
-        '<div>' +
-          '<strong style="font-size:.95rem;">' + esc(u.address) + '</strong>' +
-          '<div style="font-size:.78rem;color:var(--text-muted);">' +
-            esc(u.city) + ', ' + esc(u.state) + ' ' + esc(u.zip_code) +
-            (u.bedrooms ? ' &middot; ' + u.bedrooms + 'BR' : '') +
-          '</div>' +
+      '<div class="portfolio-section-header" data-portfolio="' + esc(name) + '">' +
+        '<div class="hdr-left">' +
+          esc(name) +
         '</div>' +
-        '<div style="text-align:right;">' +
-          (u.days_on_market != null ? '<span class="dom-badge ' + domClass(u.days_on_market) + '">' + u.days_on_market + ' DOM</span>' : '') +
-          '<div style="font-size:.78rem;color:var(--text-muted);margin-top:2px;">' + VestaAPI.num(u.leads_per_active_day) + ' leads/day</div>' +
+        '<div class="hdr-right">' +
+          '<span>' + listingCount + ' listing' + (listingCount !== 1 ? 's' : '') + '</span>' +
+          '<span class="chevron">&#9654;</span>' +
         '</div>' +
       '</div>';
 
-    // Metrics grid
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin-bottom:.75rem;">';
-    html += metricsBox('This Week', u.weekly, u.prev_weekly);
-    html += metricsBox('Last Week', u.prev_weekly, null);
-    html += metricsBox('All-Time', u.all_time, null);
+    // Body
+    html += '<div class="portfolio-section-body">';
+
+    for (var i = 0; i < group.units.length; i++) {
+      var u = group.units[i];
+      var ownerId = unitOwnerMap[u.unit_id];
+      var owner = group.owners[ownerId] || {};
+      html += renderListingRow(u, owner, group.medians);
+      html += renderListingRowFooter(u);
+    }
+
+    html += '</div>'; // end body
+
+    // Footer — preview/send per owner in this portfolio
+    html += '<div class="portfolio-section-footer">';
+    for (var o = 0; o < ownerIds.length; o++) {
+      var oid = ownerIds[o];
+      html +=
+        '<button class="btn btn-secondary btn-sm btn-preview-owner" data-owner-id="' + oid + '">Preview Email</button>' +
+        '<button class="btn btn-success btn-sm btn-send-owner" data-owner-id="' + oid + '">Send</button>';
+    }
     html += '</div>';
 
-    // Market context row
-    html += '<div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem;padding:.5rem;background:#f8f9ff;border-radius:4px;">';
-    html += '<span>List: <strong style="color:var(--text-primary);">' + VestaAPI.$(u.current_list_price) + '</strong></span>';
-    html += '<span>Target: <strong style="color:var(--text-primary);">' + VestaAPI.$(u.target_rent) + '</strong></span>';
-    if (u.market_context.zip_avg_list_price) {
-      html += '<span>Zip Avg: <strong style="color:var(--text-primary);">' + VestaAPI.$(u.market_context.zip_avg_list_price) + '</strong></span>';
-    }
-    if (u.market_context.zip_avg_dom != null) {
-      html += '<span>Zip DOM: <strong style="color:var(--text-primary);">' + u.market_context.zip_avg_dom + '</strong></span>';
-    }
+    html += '</div>'; // end section
+    return html;
+  }
+
+  // ── Listing Row (3 columns) ─────────────────────────────────────────────
+
+  function renderListingRow(u, owner, medians) {
+    var html = '<div class="listing-row" data-unit-id="' + u.unit_id + '">';
+    html += renderCol1(u);
+    html += renderCol2(u, medians);
+    html += renderCol3(u, owner);
     html += '</div>';
+    return html;
+  }
 
-    // Showing feedback
-    if (u.showing_feedback && u.showing_feedback.length) {
-      html += '<div style="margin-bottom:.75rem;">' +
-        '<div style="font-size:.75rem;text-transform:uppercase;color:var(--text-muted);letter-spacing:.3px;margin-bottom:.25rem;font-weight:600;">Showing Feedback</div>';
-      for (var f = 0; f < u.showing_feedback.length; f++) {
-        var fb = u.showing_feedback[f];
-        html += '<div style="font-size:.82rem;padding-left:.5rem;border-left:2px solid var(--accent);margin-bottom:.35rem;line-height:1.4;">';
-        if (fb.prospect_name) html += '<strong>' + esc(fb.prospect_name) + '</strong>: ';
-        html += esc(fb.feedback_summary);
-        html += '</div>';
+  // Column 1 — Property Basics
+  function renderCol1(u) {
+    var html = '<div class="listing-col">';
+
+    // Address with Zillow link
+    if (u.zillow_url) {
+      html += '<div class="address-line"><a href="' + esc(u.zillow_url) + '" target="_blank">' + esc(u.address) + '</a></div>';
+    } else {
+      html += '<div class="address-line">' + esc(u.address) + '</div>';
+    }
+
+    // Date listed
+    if (u.date_listed) {
+      html += '<div class="detail-line">Listed ' + VestaAPI.dateStr(u.date_listed) + '</div>';
+    }
+
+    // DOM badge
+    if (u.days_on_market != null) {
+      html += '<div class="detail-line"><span class="dom-badge ' + domClass(u.days_on_market) + '">' +
+        u.days_on_market + ' DOM</span></div>';
+    }
+
+    // List price
+    if (u.current_list_price) {
+      html += '<div class="detail-line"><strong>' + VestaAPI.$(u.current_list_price) + '</strong></div>';
+    }
+
+    // Beds / baths / sqft
+    var specs = [];
+    if (u.bedrooms) specs.push(u.bedrooms + ' bed');
+    if (u.bathrooms) specs.push(u.bathrooms + ' bath');
+    if (u.square_feet) specs.push(VestaAPI.num(u.square_feet) + ' sqft');
+    if (specs.length) {
+      html += '<div class="detail-line">' + specs.join(' / ') + '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // Column 2 — Lead Insights (compact blocks with WoW pills)
+  function renderCol2(u, medians) {
+    var html = '<div class="listing-col">';
+
+    // ── This Week block
+    html += '<div class="metric-block">';
+    html += '<div class="metric-block-title">This Week</div>';
+    html += '<div class="metric-mini-grid">';
+    html += metricRowPill('Leads', u.weekly.leads, u.prev_weekly.leads);
+    html += metricRowPill('Showings', u.weekly.showings, u.prev_weekly.showings);
+    html += metricRowPill('Missed', u.weekly.missed, u.prev_weekly.missed, true);
+    html += metricRowPill('Apps', u.weekly.apps, u.prev_weekly.apps);
+    html += '</div>'; // end mini-grid
+    html += '</div>'; // end metric-block
+
+    // ── All-Time block
+    html += '<div class="metric-block">';
+    html += '<div class="metric-block-title">All-Time</div>';
+    html += '<div class="metric-mini-grid">';
+    html += metricRowSimple('Leads', u.all_time.leads);
+    html += metricRowSimple('Showings', u.all_time.showings);
+    html += metricRowSimple('Apps', u.all_time.apps);
+    var dom = u.days_on_market || 0;
+    var weeks = Math.max(dom / 7, 1);
+    var avgLeadsWk = (u.all_time.leads / weeks).toFixed(1);
+    html += metricRowSimple('Avg leads/wk', avgLeadsWk);
+    html += '</div>'; // end mini-grid
+    html += '</div>'; // end metric-block
+
+    // ── Leads/day callout
+    var lpd = u.leads_per_active_day;
+    var lpdCls = lpd < 0.5 ? 'low' : 'ok';
+    html += '<div class="lpd-callout ' + lpdCls + '">Leads/day: ' + VestaAPI.num(lpd) + '</div>';
+
+    // ── Market context (single line with median)
+    if (medians && medians.median_dom != null) {
+      html += '<div class="market-ctx-line">Portfolio median DOM: ' + medians.median_dom +
+        ' &middot; This unit: ' + dom + '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function metricRowPill(label, val, prevVal, invertColor) {
+    var pill = '';
+    if (prevVal != null && prevVal !== val) {
+      var diff = val - prevVal;
+      var cls;
+      if (invertColor) {
+        cls = diff > 0 ? 'up-bad' : 'down-good';
+      } else {
+        cls = diff > 0 ? 'up' : 'down';
       }
-      html += '</div>';
+      pill = '<span class="wow-pill ' + cls + '">' + (diff > 0 ? '+' : '') + diff + '</span>';
+    }
+    return '<div class="metric-row"><span>' + label + '</span><span class="m-val">' + val + pill + '</span></div>';
+  }
+
+  function metricRowSimple(label, val) {
+    return '<div class="metric-row"><span>' + label + '</span><span class="m-val">' + val + '</span></div>';
+  }
+
+  // Column 3 — Message to Owner
+  function renderCol3(u, owner) {
+    var html = '<div class="listing-col">';
+
+    // Get or generate draft text
+    var text = propNoteMap[u.unit_id];
+    if (text === undefined) {
+      text = generateDraft(u, owner);
+      propNoteMap[u.unit_id] = text;
     }
 
-    // Upcoming showings
-    if (u.upcoming_showings && u.upcoming_showings.length) {
-      html += '<div style="margin-bottom:.75rem;">' +
-        '<div style="font-size:.75rem;text-transform:uppercase;color:var(--text-muted);letter-spacing:.3px;margin-bottom:.25rem;font-weight:600;">Upcoming Showings</div>';
-      for (var s = 0; s < u.upcoming_showings.length; s++) {
-        var sh = u.upcoming_showings[s];
-        html += '<div style="font-size:.82rem;">' + VestaAPI.dateStr(sh.date) + ' at ' + esc(sh.time) +
-          (sh.prospect_name ? ' \u2014 ' + esc(sh.prospect_name) : '') + '</div>';
-      }
-      html += '</div>';
-    }
+    html += '<textarea class="draft-textarea" data-unit-id="' + u.unit_id + '">' + esc(text) + '</textarea>';
 
-    // Price recommendation
-    if (u.price_recommendation && u.price_recommendation.recommended) {
-      html += '<div style="background:#fff3cd;border-radius:4px;padding:.5rem .75rem;font-size:.82rem;color:#856404;margin-bottom:.75rem;border-left:3px solid #856404;">' +
-        esc(u.price_recommendation.message) + '</div>';
-    }
-
-    // Property note
-    html += '<div style="margin-bottom:.5rem;">' +
-      '<div style="font-size:.75rem;text-transform:uppercase;color:var(--text-muted);letter-spacing:.3px;margin-bottom:.25rem;font-weight:600;">Property Note <span style="font-weight:400;">(goes in email)</span></div>' +
-      '<div style="display:flex;gap:.5rem;">' +
-        '<textarea class="prop-note-text" data-unit-id="' + u.unit_id + '" style="min-height:60px;flex:1;margin-bottom:0;" placeholder="Note for this property...">' +
-          esc(u.property_note) + '</textarea>' +
-        '<button class="btn btn-secondary btn-sm btn-save-prop-note" data-unit-id="' + u.unit_id + '" style="align-self:flex-start;">Save</button>' +
-      '</div>';
-
-    // Previous notes
+    // Past notes
     if (u.prev_notes && u.prev_notes.length) {
-      html += '<details style="margin-top:.35rem;font-size:.78rem;"><summary style="cursor:pointer;color:var(--text-muted);">Previous notes (' + u.prev_notes.length + ')</summary>';
+      html += '<div class="past-notes-toggle" data-unit-id="' + u.unit_id + '">View past notes (' + u.prev_notes.length + ')</div>';
+      html += '<div class="past-notes-content" data-unit-id="' + u.unit_id + '">';
       for (var p = 0; p < u.prev_notes.length; p++) {
         var pn = u.prev_notes[p];
-        html += '<div style="padding:.35rem 0;border-bottom:1px solid var(--border);color:var(--text-muted);">' +
-          '<strong>' + VestaAPI.dateStr(pn.week_date) + '</strong> (' + esc(pn.author) + '): ' + esc(pn.note_text) + '</div>';
+        html += '<div class="past-note-item"><strong>' + VestaAPI.dateStr(pn.week_date) + '</strong> (' +
+          esc(pn.author) + '): ' + esc(pn.note_text) + '</div>';
       }
-      html += '</details>';
-    }
-    html += '</div>';
-
-    // Zillow link
-    if (u.zillow_url) {
-      html += '<a href="' + esc(u.zillow_url) + '" target="_blank" style="font-size:.8rem;color:var(--accent);text-decoration:none;">View on Zillow &rarr;</a>';
+      html += '</div>';
     }
 
     html += '</div>';
     return html;
   }
 
-  function metricsBox(title, data, prev) {
-    var html = '<div style="background:#fafafa;border-radius:4px;padding:.5rem .6rem;font-size:.78rem;">' +
-      '<div style="font-weight:600;margin-bottom:.25rem;font-size:.7rem;text-transform:uppercase;color:var(--text-muted);letter-spacing:.3px;">' + title + '</div>';
+  // ── Listing Row Footer ──────────────────────────────────────────────────
 
-    var rows = [
-      ['Leads', data.leads, prev ? prev.leads : null],
-      ['Show', data.showings, prev ? prev.showings : null],
-      ['Miss', data.missed, prev ? prev.missed : null],
-      ['Apps', data.apps, prev ? prev.apps : null],
-    ];
-
-    for (var i = 0; i < rows.length; i++) {
-      var label = rows[i][0];
-      var val = rows[i][1];
-      var pval = rows[i][2];
-      var wow = '';
-      if (pval != null && pval !== val) {
-        var diff = val - pval;
-        var cls = diff > 0 ? 'positive' : 'negative';
-        // For missed, positive diff is bad
-        if (label === 'Miss') cls = diff > 0 ? 'negative' : 'positive';
-        wow = ' <span class="change ' + cls + '" style="font-size:.7rem;">' + (diff > 0 ? '+' : '') + diff + '</span>';
-      }
-      html += '<div style="display:flex;justify-content:space-between;"><span>' + label + '</span><span style="font-weight:600;">' + val + wow + '</span></div>';
-    }
-    html += '</div>';
-    return html;
+  function renderListingRowFooter(u) {
+    var saved = dirtyUnits[u.unit_id] === false ? '<span class="save-status" style="color:#28a745;">Saved</span>' : '';
+    return '<div class="listing-row-footer" data-unit-id="' + u.unit_id + '">' +
+      '<button class="btn btn-secondary btn-sm btn-save-row" data-unit-id="' + u.unit_id + '">Save Draft</button>' +
+      saved +
+    '</div>';
   }
 
-  function domClass(dom) {
-    if (dom >= 30) return 'dom-danger';
-    if (dom >= 14) return 'dom-warn';
-    return 'dom-ok';
-  }
+  // ── Generate Draft ──────────────────────────────────────────────────────
 
-  // ── Property Notes ──────────────────────────────────────────────────────
+  function generateDraft(u, owner) {
+    var firstName = (owner.owner_name || '').split(' ')[0] || 'there';
+    var address = shortAddress(u.address);
+    var parts = [];
 
-  async function onSavePropNote(e) {
-    var unitId = e.currentTarget.getAttribute('data-unit-id');
-    var textarea = document.querySelector('.prop-note-text[data-unit-id="' + unitId + '"]');
-    if (!textarea) return;
-
-    var text = textarea.value.trim();
-    if (!text) return;
-
-    try {
-      await VestaAPI.post('/dashboard/property-notes', {
-        unit_id: parseInt(unitId, 10),
-        week_date: weekDate,
-        author: 'Staff',
-        note_text: text,
-      });
-      VestaAPI.toast('Note saved', 'success');
-    } catch (err) {
-      console.error('Save property note error:', err);
-      VestaAPI.toast('Error saving note', 'error');
-    }
-  }
-
-  // ── Save Logic ──────────────────────────────────────────────────────────
-
-  async function saveNote(owner, status) {
-    var noteId = document.getElementById('note-id').value;
-    var payload = {
-      notes_text: document.getElementById('notes-text').value,
-      email_subject: document.getElementById('email-subject').value,
-      email_body: document.getElementById('email-body').value,
-    };
-
-    try {
-      var saved;
-      if (noteId) {
-        payload.status = status;
-        saved = await VestaAPI.put('/dashboard/owner-notes/' + noteId, payload);
-      } else {
-        payload.owner_id = owner.owner_id;
-        payload.report_date = weekDate;
-        payload.status = status;
-        saved = await VestaAPI.post('/dashboard/owner-notes', payload);
-      }
-
-      noteMap[owner.owner_id] = saved;
-      document.getElementById('note-id').value = saved.id || '';
-      renderOwnerList();
-      VestaAPI.toast('Note saved (' + status + ')', 'success');
-      return saved;
-    } catch (err) {
-      console.error('Save note error:', err);
-      VestaAPI.toast('Error: ' + err.message, 'error');
-      return null;
-    }
-  }
-
-  async function previewEmail(owner) {
-    var noteId = document.getElementById('note-id').value;
-    if (!noteId) {
-      var saved = await saveNote(owner, 'draft');
-      if (!saved) return;
-      noteId = saved.id;
+    // 1. Greeting + activity
+    var leads = u.weekly.leads || 0;
+    var showings = u.weekly.showings || 0;
+    if (leads > 0 || showings > 0) {
+      var bits = [];
+      if (leads > 0) bits.push(numWord(leads) + ' new lead' + (leads !== 1 ? 's' : ''));
+      if (showings > 0) bits.push(numWord(showings) + ' showing' + (showings !== 1 ? 's' : ''));
+      parts.push('Hi ' + firstName + ' \u2014 this week we had ' + bits.join(' and ') + ' on ' + address + '.');
     } else {
-      // Save latest content before preview
-      await saveNote(owner, noteMap[owner.owner_id] ? noteMap[owner.owner_id].status : 'draft');
+      parts.push('Hi ' + firstName + ' \u2014 no new activity on ' + address + ' this week.');
     }
 
-    try {
-      var result = await VestaAPI.post('/dashboard/owner-notes/' + noteId + '/preview', {});
+    // 2. Showing feedback (narrative)
+    var feedback = u.showing_feedback || [];
+    for (var f = 0; f < Math.min(feedback.length, 3); f++) {
+      var fb = feedback[f];
+      var prospect = fb.prospect_name || 'A prospect';
+      if (f === 0 && showings > 0) {
+        parts.push(prospect + ' toured and ' + lowerFirst(fb.feedback_summary) + '.');
+      } else {
+        parts.push(prospect + ': ' + lowerFirst(fb.feedback_summary) + '.');
+      }
+    }
+
+    // 3. Applications
+    var apps = u.weekly.apps || 0;
+    if (apps > 0) {
+      parts.push('We received ' + numWord(apps) + ' new application' + (apps !== 1 ? 's' : '') + ' this week.');
+    }
+
+    // 4. Price recommendation
+    if (u.price_recommendation && u.price_recommendation.recommended && u.price_recommendation.suggested_price) {
+      var suggested = parseFloat(u.price_recommendation.suggested_price);
+      var current = parseFloat(u.current_list_price || 0);
+      var diff = Math.abs(current - suggested);
+      parts.push('Activity is below our target, so we\'d recommend a $' + Math.round(diff) +
+        ' price adjustment to $' + formatNumber(Math.round(suggested)) + ' to increase showing traffic.');
+    }
+
+    // 5. Upcoming showings
+    var upcoming = u.upcoming_showings || [];
+    if (upcoming.length > 0) {
+      parts.push('We have ' + numWord(upcoming.length) + ' showing' +
+        (upcoming.length !== 1 ? 's' : '') + ' coming up this week.');
+    }
+
+    // 6. Closing
+    parts.push('We\'ll keep you posted.');
+
+    return parts.join(' ');
+  }
+
+  function shortAddress(addr) {
+    if (!addr) return 'this property';
+    // Remove city/state/zip if present after a comma
+    var idx = addr.indexOf(',');
+    return idx > 0 ? addr.substring(0, idx).trim() : addr;
+  }
+
+  function numWord(n) {
+    if (n === 1) return 'one';
+    if (n === 2) return 'two';
+    return String(n);
+  }
+
+  function lowerFirst(s) {
+    if (!s) return '';
+    return s.charAt(0).toLowerCase() + s.slice(1);
+  }
+
+  function formatNumber(n) {
+    return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  // ── Accordion Events ───────────────────────────────────────────────────
+
+  function bindAccordionEvents() {
+    // Headers (toggle)
+    var headers = document.querySelectorAll('.portfolio-section-header');
+    for (var i = 0; i < headers.length; i++) {
+      headers[i].addEventListener('click', onToggleSection);
+    }
+
+    // Save Draft per row
+    var saveRowBtns = document.querySelectorAll('.btn-save-row');
+    for (var j = 0; j < saveRowBtns.length; j++) {
+      saveRowBtns[j].addEventListener('click', onSaveRow);
+    }
+
+    // Textarea input tracking
+    var textareas = document.querySelectorAll('.draft-textarea');
+    for (var k = 0; k < textareas.length; k++) {
+      textareas[k].addEventListener('input', onTextareaInput);
+    }
+
+    // Past notes toggles
+    var toggles = document.querySelectorAll('.past-notes-toggle');
+    for (var t = 0; t < toggles.length; t++) {
+      toggles[t].addEventListener('click', onTogglePastNotes);
+    }
+
+    // Preview per owner
+    var previewBtns = document.querySelectorAll('.btn-preview-owner');
+    for (var p = 0; p < previewBtns.length; p++) {
+      previewBtns[p].addEventListener('click', onPreviewOwner);
+    }
+
+    // Send per owner
+    var sendBtns = document.querySelectorAll('.btn-send-owner');
+    for (var s = 0; s < sendBtns.length; s++) {
+      sendBtns[s].addEventListener('click', onSendOwner);
+    }
+  }
+
+  function onToggleSection(e) {
+    var name = e.currentTarget.getAttribute('data-portfolio');
+    expandedSections[name] = !expandedSections[name];
+
+    // Toggle via CSS class (no full re-render)
+    var section = e.currentTarget.closest('.portfolio-section');
+    if (section) {
+      if (expandedSections[name]) {
+        section.classList.add('expanded');
+      } else {
+        section.classList.remove('expanded');
+      }
+    }
+  }
+
+  function onTextareaInput(e) {
+    var unitId = parseInt(e.target.getAttribute('data-unit-id'), 10);
+    propNoteMap[unitId] = e.target.value;
+    dirtyUnits[unitId] = true;
+  }
+
+  function onTogglePastNotes(e) {
+    var unitId = e.currentTarget.getAttribute('data-unit-id');
+    var content = document.querySelector('.past-notes-content[data-unit-id="' + unitId + '"]');
+    if (content) {
+      content.classList.toggle('open');
+    }
+  }
+
+  // ── Save Per Row ────────────────────────────────────────────────────────
+
+  function onSaveRow(e) {
+    var unitId = parseInt(e.currentTarget.getAttribute('data-unit-id'), 10);
+    saveSingleUnit(unitId);
+  }
+
+  function saveSingleUnit(unitId) {
+    var textarea = document.querySelector('.draft-textarea[data-unit-id="' + unitId + '"]');
+    var text = textarea ? textarea.value.trim() : (propNoteMap[unitId] || '');
+
+    // Find which owner this unit belongs to
+    var ownerId = unitOwnerMap[unitId] || findOwnerForUnit(unitId);
+
+    return VestaAPI.post('/dashboard/property-notes', {
+      unit_id: unitId,
+      week_date: weekDate,
+      author: 'Staff',
+      note_text: text,
+    }).then(function () {
+      dirtyUnits[unitId] = false;
+      propNoteMap[unitId] = text;
+
+      // Ensure owner note exists as draft
+      if (ownerId) {
+        return ensureOwnerNote(ownerId);
+      }
+    }).then(function () {
+      // Update footer status
+      var footer = document.querySelector('.listing-row-footer[data-unit-id="' + unitId + '"]');
+      if (footer) {
+        var existing = footer.querySelector('.save-status');
+        if (existing) {
+          existing.textContent = 'Saved';
+          existing.style.color = '#28a745';
+        } else {
+          var span = document.createElement('span');
+          span.className = 'save-status';
+          span.style.color = '#28a745';
+          span.textContent = 'Saved';
+          footer.appendChild(span);
+        }
+      }
+      VestaAPI.toast('Draft saved', 'success');
+    }).catch(function (err) {
+      console.error('Save error:', err);
+      VestaAPI.toast('Error saving draft', 'error');
+    });
+  }
+
+  function findOwnerForUnit(unitId) {
+    for (var i = 0; i < owners.length; i++) {
+      var report = ownerReports[owners[i].owner_id];
+      if (report && report.units) {
+        for (var j = 0; j < report.units.length; j++) {
+          if (report.units[j].unit_id === unitId) return owners[i].owner_id;
+        }
+      }
+    }
+    return null;
+  }
+
+  function ensureOwnerNote(ownerId) {
+    if (noteMap[ownerId]) return Promise.resolve(noteMap[ownerId]);
+
+    return VestaAPI.post('/dashboard/owner-notes', {
+      owner_id: ownerId,
+      report_date: weekDate,
+      status: 'draft',
+      notes_text: '',
+      email_subject: 'Weekly Listing Update \u2014 ' + VestaAPI.dateStr(weekDate),
+      email_body: '',
+    }).then(function (saved) {
+      noteMap[ownerId] = saved;
+      updateReadyCount();
+      return saved;
+    });
+  }
+
+  // ── Save All Drafts ─────────────────────────────────────────────────────
+
+  function saveAllDrafts() {
+    var unitIds = Object.keys(dirtyUnits);
+    var toSave = [];
+    for (var i = 0; i < unitIds.length; i++) {
+      if (dirtyUnits[unitIds[i]]) {
+        toSave.push(parseInt(unitIds[i], 10));
+      }
+    }
+
+    if (!toSave.length) {
+      VestaAPI.toast('No unsaved changes', 'success');
+      return;
+    }
+
+    var promises = [];
+    for (var j = 0; j < toSave.length; j++) {
+      promises.push(saveSingleUnit(toSave[j]));
+    }
+
+    Promise.all(promises).then(function () {
+      VestaAPI.toast('All drafts saved', 'success');
+    }).catch(function (err) {
+      console.error('Save all error:', err);
+      VestaAPI.toast('Some drafts failed to save', 'error');
+    });
+  }
+
+  // ── Send Per Owner ──────────────────────────────────────────────────────
+
+  function onPreviewOwner(e) {
+    var ownerId = parseInt(e.currentTarget.getAttribute('data-owner-id'), 10);
+    previewOwner(ownerId);
+  }
+
+  function onSendOwner(e) {
+    var ownerId = parseInt(e.currentTarget.getAttribute('data-owner-id'), 10);
+    sendOwner(ownerId);
+  }
+
+  function saveAllUnitsForOwner(ownerId) {
+    var report = ownerReports[ownerId];
+    if (!report || !report.units) return Promise.resolve();
+
+    var promises = [];
+    for (var i = 0; i < report.units.length; i++) {
+      var unitId = report.units[i].unit_id;
+      var text = propNoteMap[unitId] || '';
+      promises.push(
+        VestaAPI.post('/dashboard/property-notes', {
+          unit_id: unitId,
+          week_date: weekDate,
+          author: 'Staff',
+          note_text: text,
+        })
+      );
+      dirtyUnits[unitId] = false;
+    }
+
+    return Promise.all(promises);
+  }
+
+  function previewOwner(ownerId) {
+    // Save all unit notes first, ensure owner note, then preview
+    saveAllUnitsForOwner(ownerId).then(function () {
+      return ensureOwnerNote(ownerId);
+    }).then(function () {
+      var note = noteMap[ownerId];
+      if (!note || !note.id) {
+        VestaAPI.toast('Error: no note found', 'error');
+        return;
+      }
+      return VestaAPI.post('/dashboard/owner-notes/' + note.id + '/preview', {});
+    }).then(function (result) {
+      if (!result) return;
       var modal = document.getElementById('email-preview-modal');
       var iframe = document.getElementById('preview-iframe');
       modal.style.display = 'block';
       iframe.srcdoc = result.html;
-    } catch (err) {
+    }).catch(function (err) {
       console.error('Preview error:', err);
       VestaAPI.toast('Error loading preview', 'error');
-    }
+    });
+  }
+
+  function sendOwner(ownerId) {
+    saveAllUnitsForOwner(ownerId).then(function () {
+      return ensureOwnerNote(ownerId);
+    }).then(function () {
+      var note = noteMap[ownerId];
+      if (!note || !note.id) {
+        VestaAPI.toast('Error: no note found', 'error');
+        return Promise.reject(new Error('no note'));
+      }
+      // Mark as reviewed then send
+      return VestaAPI.put('/dashboard/owner-notes/' + note.id, { status: 'reviewed' });
+    }).then(function (updated) {
+      noteMap[ownerId] = updated;
+      return VestaAPI.post('/dashboard/owner-notes/' + updated.id + '/send', {});
+    }).then(function (result) {
+      if (result.status === 'error') {
+        VestaAPI.toast('Error: ' + (result.detail || 'Send failed'), 'error');
+        return;
+      }
+      noteMap[ownerId] = result;
+      if (result.sent_at) {
+        lastSentMap[ownerId] = result.sent_at;
+      }
+      updateReadyCount();
+      var ownerName = '';
+      for (var i = 0; i < owners.length; i++) {
+        if (owners[i].owner_id === ownerId) { ownerName = owners[i].owner_name; break; }
+      }
+      VestaAPI.toast('Email sent to ' + ownerName, 'success');
+    }).catch(function (err) {
+      if (err && err.message === 'no note') return;
+      console.error('Send error:', err);
+      VestaAPI.toast('Error sending email', 'error');
+    });
   }
 
   function closePreview() {
     document.getElementById('email-preview-modal').style.display = 'none';
   }
 
-  async function sendEmail(owner) {
-    var noteId = document.getElementById('note-id').value;
+  // ── Send All Reviewed ──────────────────────────────────────────────────
 
-    try {
-      if (!noteId) {
-        var saved = await saveNote(owner, 'reviewed');
-        if (!saved) return;
-        noteId = saved.id;
-      }
-
-      var result = await VestaAPI.post('/dashboard/owner-notes/' + noteId + '/send', {});
-      if (result.status === 'error') {
-        VestaAPI.toast('Error: ' + (result.detail || 'Send failed'), 'error');
-        return;
-      }
-
-      noteMap[owner.owner_id] = result;
-      if (result.sent_at) {
-        lastSentMap[owner.owner_id] = result.sent_at;
-      }
-
-      renderOwnerList();
-      loadOwnerDetail(owner);
-      VestaAPI.toast('Email sent to ' + owner.owner_name, 'success');
-    } catch (err) {
-      console.error('Send email error:', err);
-      VestaAPI.toast('Error: ' + err.message, 'error');
-    }
-  }
-
-  async function saveNoteAndNext(owner) {
-    var saved = await saveNote(owner, 'draft');
-    if (!saved) return;
-
-    var nextIndex = currentOwnerIndex + 1;
-    if (nextIndex < owners.length) {
-      selectOwner(nextIndex);
-    } else {
-      VestaAPI.toast('All owners reviewed', 'success');
-    }
-  }
-
-  // ── Send All Reviewed ───────────────────────────────────────────────────
-
-  async function sendAllReviewed() {
+  function sendAllReviewed() {
     var reviewedNotes = [];
     var keys = Object.keys(noteMap);
     for (var i = 0; i < keys.length; i++) {
@@ -502,28 +742,54 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     var sentCount = 0;
+    var chain = Promise.resolve();
     for (var j = 0; j < reviewedNotes.length; j++) {
-      try {
-        var result = await VestaAPI.post('/dashboard/owner-notes/' + reviewedNotes[j].id + '/send', {});
-        if (result.status !== 'error') {
-          noteMap[result.owner_id] = result;
-          if (result.sent_at) lastSentMap[result.owner_id] = result.sent_at;
-          sentCount++;
-        }
-      } catch (err) {
-        console.error('Send error for note ' + reviewedNotes[j].id + ':', err);
-      }
+      (function (note) {
+        chain = chain.then(function () {
+          return VestaAPI.post('/dashboard/owner-notes/' + note.id + '/send', {}).then(function (result) {
+            if (result.status !== 'error') {
+              noteMap[result.owner_id] = result;
+              if (result.sent_at) lastSentMap[result.owner_id] = result.sent_at;
+              sentCount++;
+            }
+          }).catch(function (err) {
+            console.error('Send error for note ' + note.id + ':', err);
+          });
+        });
+      })(reviewedNotes[j]);
     }
 
-    renderOwnerList();
-    VestaAPI.toast('Sent ' + sentCount + ' of ' + reviewedNotes.length + ' emails', 'success');
+    chain.then(function () {
+      updateReadyCount();
+      renderPage();
+      VestaAPI.toast('Sent ' + sentCount + ' of ' + reviewedNotes.length + ' emails', 'success');
+    });
+  }
 
-    if (currentOwnerIndex >= 0) {
-      loadOwnerDetail(owners[currentOwnerIndex]);
+  // ── Ready Count ────────────────────────────────────────────────────────
+
+  function updateReadyCount() {
+    var reviewed = 0;
+    var total = owners.length;
+    var keys = Object.keys(noteMap);
+    for (var i = 0; i < keys.length; i++) {
+      if (noteMap[keys[i]].status === 'reviewed') reviewed++;
+    }
+    var el = document.getElementById('ready-count');
+    if (el) {
+      el.textContent = reviewed + ' of ' + total + ' owner' + (total !== 1 ? 's' : '') + ' ready to send';
     }
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
+  // ── DOM Badge ──────────────────────────────────────────────────────────
+
+  function domClass(dom) {
+    if (dom >= 60) return 'dom-danger';
+    if (dom >= 30) return 'dom-warn';
+    return 'dom-ok';
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
 
   function esc(text) {
     if (text == null) return '';
@@ -532,12 +798,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     return div.innerHTML;
   }
 
-  function escAttr(text) {
-    if (text == null) return '';
-    return String(text)
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
 });

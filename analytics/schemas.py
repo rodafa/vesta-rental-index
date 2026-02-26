@@ -210,23 +210,25 @@ class ActiveListingSchema(Schema):
     is_flagged: bool
 
 
-class VacantUnitDetailSchema(Schema):
+class ActiveListingDetailSchema(Schema):
     unit_id: int
     address: str
     city: str
     state: str
     bedrooms: Optional[int] = None
     target_rent: Optional[Decimal] = None
+    listed_price: Optional[Decimal] = None
+    days_on_market: Optional[int] = None
     portfolio_name: str
     property_name: str
 
 
-class OwnerVacancySchema(Schema):
+class OwnerActiveListingSchema(Schema):
     owner_id: int
     owner_name: str
     owner_email: str
-    vacant_unit_count: int
-    vacant_units: list[VacantUnitDetailSchema]
+    active_listing_count: int
+    active_listings: list[ActiveListingDetailSchema]
 
 
 class LeaseExpirationDetailSchema(Schema):
@@ -416,7 +418,10 @@ class OwnerReportUnitSchema(Schema):
     city: str
     state: str
     zip_code: str = ""
+    portfolio_name: str = ""
     bedrooms: Optional[int] = None
+    bathrooms: Optional[Decimal] = None
+    square_feet: Optional[int] = None
     target_rent: Optional[Decimal] = None
     current_list_price: Optional[Decimal] = None
     days_on_market: Optional[int] = None
@@ -435,10 +440,9 @@ class OwnerReportUnitSchema(Schema):
     prev_notes: list[dict] = []
 
 
-class PortfolioAvgSchema(Schema):
-    avg_dom: Optional[int] = None
-    avg_list_price: Optional[Decimal] = None
-    avg_portfolio_rent: Optional[Decimal] = None
+class PortfolioMedianSchema(Schema):
+    median_dom: Optional[int] = None
+    median_list_price: Optional[Decimal] = None
     active_unit_count: int = 0
 
 
@@ -446,5 +450,5 @@ class OwnerReportDetailSchema(Schema):
     owner_id: int
     owner_name: str
     owner_email: str
-    portfolio_averages: PortfolioAvgSchema
+    portfolio_medians: PortfolioMedianSchema
     units: list[OwnerReportUnitSchema]

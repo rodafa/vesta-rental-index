@@ -2,32 +2,20 @@
 {% load static %}
 
 {% block nav_owners %}active{% endblock %}
-{% block title %}Owner Reports{% endblock %}
+{% block title %}Leasing Updates{% endblock %}
 
 {% block content %}
-<h1 class="page-title">Owner Reports</h1>
+<h1 class="page-title">Leasing Updates</h1>
 <p class="page-subtitle">Week of <span id="report-date">Loading...</span></p>
 
-<div class="split-layout">
-  <div class="panel-left">
-    <div class="card">
-      <div class="card-title">Owners with Vacancies</div>
-      <div id="owner-list">
-        <div class="loading">Loading owners...</div>
-      </div>
-    </div>
-  </div>
-  <div class="panel-right">
-    <div class="card" id="owner-detail-card">
-      <div id="owner-detail">
-        <div class="empty-state">Select an owner from the list</div>
-      </div>
-    </div>
-  </div>
+<div id="owner-accordion">
+  <div class="loading">Loading owners...</div>
 </div>
 
-<div style="margin-top: .5rem; display: flex; gap: .5rem;">
+<div id="page-actions" style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+  <button class="btn btn-secondary" id="save-all-btn">Save All Drafts</button>
   <button class="btn btn-success" id="send-all-btn">Send All Reviewed</button>
+  <span id="ready-count" style="font-size:.85rem;color:var(--text-muted);"></span>
 </div>
 
 <div id="email-preview-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.5);">
@@ -42,5 +30,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/owner_reports.js' %}?v=3"></script>
+<script src="{% static 'dashboard/js/owner_reports.js' %}?v=7"></script>
 {% endblock %}

@@ -1,168 +1,243 @@
 {% load i18n %}<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#333;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;">
-<tr><td align="center" style="padding:24px 16px;">
+<body style="margin:0;padding:0;background:#f0f0f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#333;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f0;">
+<tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;">
 
-{# ── Header ─────────────────────────────────────────────── #}
-<tr><td style="background:#1a1a2e;padding:28px 32px;border-radius:8px 8px 0 0;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-    <td style="color:#fff;font-size:22px;font-weight:700;letter-spacing:.5px;">Vesta</td>
-    <td align="right" style="color:rgba(255,255,255,.6);font-size:13px;">Weekly Vacancy Report &middot; {{ report_date|date:"M j, Y" }}</td>
-  </tr></table>
+{# ══════════════════════════════════════════════════════════ #}
+{# HEADER — Vesta branding + report title + date             #}
+{# ══════════════════════════════════════════════════════════ #}
+<tr><td style="background:#1a2744;padding:32px 32px 24px;border-radius:8px 8px 0 0;text-align:center;">
+  {# Replace with hosted logo: <img src="https://..." alt="Vesta" width="140" style="display:block;margin:0 auto 12px;"> #}
+  <p style="margin:0 0 4px;color:#fff;font-size:32px;font-weight:800;letter-spacing:2px;">VESTA</p>
+  <p style="margin:0 0 2px;color:rgba(255,255,255,.85);font-size:15px;font-weight:600;">Weekly Leasing Report</p>
+  <p style="margin:0;color:rgba(255,255,255,.55);font-size:12px;">{{ report_date|date:"F j, Y" }}</p>
 </td></tr>
 
-{# ── Greeting + Summary ─────────────────────────────────── #}
-<tr><td style="background:#fff;padding:28px 32px;border-bottom:1px solid #eee;">
-  <p style="margin:0 0 12px;font-size:16px;">Hi {{ owner_name }},</p>
-  {% if summary_text %}
-  <p style="margin:0;font-size:14px;line-height:1.6;color:#444;">{{ summary_text|linebreaksbr }}</p>
-  {% else %}
-  <p style="margin:0;font-size:14px;color:#888;">Here's this week's update on your vacant properties.</p>
-  {% endif %}
+{# ══════════════════════════════════════════════════════════ #}
+{# GREETING                                                   #}
+{# ══════════════════════════════════════════════════════════ #}
+<tr><td style="background:#fff;padding:24px 32px 20px;">
+  <p style="margin:0;font-size:15px;line-height:1.5;">Hi {{ owner_name }},</p>
+  <p style="margin:8px 0 0;font-size:14px;line-height:1.6;color:#555;">Below is your weekly leasing update. We've included our notes and recommendations first, followed by detailed performance data for each of your properties.</p>
 </td></tr>
 
-{# ── Property Cards ──────────────────────────────────────── #}
+{# ══════════════════════════════════════════════════════════ #}
+{# SECTION 1 — Weekly Summary & Recommendations              #}
+{# ══════════════════════════════════════════════════════════ #}
+<tr><td style="background:#1a2744;padding:16px 32px;text-align:center;">
+  <p style="margin:0;color:#fff;font-size:18px;font-weight:700;">Weekly Summary &amp; Recommendations</p>
+  <p style="margin:4px 0 0;color:rgba(255,255,255,.6);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Week Ending: {{ week_end_date|date:"n/j/Y" }}</p>
+</td></tr>
+
 {% for unit in units %}
-<tr><td style="background:#fff;padding:24px 32px;border-bottom:1px solid #eee;">
-
-  {# Property header #}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;"><tr>
-    <td>
-      <p style="margin:0;font-size:15px;font-weight:700;color:#1a1a2e;">{{ unit.address }}</p>
-      <p style="margin:2px 0 0;font-size:12px;color:#888;">{{ unit.city }}, {{ unit.state }} {{ unit.zip_code }}{% if unit.bedrooms %} &middot; {{ unit.bedrooms }}BR{% endif %}</p>
-    </td>
-    <td align="right" style="vertical-align:top;">
-      {% if unit.days_on_market != None %}
-      <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;{% if unit.days_on_market >= 30 %}background:#f8d7da;color:#721c24;{% elif unit.days_on_market >= 14 %}background:#fff3cd;color:#856404;{% else %}background:#d4edda;color:#155724;{% endif %}">{{ unit.days_on_market }} DOM</span>
-      {% endif %}
-    </td>
-  </tr></table>
-
-  {# Weekly + All-Time Performance #}
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
-  <tr>
-    <td width="50%" style="vertical-align:top;padding-right:8px;">
-      <p style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">This Week</p>
-      <table role="presentation" width="100%" cellpadding="4" cellspacing="0" style="font-size:13px;">
-        <tr style="background:#f8f9ff;">
-          <td style="color:#888;">Leads</td>
-          <td align="right" style="font-weight:600;">{{ unit.weekly.leads }}{% if unit.leads_delta %}<span style="font-size:11px;color:{% if unit.leads_delta > 0 %}#28a745{% else %}#dc3545{% endif %};margin-left:4px;">{% if unit.leads_delta > 0 %}+{% endif %}{{ unit.leads_delta }}</span>{% endif %}</td>
-        </tr>
-        <tr>
-          <td style="color:#888;">Showings</td>
-          <td align="right" style="font-weight:600;">{{ unit.weekly.showings }}</td>
-        </tr>
-        <tr style="background:#f8f9ff;">
-          <td style="color:#888;">Missed</td>
-          <td align="right" style="font-weight:600;{% if unit.weekly.missed > 0 %}color:#dc3545;{% endif %}">{{ unit.weekly.missed }}</td>
-        </tr>
-        <tr>
-          <td style="color:#888;">Apps</td>
-          <td align="right" style="font-weight:600;">{{ unit.weekly.apps }}</td>
-        </tr>
-      </table>
-    </td>
-    <td width="50%" style="vertical-align:top;padding-left:8px;">
-      <p style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">All-Time</p>
-      <table role="presentation" width="100%" cellpadding="4" cellspacing="0" style="font-size:13px;">
-        <tr style="background:#f8f9ff;">
-          <td style="color:#888;">Leads</td>
-          <td align="right" style="font-weight:600;">{{ unit.all_time.leads }}</td>
-        </tr>
-        <tr>
-          <td style="color:#888;">Showings</td>
-          <td align="right" style="font-weight:600;">{{ unit.all_time.showings }}</td>
-        </tr>
-        <tr style="background:#f8f9ff;">
-          <td style="color:#888;">Missed</td>
-          <td align="right" style="font-weight:600;">{{ unit.all_time.missed }}</td>
-        </tr>
-        <tr>
-          <td style="color:#888;">Apps</td>
-          <td align="right" style="font-weight:600;">{{ unit.all_time.apps }}</td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-  </table>
-
-  {# Market Context #}
-  <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="background:#f0f4ff;border-radius:6px;font-size:13px;margin-bottom:12px;">
-  <tr>
-    <td style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.5px;" colspan="4"><strong>Market Context</strong></td>
-  </tr>
-  <tr>
-    <td style="color:#888;">List Price</td>
-    <td style="font-weight:600;">{% if unit.current_list_price %}${{ unit.current_list_price|floatformat:0 }}{% else %}&mdash;{% endif %}</td>
-    <td style="color:#888;">Zip Avg</td>
-    <td style="font-weight:600;">{% if unit.market_context.zip_avg_list_price %}${{ unit.market_context.zip_avg_list_price|floatformat:0 }}{% else %}&mdash;{% endif %}</td>
-  </tr>
-  </table>
-
-  {# Showing Feedback #}
-  {% if unit.showing_feedback %}
-  <div style="margin-bottom:12px;">
-    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Showing Feedback</p>
-    {% for fb in unit.showing_feedback %}
-    <p style="margin:0 0 4px;font-size:13px;line-height:1.5;color:#444;padding-left:8px;border-left:3px solid #4a90d9;">
-      {% if fb.prospect_name %}<strong>{{ fb.prospect_name }}</strong>{% if fb.date %} ({{ fb.date }}){% endif %}: {% endif %}{{ fb.feedback_summary }}
-    </p>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {# Upcoming Showings #}
-  {% if unit.upcoming_showings %}
-  <div style="margin-bottom:12px;">
-    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Upcoming Showings</p>
-    {% for s in unit.upcoming_showings %}
-    <p style="margin:0 0 2px;font-size:13px;color:#444;">{{ s.date }} at {{ s.time }}{% if s.prospect_name %} &mdash; {{ s.prospect_name }}{% endif %}</p>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {# Staff Notes #}
+<tr><td style="background:#fff;padding:20px 32px;{% if not forloop.last %}border-bottom:1px solid #eee;{% endif %}">
+  <p style="margin:0 0 2px;font-size:15px;font-weight:700;color:#1a2744;">{{ owner_full_name }}</p>
+  <p style="margin:0 0 12px;font-size:13px;color:#888;">{{ unit.address }}, {{ unit.city }}, {{ unit.state }} {{ unit.zip_code }}</p>
   {% if unit.property_note %}
-  <div style="background:#fffde7;border-radius:6px;padding:10px 14px;margin-bottom:12px;">
-    <p style="margin:0 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Notes</p>
-    <p style="margin:0;font-size:13px;line-height:1.5;color:#444;">{{ unit.property_note|linebreaksbr }}</p>
+  <div style="border-left:4px solid #b0b8c9;padding:12px 16px;background:#f8f9fc;border-radius:0 4px 4px 0;">
+    <p style="margin:0;font-size:14px;line-height:1.65;color:#444;">{{ unit.property_note|linebreaksbr }}</p>
   </div>
+  {% else %}
+  <p style="margin:0;font-size:13px;color:#aaa;font-style:italic;">No staff notes this week.</p>
   {% endif %}
-
-  {# Price Recommendation #}
-  {% if unit.price_recommendation.recommended %}
-  <div style="background:#fff3cd;border-radius:6px;padding:10px 14px;border-left:3px solid #856404;">
-    <p style="margin:0;font-size:13px;line-height:1.5;color:#856404;font-weight:600;">{{ unit.price_recommendation.message }}</p>
-  </div>
-  {% endif %}
-
-  {# Zillow Link #}
-  {% if unit.zillow_url %}
-  <p style="margin:12px 0 0;"><a href="{{ unit.zillow_url }}" style="color:#4a90d9;font-size:13px;text-decoration:none;" target="_blank">View on Zillow &rarr;</a></p>
-  {% endif %}
-
 </td></tr>
 {% endfor %}
 
-{# ── Portfolio Totals ────────────────────────────────────── #}
-{% if portfolio_averages %}
-<tr><td style="background:#f8f9ff;padding:20px 32px;border-top:2px solid #eee;">
-  <p style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Portfolio Averages</p>
-  <table role="presentation" cellpadding="0" cellspacing="0" style="font-size:13px;"><tr>
-    {% if portfolio_averages.active_unit_count %}<td style="padding-right:24px;"><span style="color:#888;">Active Units:</span> <strong>{{ portfolio_averages.active_unit_count }}</strong></td>{% endif %}
-    {% if portfolio_averages.avg_dom != None %}<td style="padding-right:24px;"><span style="color:#888;">Avg DOM:</span> <strong>{{ portfolio_averages.avg_dom }}</strong></td>{% endif %}
-    {% if portfolio_averages.avg_list_price %}<td style="padding-right:24px;"><span style="color:#888;">Avg List Price:</span> <strong>${{ portfolio_averages.avg_list_price|floatformat:0 }}</strong></td>{% endif %}
-    {% if portfolio_averages.avg_portfolio_rent %}<td><span style="color:#888;">Avg Rent:</span> <strong>${{ portfolio_averages.avg_portfolio_rent|floatformat:0 }}</strong></td>{% endif %}
-  </tr></table>
+{# ══════════════════════════════════════════════════════════ #}
+{# SECTION 2 — Per-Property Data Cards                       #}
+{# ══════════════════════════════════════════════════════════ #}
+{% for unit in units %}
+{# Spacer between cards #}
+<tr><td style="background:#f0f0f0;padding:8px 0;font-size:0;line-height:0;">&nbsp;</td></tr>
+
+<tr><td>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;">
+
+  {# Card header — property address #}
+  <tr><td style="padding:20px 28px 14px;border-bottom:1px solid #eee;">
+    <p style="margin:0 0 2px;font-size:16px;font-weight:700;color:#1a2744;">{{ owner_full_name }}</p>
+    <p style="margin:0;font-size:13px;color:#888;">{{ unit.address }}, {{ unit.city }}, {{ unit.state }} {{ unit.zip_code }}</p>
+  </td></tr>
+
+  {# ── WEEKLY PERFORMANCE ──────────────────────────────── #}
+  <tr><td style="padding:20px 28px 6px;">
+    <p style="margin:0;font-size:16px;font-weight:700;color:#1a2744;">WEEKLY PERFORMANCE</p>
+  </td></tr>
+  <tr><td style="padding:0 28px 20px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+      {# Table header #}
+      <tr style="border-bottom:2px solid #e0e0e0;">
+        <td style="padding:10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888;" width="50%">Metric</td>
+        <td align="center" style="padding:10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888;" width="25%">Count</td>
+        <td align="center" style="padding:10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888;" width="25%">WoW</td>
+      </tr>
+      {# Leads #}
+      <tr style="background:#f7f8fb;">
+        <td style="padding:12px 0;font-size:14px;">Leads</td>
+        <td align="center" style="padding:12px 0;font-size:14px;font-weight:600;">{{ unit.weekly.leads }}</td>
+        <td align="center" style="padding:12px 0;">
+          {% if unit.leads_delta > 0 %}<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#d4edda;color:#155724;">+{{ unit.leads_delta }}</span>
+          {% elif unit.leads_delta < 0 %}<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#f8d7da;color:#721c24;">{{ unit.leads_delta }}</span>
+          {% else %}<span style="font-size:13px;color:#888;">0</span>{% endif %}
+        </td>
+      </tr>
+      {# Showings Completed #}
+      <tr>
+        <td style="padding:12px 0;font-size:14px;border-top:1px solid #f0f0f0;">Showings Completed</td>
+        <td align="center" style="padding:12px 0;font-size:14px;font-weight:600;border-top:1px solid #f0f0f0;">{{ unit.weekly.showings }}</td>
+        <td align="center" style="padding:12px 0;border-top:1px solid #f0f0f0;">
+          {% if unit.showings_delta > 0 %}<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#d4edda;color:#155724;">+{{ unit.showings_delta }}</span>
+          {% elif unit.showings_delta < 0 %}<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#f8d7da;color:#721c24;">{{ unit.showings_delta }}</span>
+          {% else %}<span style="font-size:13px;color:#888;">0</span>{% endif %}
+        </td>
+      </tr>
+      {# Applications #}
+      <tr style="background:#f7f8fb;">
+        <td style="padding:12px 0;font-size:14px;border-top:1px solid #f0f0f0;">Applications</td>
+        <td align="center" style="padding:12px 0;font-size:14px;font-weight:600;border-top:1px solid #f0f0f0;">{{ unit.weekly.apps }}</td>
+        <td align="center" style="padding:12px 0;border-top:1px solid #f0f0f0;">
+          {% if unit.apps_delta > 0 %}<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#d4edda;color:#155724;">+{{ unit.apps_delta }}</span>
+          {% elif unit.apps_delta < 0 %}<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#f8d7da;color:#721c24;">{{ unit.apps_delta }}</span>
+          {% else %}<span style="font-size:13px;color:#888;">0</span>{% endif %}
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+
+  {# ── ALL TIME PERFORMANCE ────────────────────────────── #}
+  <tr><td style="padding:8px 28px 6px;">
+    <p style="margin:0;font-size:16px;font-weight:700;color:#1a2744;">ALL TIME PERFORMANCE</p>
+  </td></tr>
+  <tr><td style="padding:0 28px 20px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+      {# Table header #}
+      <tr style="border-bottom:2px solid #e0e0e0;">
+        <td style="padding:10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888;" width="50%">Metric</td>
+        <td align="center" style="padding:10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888;" width="25%">Total</td>
+        <td align="center" style="padding:10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888;" width="25%">Avg / Wk</td>
+      </tr>
+      {# Leads #}
+      <tr style="background:#f7f8fb;">
+        <td style="padding:12px 0;font-size:14px;">Leads</td>
+        <td align="center" style="padding:12px 0;font-size:14px;font-weight:600;">{{ unit.all_time.leads }}</td>
+        <td align="center" style="padding:12px 0;font-size:14px;color:#555;">{{ unit.avg_leads_per_week }}</td>
+      </tr>
+      {# Showings Completed #}
+      <tr>
+        <td style="padding:12px 0;font-size:14px;border-top:1px solid #f0f0f0;">Showings Completed</td>
+        <td align="center" style="padding:12px 0;font-size:14px;font-weight:600;border-top:1px solid #f0f0f0;">{{ unit.all_time.showings }}</td>
+        <td align="center" style="padding:12px 0;font-size:14px;color:#555;border-top:1px solid #f0f0f0;">{{ unit.avg_showings_per_week }}</td>
+      </tr>
+      {# Applications #}
+      <tr style="background:#f7f8fb;">
+        <td style="padding:12px 0;font-size:14px;border-top:1px solid #f0f0f0;">Applications</td>
+        <td align="center" style="padding:12px 0;font-size:14px;font-weight:600;border-top:1px solid #f0f0f0;">{{ unit.all_time.apps }}</td>
+        <td align="center" style="padding:12px 0;font-size:14px;color:#555;border-top:1px solid #f0f0f0;">{% if unit.avg_apps_per_week %}{{ unit.avg_apps_per_week }}{% else %}-{% endif %}</td>
+      </tr>
+      {# Days On Market — standalone row #}
+      <tr>
+        <td style="padding:12px 0;font-size:14px;font-style:italic;border-top:1px solid #e0e0e0;">Days On Market</td>
+        <td align="center" colspan="2" style="padding:12px 0;font-size:14px;font-weight:600;border-top:1px solid #e0e0e0;">{% if unit.days_on_market != None %}{{ unit.days_on_market }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {# Current List Price — standalone row #}
+      <tr style="background:#f7f8fb;">
+        <td style="padding:12px 0;font-size:14px;font-style:italic;border-top:1px solid #f0f0f0;">Current List Price</td>
+        <td align="center" colspan="2" style="padding:12px 0;font-size:14px;font-weight:600;border-top:1px solid #f0f0f0;">{% if unit.formatted_list_price %}{{ unit.formatted_list_price }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+    </table>
+  </td></tr>
+
+  {# ── MARKET CONTEXT ──────────────────────────────────── #}
+  <tr><td style="padding:0 28px 24px;">
+    <div style="background:#e8ecf4;border-radius:8px;padding:18px 22px;">
+      <p style="margin:0 0 12px;font-size:15px;font-weight:700;color:#1a2744;">&#x1F4CA; Market Context (Based on {{ market_avg.active_count }} Active Listings):</p>
+      <p style="margin:0 0 6px;font-size:13px;line-height:1.7;color:#333;">&bull; Your property is averaging <strong>{{ unit.avg_leads_per_week }} leads/week</strong> (Market Avg: <strong>{{ market_avg.leads_per_week }}</strong>).</p>
+      <p style="margin:0 0 6px;font-size:13px;line-height:1.7;color:#333;">&bull; Showing traffic is averaging <strong>{{ unit.avg_showings_per_week }} per week</strong> (Market Avg: <strong>{{ market_avg.showings_per_week }}</strong>).</p>
+      <p style="margin:0 0 12px;font-size:13px;line-height:1.7;color:#333;">&bull; This listing has been active for <strong>{% if unit.days_on_market != None %}{{ unit.days_on_market }}{% else %}0{% endif %} days</strong>, compared to the portfolio average of <strong>{{ market_avg.avg_dom }} days</strong>.</p>
+      <p style="margin:0;font-size:11px;color:#888;font-style:italic;">* Data calculated from {{ market_avg.active_count }} active properties currently managed by Vesta.</p>
+    </div>
+  </td></tr>
+
+</table>
+</td></tr>
+{% endfor %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{# SECTION 3 — Portfolio Totals Summary                       #}
+{# ══════════════════════════════════════════════════════════ #}
+<tr><td style="background:#f0f0f0;padding:8px 0;font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td style="background:#e8ecf4;border:1px solid #cdd4e0;border-radius:8px;padding:22px 28px;">
+  <p style="margin:0 0 14px;font-size:14px;font-weight:700;color:#1a2744;text-transform:uppercase;letter-spacing:.3px;">Portfolio Totals Summary (All {{ portfolio_totals.listing_count }} Listings)</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#333;">
+    <tr>
+      <td style="padding:4px 0;" width="50%">Total Leads: <strong>{{ portfolio_totals.total_leads }}</strong></td>
+      <td style="padding:4px 0;" width="50%">Total Showings: <strong>{{ portfolio_totals.total_showings }}</strong></td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;">Total Apps: <strong>{{ portfolio_totals.total_apps }}</strong></td>
+      <td style="padding:4px 0;">Avg Days on Market: <strong>{{ portfolio_totals.avg_dom }}</strong></td>
+    </tr>
+    <tr>
+      <td style="padding:4px 0;">Lead-to-Show: <strong>{{ portfolio_totals.lead_to_show_pct }}%</strong></td>
+      <td style="padding:4px 0;">Show-to-App: <strong>{{ portfolio_totals.show_to_app_pct }}%</strong></td>
+    </tr>
+  </table>
+</td></tr>
+
+{# ══════════════════════════════════════════════════════════ #}
+{# ZILLOW BUTTONS                                             #}
+{# ══════════════════════════════════════════════════════════ #}
+{% for unit in units %}{% if unit.zillow_url %}
+<tr><td align="center" style="padding:16px 0 {% if forloop.last %}0{% else %}4{% endif %}px;">
+  <a href="{{ unit.zillow_url }}" style="display:inline-block;background:#1a2744;color:#fff;padding:14px 32px;border-radius:6px;font-size:14px;font-weight:700;text-decoration:none;letter-spacing:.3px;" target="_blank">View Live Listing on Zillow</a>
+  {% if units|length > 1 %}<p style="margin:6px 0 0;font-size:11px;color:#888;">{{ unit.address }}</p>{% endif %}
+</td></tr>
+{% endif %}{% endfor %}
+
+{# ══════════════════════════════════════════════════════════ #}
+{# SECTION 4 — Vesta Notes & Updates (optional)               #}
+{# ══════════════════════════════════════════════════════════ #}
+{% if summary_text %}
+<tr><td style="padding:16px 0 0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;">
+    <tr><td style="background:#1a2744;padding:12px 28px;">
+      <p style="margin:0;color:#fff;font-size:15px;font-weight:700;">Vesta Notes &amp; Updates</p>
+    </td></tr>
+    <tr><td style="padding:18px 28px;">
+      <p style="margin:0;font-size:14px;line-height:1.65;color:#444;">{{ summary_text|linebreaksbr }}</p>
+    </td></tr>
+  </table>
 </td></tr>
 {% endif %}
 
-{# ── Footer ──────────────────────────────────────────────── #}
-<tr><td style="background:#1a1a2e;padding:20px 32px;border-radius:0 0 8px 8px;text-align:center;">
-  <p style="margin:0;color:rgba(255,255,255,.5);font-size:12px;">Vesta Property Management &middot; Sent {{ report_date|date:"M j, Y" }}</p>
+{# ══════════════════════════════════════════════════════════ #}
+{# SECTION 5 — Communication Plan                             #}
+{# ══════════════════════════════════════════════════════════ #}
+<tr><td style="padding:16px 0 0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;">
+    <tr><td style="background:#1a2744;padding:12px 28px;">
+      <p style="margin:0;color:#fff;font-size:15px;font-weight:700;">Our Communication Plan</p>
+    </td></tr>
+    <tr><td style="padding:18px 28px;">
+      <p style="margin:0 0 8px;font-size:14px;line-height:1.65;color:#444;">We send these leasing updates every week so you stay informed on your property's performance. If activity is slow or a price adjustment is needed, we'll include specific recommendations above.</p>
+      <p style="margin:0;font-size:14px;line-height:1.65;color:#444;">Have questions or want to discuss strategy? Simply reply to this email or reach out to your property manager anytime.</p>
+    </td></tr>
+  </table>
+</td></tr>
+
+{# ══════════════════════════════════════════════════════════ #}
+{# FOOTER                                                     #}
+{# ══════════════════════════════════════════════════════════ #}
+<tr><td style="padding:24px 32px;text-align:center;">
+  <p style="margin:0 0 6px;font-size:13px;color:#555;">
+    <a href="mailto:rodrigo@vestapm.com" style="color:#1a2744;text-decoration:none;font-weight:600;">Send Us Feedback</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://g.page/r/vestapm/review" style="color:#1a2744;text-decoration:none;font-weight:600;">Leave a Review</a>
+  </p>
+  <p style="margin:12px 0 0;color:#aaa;font-size:11px;">Vesta Property Management &middot; {{ report_date|date:"Y" }}</p>
 </td></tr>
 
 </table>

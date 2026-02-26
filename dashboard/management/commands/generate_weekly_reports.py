@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from django.core.management.base import BaseCommand
 
 from dashboard.models import OwnerReportNote
-from leasing.models import Lease
+from market.models import DailyUnitSnapshot
 from properties.models import Owner
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ def _week_monday(d: date) -> date:
 
 class Command(BaseCommand):
     help = (
-        "Generate draft owner report notes for all owners with vacancies. "
+        "Generate draft owner report notes for all owners with active listings. "
         "Intended to run Monday night so the team can review Tuesday morning."
     )
 
@@ -47,10 +47,20 @@ class Command(BaseCommand):
         self.stdout.write(f"\nGenerating weekly owner reports for {report_date}")
         self.stdout.write(f"{'='*50}")
 
-        # Find owners with vacant units (same logic as owners_with_vacancies endpoint)
-        active_lease_unit_ids = set(
-            Lease.objects.filter(primary_lease_status=2)
-            .values_list("unit_id", flat=True)
+        # Find owners with active listings (same logic as owners_with_active_listings endpoint)
+        latest_date = (
+            DailyUnitSnapshot.objects.order_by("-snapshot_date")
+            .values_list("snapshot_date", flat=True)
+            .first()
+        )
+        if not latest_date:
+            self.stdout.write("No snapshots found — nothing to generate.")
+            return
+
+        active_unit_ids = set(
+            DailyUnitSnapshot.objects.filter(
+                snapshot_date=latest_date, status="active"
+            ).values_list("unit_id", flat=True)
         )
 
         owners = Owner.objects.filter(is_active=True).prefetch_related(
@@ -62,15 +72,15 @@ class Command(BaseCommand):
         errors = 0
 
         for owner in owners:
-            # Count vacant units for this owner
-            vacant_count = 0
+            # Count active listings for this owner
+            listing_count = 0
             for portfolio in owner.portfolios.all():
                 for prop in portfolio.properties.filter(is_active=True):
                     for unit in prop.units.filter(is_active=True):
-                        if unit.id not in active_lease_unit_ids:
-                            vacant_count += 1
+                        if unit.id in active_unit_ids:
+                            listing_count += 1
 
-            if vacant_count == 0:
+            if listing_count == 0:
                 continue
 
             # Check if a note already exists for this owner+date
@@ -86,13 +96,13 @@ class Command(BaseCommand):
                 continue
 
             subject = (
-                f"Weekly Vacancy Update — {report_date.strftime('%b %d, %Y')}"
+                f"Weekly Listing Update — {report_date.strftime('%b %d, %Y')}"
             )
 
             if dry_run:
                 self.stdout.write(
                     f"  [DRY RUN] {owner.name}: would create draft "
-                    f"({vacant_count} vacant units)"
+                    f"({listing_count} active listings)"
                 )
                 created += 1
                 continue
@@ -108,7 +118,7 @@ class Command(BaseCommand):
                 )
                 created += 1
                 self.stdout.write(self.style.SUCCESS(
-                    f"  {owner.name}: draft created ({vacant_count} vacant units)"
+                    f"  {owner.name}: draft created ({listing_count} active listings)"
                 ))
             except Exception as exc:
                 errors += 1

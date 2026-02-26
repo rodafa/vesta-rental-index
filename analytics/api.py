@@ -42,7 +42,7 @@ from .schemas import (
     LeasingFunnelSchema,
     LeasingPipelineSchema,
     OwnerReportDetailSchema,
-    OwnerVacancySchema,
+    OwnerActiveListingSchema,
     PortfolioSummarySchema,
     PropertyPerformanceSchema,
     ProspectSourceSchema,
@@ -597,16 +597,30 @@ def active_listings(request):
 
 
 # ---------------------------------------------------------------------------
-# 9. Owners with Vacancies (Owner Reports)
+# 9. Owners with Active Listings (Owner Reports)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/owners-with-vacancies", response=list[OwnerVacancySchema])
-def owners_with_vacancies(request):
-    """Owners who have at least one vacant unit across their portfolios."""
-    active_lease_unit_ids = set(
-        Lease.objects.filter(primary_lease_status=2).values_list("unit_id", flat=True)
+@router.get("/owners-with-active-listings", response=list[OwnerActiveListingSchema])
+def owners_with_active_listings(request):
+    """Owners who have at least one actively listed unit (DailyUnitSnapshot status=active)."""
+    latest_date = (
+        DailyUnitSnapshot.objects.order_by("-snapshot_date")
+        .values_list("snapshot_date", flat=True)
+        .first()
     )
+    if not latest_date:
+        return []
+
+    # Build a map of unit_id → snapshot for active listings on latest date
+    active_snapshots = DailyUnitSnapshot.objects.filter(
+        snapshot_date=latest_date, status="active"
+    ).select_related("unit")
+    snapshot_by_unit = {snap.unit_id: snap for snap in active_snapshots}
+    active_unit_ids = set(snapshot_by_unit.keys())
+
+    if not active_unit_ids:
+        return []
 
     owners = Owner.objects.filter(is_active=True).prefetch_related(
         "portfolios__properties__units"
@@ -614,32 +628,35 @@ def owners_with_vacancies(request):
 
     results = []
     for owner in owners:
-        vacant_units = []
+        listings = []
         for portfolio in owner.portfolios.all():
             for prop in portfolio.properties.filter(is_active=True):
                 for unit in prop.units.filter(is_active=True):
-                    if unit.id not in active_lease_unit_ids:
-                        vacant_units.append({
+                    if unit.id in active_unit_ids:
+                        snap = snapshot_by_unit[unit.id]
+                        listings.append({
                             "unit_id": unit.id,
                             "address": unit.address_line_1 or prop.address_line_1,
                             "city": unit.city or prop.city,
                             "state": unit.state or prop.state,
                             "bedrooms": unit.bedrooms,
                             "target_rent": unit.target_rental_rate,
+                            "listed_price": snap.listed_price,
+                            "days_on_market": snap.days_on_market,
                             "portfolio_name": portfolio.name,
                             "property_name": prop.name or prop.address_line_1,
                         })
 
-        if vacant_units:
+        if listings:
             results.append({
                 "owner_id": owner.id,
                 "owner_name": owner.name,
                 "owner_email": owner.email,
-                "vacant_unit_count": len(vacant_units),
-                "vacant_units": vacant_units,
+                "active_listing_count": len(listings),
+                "active_listings": listings,
             })
 
-    results.sort(key=lambda x: -x["vacant_unit_count"])
+    results.sort(key=lambda x: -x["active_listing_count"])
     return results
 
 
@@ -1137,7 +1154,7 @@ def owner_report_detail(
     owner_id: int,
     week_date: Optional[date] = None,
 ):
-    """Rich per-unit data for an owner's vacant units. Powers the owner report email."""
+    """Rich per-unit data for an owner's actively listed units. Powers the owner report email."""
     from dashboard.models import PropertyWeeklyNote
 
     owner = get_object_or_404(Owner.objects.prefetch_related("portfolios__properties__units"), pk=owner_id)
@@ -1151,27 +1168,39 @@ def owner_report_detail(
     prev_start = week_date - timedelta(days=7)
     prev_end = week_date - timedelta(days=1)
 
-    # Find vacant units for this owner
-    active_lease_unit_ids = set(
-        Lease.objects.filter(primary_lease_status=2).values_list("unit_id", flat=True)
+    # Find actively listed units for this owner
+    latest_date = (
+        DailyUnitSnapshot.objects.order_by("-snapshot_date")
+        .values_list("snapshot_date", flat=True)
+        .first()
     )
-    vacant_units = []
+    active_snapshot_unit_ids = set()
+    if latest_date:
+        active_snapshot_unit_ids = set(
+            DailyUnitSnapshot.objects.filter(
+                snapshot_date=latest_date, status="active"
+            ).values_list("unit_id", flat=True)
+        )
+
+    listed_units = []
+    unit_portfolio = {}  # unit.id → portfolio name
     for portfolio in owner.portfolios.all():
         for prop in portfolio.properties.filter(is_active=True):
             for unit in prop.units.filter(is_active=True):
-                if unit.id not in active_lease_unit_ids:
-                    vacant_units.append(unit)
+                if unit.id in active_snapshot_unit_ids:
+                    listed_units.append(unit)
+                    unit_portfolio[unit.id] = portfolio.name or ""
 
-    if not vacant_units:
+    if not listed_units:
         return {
             "owner_id": owner.id,
             "owner_name": owner.name,
             "owner_email": owner.email,
-            "portfolio_averages": {"avg_dom": None, "avg_list_price": None, "avg_portfolio_rent": None, "active_unit_count": 0},
+            "portfolio_medians": {"median_dom": None, "median_list_price": None, "active_unit_count": 0},
             "units": [],
         }
 
-    unit_ids = [u.id for u in vacant_units]
+    unit_ids = [u.id for u in listed_units]
 
     # ── Batch queries ────────────────────────────────────────────────────
 
@@ -1232,7 +1261,7 @@ def owner_report_detail(
 
     # Market context: latest segment stats per zip code
     zip_codes = set()
-    for u in vacant_units:
+    for u in listed_units:
         zc = u.postal_code or (u.property.postal_code if u.property else "")
         if zc:
             zip_codes.add(zc)
@@ -1289,12 +1318,11 @@ def owner_report_detail(
     for s in upcoming_showings:
         upcoming_by_unit[s.unit_id].append(s)
 
-    # Portfolio averages
+    # Portfolio medians
     latest_market = DailyMarketStats.objects.order_by("-snapshot_date").first()
-    portfolio_avgs = {
-        "avg_dom": latest_market.average_dom if latest_market else None,
-        "avg_list_price": latest_market.average_price if latest_market else None,
-        "avg_portfolio_rent": latest_market.average_portfolio_rent if latest_market else None,
+    portfolio_medians = {
+        "median_dom": latest_market.median_dom if latest_market else None,
+        "median_list_price": latest_market.median_price if latest_market else None,
         "active_unit_count": latest_market.active_unit_count if latest_market else 0,
     }
 
@@ -1320,7 +1348,7 @@ def owner_report_detail(
     # ── Build per-unit results ───────────────────────────────────────────
 
     unit_results = []
-    for unit in vacant_units:
+    for unit in listed_units:
         prop = unit.property
         zc = unit.postal_code or (prop.postal_code if prop else "")
         address = unit.address_line_1 or (prop.address_line_1 if prop else "")
@@ -1384,7 +1412,10 @@ def owner_report_detail(
             "city": city,
             "state": state,
             "zip_code": zc,
+            "portfolio_name": unit_portfolio.get(unit.id, ""),
             "bedrooms": unit.bedrooms,
+            "bathrooms": snap.bathrooms if snap else unit.full_bathrooms,
+            "square_feet": snap.square_feet if snap else unit.square_feet,
             "target_rent": unit.target_rental_rate,
             "current_list_price": snap.listed_price if snap else None,
             "days_on_market": snap.days_on_market if snap else None,
@@ -1426,6 +1457,6 @@ def owner_report_detail(
         "owner_id": owner.id,
         "owner_name": owner.name,
         "owner_email": owner.email,
-        "portfolio_averages": portfolio_avgs,
+        "portfolio_medians": portfolio_medians,
         "units": unit_results,
     }

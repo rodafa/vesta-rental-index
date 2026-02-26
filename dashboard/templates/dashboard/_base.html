@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Dashboard{% endblock %} — Vesta</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=3">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   {% block head_extra %}{% endblock %}
 </head>
@@ -16,7 +16,7 @@
     <a href="{% url 'dashboard:portfolio_analytics' %}" class="nav-link {% block nav_portfolio %}{% endblock %}">Portfolio Analytics</a>
     <a href="{% url 'dashboard:revenue_intelligence' %}" class="nav-link {% block nav_revenue %}{% endblock %}">Revenue Intelligence</a>
     <a href="{% url 'dashboard:renewal_pipeline' %}" class="nav-link {% block nav_renewals %}{% endblock %}">Renewal Pipeline</a>
-    <a href="{% url 'dashboard:owner_reports' %}" class="nav-link {% block nav_owners %}{% endblock %}">Owner Reports</a>
+    <a href="{% url 'dashboard:owner_reports' %}" class="nav-link {% block nav_owners %}{% endblock %}">Leasing Updates</a>
     <a href="{% url 'dashboard:leasing_pipeline' %}" class="nav-link {% block nav_leasing %}{% endblock %}">Leasing Pipeline</a>
   </nav>
 
