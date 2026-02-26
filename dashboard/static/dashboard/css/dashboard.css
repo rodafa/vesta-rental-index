@@ -432,6 +432,13 @@ textarea {
   color: var(--text-muted);
 }
 
+/* === Table Footer (totals row) === */
+tfoot td {
+  background: #f0f0f0;
+  font-weight: 700;
+  border-top: 2px solid var(--border-medium);
+}
+
 /* === Owner Dashboard (public page) === */
 body.owner-view {
   display: block;

@@ -26,6 +26,14 @@ def owner_reports(request):
     return render(request, "dashboard/owner_reports.html")
 
 
+def revenue_intelligence(request):
+    return render(request, "dashboard/revenue_intelligence.html")
+
+
+def renewal_pipeline(request):
+    return render(request, "dashboard/renewal_pipeline.html")
+
+
 def owner_dashboard(request, portfolio_slug):
     """Public-facing read-only owner dashboard. No auth required."""
     portfolio = get_object_or_404(Portfolio, slug=portfolio_slug)

@@ -1,0 +1,46 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_renewals %}active{% endblock %}
+{% block title %}Renewal Pipeline{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Renewal Pipeline</h1>
+<p class="page-subtitle">Lease expirations, below-market flags &amp; concentration risk</p>
+
+<div id="renewal-stats" class="stats-grid">
+  <div class="loading">Loading renewal stats...</div>
+</div>
+
+<h2 class="section-title">Lease Expiration Clustering</h2>
+<div class="chart-card" style="margin-bottom:1.5rem">
+  <canvas id="clustering-chart" height="100"></canvas>
+  <p id="clustering-callout" style="font-size:.82rem;color:var(--text-muted);margin-top:.5rem"></p>
+</div>
+
+<h2 class="section-title">Renewal Pipeline</h2>
+<table id="renewal-table">
+  <thead>
+    <tr>
+      <th>Address</th>
+      <th>City</th>
+      <th>Beds</th>
+      <th>Tenant(s)</th>
+      <th>Lease End</th>
+      <th>Days Left</th>
+      <th>Current Rent</th>
+      <th>Target Rent</th>
+      <th>Gap %</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody id="renewal-body">
+    <tr><td colspan="10" class="loading">Loading renewal data...</td></tr>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/charts.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/renewal_pipeline.js' %}?v=1"></script>
+{% endblock %}

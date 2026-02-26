@@ -1,6 +1,7 @@
 import calendar
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 from typing import Optional
 
 from django.db.models import (
@@ -15,19 +16,19 @@ from django.db.models import (
     Subquery,
     Sum,
 )
+from django.db.models.functions import Coalesce
 from ninja import Router
 from ninja.pagination import LimitOffsetPagination, paginate
 
 from leasing.models import Application, Lease, Prospect, Showing
-from properties.models import Property, Unit
-
-from django.db.models.functions import Coalesce
-
-from market.models import DailyLeasingSummary, DailyUnitSnapshot
-from properties.models import Owner, Portfolio
+from maintenance.models import WorkOrder
+from market.models import DailyLeasingSummary, DailyUnitSnapshot, ListingCycle
+from properties.models import Owner, Portfolio, Property, Unit
 
 from .schemas import (
     ActiveListingSchema,
+    ConcessionSchema,
+    ExpirationClusterSchema,
     LeaseExpirationDetailSchema,
     LeaseExpirationMonthSchema,
     LeasingFunnelSchema,
@@ -35,7 +36,12 @@ from .schemas import (
     PortfolioSummarySchema,
     PropertyPerformanceSchema,
     ProspectSourceSchema,
+    RenewalPipelineLeaseSchema,
+    RenewalPipelineSchema,
+    RentGapSchema,
     RentSegmentSchema,
+    RevenueLeakageSummarySchema,
+    TurnCycleSchema,
     VacantUnitSchema,
 )
 
@@ -45,6 +51,23 @@ router = Router(tags=["Analytics"])
 def _pct(numerator: int, denominator: int) -> float:
     """Safe percentage: (numerator / denominator) * 100, rounded to 2 decimals."""
     return round(numerator / denominator * 100, 2) if denominator else 0.0
+
+
+def _unit_address(unit) -> str:
+    """Full address with unit name for disambiguation (e.g. '26 Reid St — Unit 4')."""
+    addr = unit.address_line_1 or (unit.property.address_line_1 if unit.property else "")
+    name = (unit.name or "").strip()
+    if not name:
+        return addr
+    # Skip if name is a substring of address or vice versa
+    if name.lower() in addr.lower() or addr.lower() in name.lower():
+        return addr
+    # Skip if most words in name overlap with the address (rearranged address)
+    addr_words = set(addr.lower().split())
+    name_words = set(name.lower().split())
+    if name_words and len(name_words & addr_words) / len(name_words) > 0.5:
+        return addr
+    return f"{addr} — {name}"
 
 
 # ---------------------------------------------------------------------------
@@ -607,3 +630,340 @@ def owners_with_vacancies(request):
 
     results.sort(key=lambda x: -x["vacant_unit_count"])
     return results
+
+
+# ---------------------------------------------------------------------------
+# 10. Revenue Leakage Summary
+# ---------------------------------------------------------------------------
+
+
+@router.get("/revenue-leakage-summary", response=RevenueLeakageSummarySchema)
+def revenue_leakage_summary(request):
+    """Stat cards for the Revenue Intelligence page."""
+    units = (
+        Unit.revenue_units()
+        .filter(
+            leases__primary_lease_status=2,
+            target_rental_rate__isnull=False,
+        )
+        .annotate(
+            active_rent=Subquery(
+                Lease.objects.filter(unit=OuterRef("pk"), primary_lease_status=2)
+                .values("rent_amount")[:1],
+                output_field=DecimalField(),
+            )
+        )
+        .distinct()
+    )
+
+    total_gap = Decimal("0")
+    gap_pcts = []
+    below_target = 0
+    total_occupied = 0
+
+    for u in units:
+        total_occupied += 1
+        target = u.target_rental_rate or Decimal("0")
+        rent = u.active_rent or Decimal("0")
+        if target > rent and target > 0:
+            gap = target - rent
+            total_gap += gap
+            gap_pcts.append(float(gap / target * 100))
+            below_target += 1
+
+    annual_gap = total_gap * 12
+    avg_gap_pct = round(sum(gap_pcts) / len(gap_pcts), 2) if gap_pcts else 0.0
+
+    cutoff = date.today() - timedelta(days=365)
+    avg_turn = ListingCycle.objects.filter(
+        leased_date__isnull=False, listed_date__gte=cutoff
+    ).aggregate(avg=Avg("total_dom"))["avg"]
+
+    avg_ratio = ListingCycle.objects.filter(
+        leased_date__isnull=False, listed_date__gte=cutoff
+    ).aggregate(avg=Avg("list_to_lease_ratio"))["avg"]
+    avg_concession = round(float(1 - avg_ratio) * 100, 2) if avg_ratio else None
+
+    return {
+        "total_annual_rent_gap": annual_gap,
+        "avg_rent_gap_pct": avg_gap_pct,
+        "avg_turn_days": round(float(avg_turn), 1) if avg_turn else None,
+        "avg_concession_rate": avg_concession,
+        "units_below_target": below_target,
+        "total_occupied_revenue_units": total_occupied,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 11. Rent Gap Analysis
+# ---------------------------------------------------------------------------
+
+
+@router.get("/rent-gap", response=list[RentGapSchema])
+def rent_gap(request):
+    """Per-unit rent gap for occupied revenue units."""
+    units = (
+        Unit.revenue_units()
+        .filter(
+            leases__primary_lease_status=2,
+            target_rental_rate__isnull=False,
+        )
+        .select_related("property")
+        .annotate(
+            active_rent=Subquery(
+                Lease.objects.filter(unit=OuterRef("pk"), primary_lease_status=2)
+                .values("rent_amount")[:1],
+                output_field=DecimalField(),
+            )
+        )
+        .distinct()
+    )
+
+    results = []
+    for u in units:
+        target = u.target_rental_rate or Decimal("0")
+        rent = u.active_rent or Decimal("0")
+        gap = target - rent if target > rent else Decimal("0")
+        gap_pct = float(gap / target * 100) if target > 0 else 0.0
+        if gap <= 0:
+            continue
+        results.append({
+            "unit_id": u.id,
+            "address": _unit_address(u),
+            "city": u.city or (u.property.city if u.property else ""),
+            "bedrooms": u.bedrooms,
+            "target_rent": target,
+            "lease_rent": rent,
+            "gap_amount": gap,
+            "gap_pct": round(gap_pct, 1),
+            "is_critical": gap_pct >= 10,
+        })
+
+    results.sort(key=lambda x: -float(x["gap_amount"]))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 12. Turn Cycles
+# ---------------------------------------------------------------------------
+
+
+@router.get("/turn-cycles", response=list[TurnCycleSchema])
+def turn_cycles(request, months_back: int = 12):
+    """Recent turn cycles: closed lease → make ready → relist → new lease."""
+    months_back = max(1, min(months_back, 36))
+    cutoff = date.today() - timedelta(days=months_back * 30)
+
+    closed_leases = (
+        Lease.objects.filter(primary_lease_status=3, move_out_date__gte=cutoff)
+        .select_related("unit", "unit__property")
+        .order_by("-move_out_date")
+    )
+
+    results = []
+    for lease in closed_leases:
+        unit = lease.unit
+        if not unit:
+            continue
+
+        # Find listing cycle on this unit after move_out
+        cycle = (
+            ListingCycle.objects.filter(
+                unit=unit, listed_date__gte=lease.move_out_date
+            )
+            .order_by("listed_date")
+            .first()
+        )
+
+        # Find next lease on this unit after move_out
+        next_lease = (
+            Lease.objects.filter(
+                unit=unit,
+                move_in_date__gt=lease.move_out_date,
+                primary_lease_status__in=[1, 2],
+            )
+            .order_by("move_in_date")
+            .first()
+        )
+
+        # Make-ready work orders
+        make_ready_wos = WorkOrder.objects.filter(
+            unit=unit,
+            is_vacant=True,
+            actual_start_date__gte=lease.move_out_date,
+        )
+        mr_days = None
+        mr_cost = None
+        if make_ready_wos.exists():
+            first_start = make_ready_wos.order_by("actual_start_date").first().actual_start_date
+            last_end = make_ready_wos.filter(actual_end_date__isnull=False).order_by("-actual_end_date").first()
+            if first_start and last_end and last_end.actual_end_date:
+                mr_days = (last_end.actual_end_date - first_start).days
+            mr_cost_agg = make_ready_wos.aggregate(total=Sum("estimated_amount"))["total"]
+            mr_cost = mr_cost_agg
+
+        move_in = next_lease.move_in_date if next_lease else None
+        total_turn = None
+        vacancy_cost = None
+        target = unit.target_rental_rate or Decimal("0")
+
+        if move_in and lease.move_out_date:
+            total_turn = (move_in - lease.move_out_date).days
+            if target > 0:
+                vacancy_cost = Decimal(str(total_turn)) * target / 30
+
+        results.append({
+            "unit_id": unit.id,
+            "address": _unit_address(unit),
+            "bedrooms": unit.bedrooms,
+            "move_out_date": lease.move_out_date,
+            "listed_date": cycle.listed_date if cycle else None,
+            "leased_date": cycle.leased_date if cycle else None,
+            "move_in_date": move_in,
+            "make_ready_days": mr_days,
+            "dom": cycle.total_dom if cycle else None,
+            "total_turn_days": total_turn,
+            "vacancy_cost": round(vacancy_cost, 2) if vacancy_cost else None,
+            "make_ready_cost": mr_cost,
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 13. Concession Tracker
+# ---------------------------------------------------------------------------
+
+
+@router.get("/concession-tracker", response=list[ConcessionSchema])
+def concession_tracker(request):
+    """Growing historical record of listing cycles from 2026-02-26 forward."""
+    tracking_start = date(2026, 2, 26)
+
+    cycles = (
+        ListingCycle.objects.filter(listed_date__gte=tracking_start)
+        .select_related("unit", "unit__property")
+        .order_by("-total_drop_amount", "-listed_date")
+    )
+
+    results = []
+    for c in cycles:
+        unit = c.unit
+        ratio = float(c.list_to_lease_ratio) if c.list_to_lease_ratio else None
+        results.append({
+            "unit_id": unit.id if unit else 0,
+            "address": _unit_address(unit) if unit else "",
+            "bedrooms": unit.bedrooms if unit else None,
+            "original_price": c.original_list_price,
+            "final_price": c.final_list_price,
+            "signed_amount": c.signed_lease_amount,
+            "list_to_lease_ratio": round(ratio, 4) if ratio else None,
+            "total_drops": c.total_price_drops,
+            "total_drop_amount": c.total_drop_amount or Decimal("0"),
+            "is_heavy_concession": ratio is not None and ratio < 0.95,
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 14. Renewal Pipeline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/renewal-pipeline", response=RenewalPipelineSchema)
+def renewal_pipeline(request, months_ahead: int = 6):
+    """Full renewal pipeline: stat cards, clustering, and lease list."""
+    months_ahead = max(1, min(months_ahead, 24))
+    today = date.today()
+
+    # Window for lease list
+    window_end = today + timedelta(days=months_ahead * 30)
+
+    # All active leases
+    active_leases = (
+        Lease.objects.filter(primary_lease_status=2)
+        .select_related("unit", "unit__property")
+        .prefetch_related("tenants")
+    )
+    total_active = active_leases.count()
+
+    # Stat cards: expiring within 30/60/90 days
+    exp_30 = active_leases.filter(end_date__gte=today, end_date__lte=today + timedelta(days=30)).count()
+    exp_60 = active_leases.filter(end_date__gte=today, end_date__lte=today + timedelta(days=60)).count()
+    exp_90 = active_leases.filter(end_date__gte=today, end_date__lte=today + timedelta(days=90)).count()
+
+    # Below-market: active leases where rent is 10%+ below target
+    below_market_count = 0
+    for lease in active_leases:
+        unit = lease.unit
+        if not unit or not unit.target_rental_rate or not lease.rent_amount:
+            continue
+        target = unit.target_rental_rate
+        if target > 0:
+            gap_ratio = float((target - lease.rent_amount) / target * 100)
+            if gap_ratio >= 10:
+                below_market_count += 1
+
+    # Clustering: 12 months forward
+    clustering = []
+    threshold = total_active * 0.15 if total_active else 0
+    for i in range(12):
+        m = today.month + i
+        y = today.year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        last_day = calendar.monthrange(y, m)[1]
+        month_start = date(y, m, 1)
+        month_end = date(y, m, last_day)
+        count = active_leases.filter(end_date__gte=month_start, end_date__lte=month_end).count()
+        clustering.append({
+            "month": f"{y}-{m:02d}",
+            "month_label": f"{calendar.month_abbr[m]} {y}",
+            "count": count,
+            "is_concentrated": count > threshold,
+        })
+
+    # Lease list: expiring within window
+    expiring_leases = (
+        active_leases.filter(end_date__gte=today, end_date__lte=window_end)
+        .order_by("end_date")
+    )
+
+    lease_list = []
+    for lease in expiring_leases:
+        unit = lease.unit
+        target = unit.target_rental_rate if unit else None
+        rent = lease.rent_amount
+        gap_pct = None
+        is_below = False
+        if target and rent and target > 0:
+            gap_pct = round(float((target - rent) / target * 100), 1)
+            is_below = gap_pct >= 10
+
+        tenant_names = ", ".join(t.name for t in lease.tenants.all())
+        days_left = (lease.end_date - today).days
+
+        lease_list.append({
+            "lease_id": lease.id,
+            "unit_id": unit.id if unit else 0,
+            "address": _unit_address(unit) if unit else "",
+            "city": (unit.city if unit else "") or (unit.property.city if unit and unit.property else ""),
+            "bedrooms": unit.bedrooms if unit else None,
+            "tenant_names": tenant_names,
+            "lease_end": lease.end_date,
+            "days_until_expiry": days_left,
+            "current_rent": rent,
+            "target_rent": target,
+            "gap_pct": gap_pct,
+            "is_below_market": is_below,
+        })
+
+    return {
+        "expiring_30d": exp_30,
+        "expiring_60d": exp_60,
+        "expiring_90d": exp_90,
+        "below_market_count": below_market_count,
+        "total_active_leases": total_active,
+        "clustering": clustering,
+        "leases": lease_list,
+    }

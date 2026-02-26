@@ -241,3 +241,94 @@ class LeaseExpirationMonthSchema(Schema):
     month: date
     expiring_count: int
     leases: list[LeaseExpirationDetailSchema]
+
+
+# ---------------------------------------------------------------------------
+# Revenue Intelligence
+# ---------------------------------------------------------------------------
+
+
+class RevenueLeakageSummarySchema(Schema):
+    total_annual_rent_gap: Decimal
+    avg_rent_gap_pct: float
+    avg_turn_days: Optional[float] = None
+    avg_concession_rate: Optional[float] = None
+    units_below_target: int
+    total_occupied_revenue_units: int
+
+
+class RentGapSchema(Schema):
+    unit_id: int
+    address: str
+    city: str
+    bedrooms: Optional[int] = None
+    target_rent: Decimal
+    lease_rent: Decimal
+    gap_amount: Decimal
+    gap_pct: float
+    is_critical: bool
+
+
+class TurnCycleSchema(Schema):
+    unit_id: int
+    address: str
+    bedrooms: Optional[int] = None
+    move_out_date: Optional[date] = None
+    listed_date: Optional[date] = None
+    leased_date: Optional[date] = None
+    move_in_date: Optional[date] = None
+    make_ready_days: Optional[int] = None
+    dom: Optional[int] = None
+    total_turn_days: Optional[int] = None
+    vacancy_cost: Optional[Decimal] = None
+    make_ready_cost: Optional[Decimal] = None
+
+
+class ConcessionSchema(Schema):
+    unit_id: int
+    address: str
+    bedrooms: Optional[int] = None
+    original_price: Optional[Decimal] = None
+    final_price: Optional[Decimal] = None
+    signed_amount: Optional[Decimal] = None
+    list_to_lease_ratio: Optional[float] = None
+    total_drops: int
+    total_drop_amount: Decimal
+    is_heavy_concession: bool
+
+
+# ---------------------------------------------------------------------------
+# Renewal Pipeline
+# ---------------------------------------------------------------------------
+
+
+class RenewalPipelineLeaseSchema(Schema):
+    lease_id: int
+    unit_id: int
+    address: str
+    city: str
+    bedrooms: Optional[int] = None
+    tenant_names: str
+    lease_end: date
+    days_until_expiry: int
+    current_rent: Optional[Decimal] = None
+    target_rent: Optional[Decimal] = None
+    gap_pct: Optional[float] = None
+    is_below_market: bool
+
+
+class ExpirationClusterSchema(Schema):
+    month: str
+    month_label: str
+    count: int
+    is_concentrated: bool
+
+
+class RenewalPipelineSchema(Schema):
+    expiring_30d: int
+    expiring_60d: int
+    expiring_90d: int
+    below_market_count: int
+    total_active_leases: int
+    clustering: list[ExpirationClusterSchema]
+    leases: list[RenewalPipelineLeaseSchema]
