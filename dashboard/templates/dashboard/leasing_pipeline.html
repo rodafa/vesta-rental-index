@@ -1,0 +1,49 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_leasing %}active{% endblock %}
+{% block title %}Leasing Pipeline{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Leasing Pipeline</h1>
+<p class="page-subtitle">Application funnel, screening status, and scorecard analytics</p>
+
+<div id="pipeline-stats" class="stats-grid">
+  <div class="loading">Loading pipeline stats...</div>
+</div>
+
+<div class="chart-row" style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin:1.5rem 0;">
+  <div class="card">
+    <h3 class="section-title" style="font-size:.95rem;">Application Funnel (30d)</h3>
+    <canvas id="funnel-chart" height="200"></canvas>
+  </div>
+  <div class="card">
+    <h3 class="section-title" style="font-size:.95rem;">Scorecard Distribution</h3>
+    <canvas id="scorecard-chart" height="200"></canvas>
+  </div>
+</div>
+
+<h2 class="section-title">Scorecards</h2>
+<table id="scorecards-table">
+  <thead>
+    <tr>
+      <th>Applicant</th>
+      <th>Unit</th>
+      <th>Score</th>
+      <th>Recommendation</th>
+      <th>Screening</th>
+      <th>Reviewed By</th>
+      <th>Updated</th>
+    </tr>
+  </thead>
+  <tbody id="scorecards-body">
+    <tr><td colspan="7" class="loading">Loading scorecards...</td></tr>
+  </tbody>
+</table>
+
+<div id="scorecard-detail" class="card" style="display:none;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/leasing_pipeline.js' %}?v=2"></script>
+{% endblock %}
