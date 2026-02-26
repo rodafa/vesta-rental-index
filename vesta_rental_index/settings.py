@@ -172,11 +172,22 @@ RENTENGINE = {
 # BoomPay / BoomScreen API
 BOOMPAY = {
     "BASE_URL": os.environ.get("BOOMPAY_BASE_URL", "")
-    or "https://screen.boompay.app/api/v1",
+    or "https://api.production.boompay.app",
     "API_KEY": os.environ.get("BOOMPAY_API_KEY", ""),
     "API_SECRET": os.environ.get("BOOMPAY_API_SECRET", ""),
+    "WEBHOOK_SECRET": os.environ.get("BOOMPAY_WEBHOOK_SECRET", ""),
 }
 
 # Vesta API Authentication
 # When set, all API endpoints require X-API-Key header. Unset = no auth (local dev).
 VESTA_API_KEY = os.environ.get("VESTA_API_KEY", "")
+
+# Email (SendGrid via django-anymail)
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+if SENDGRID_API_KEY:
+    EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
+    ANYMAIL = {"SENDGRID_API_KEY": SENDGRID_API_KEY}
+    INSTALLED_APPS += ["anymail"]
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = os.environ.get("VESTA_FROM_EMAIL", "reports@vestapm.com")

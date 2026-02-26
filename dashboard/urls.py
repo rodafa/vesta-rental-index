@@ -11,4 +11,5 @@ urlpatterns = [
     path("revenue/", views.revenue_intelligence, name="revenue_intelligence"),
     path("renewals/", views.renewal_pipeline, name="renewal_pipeline"),
     path("owner-reports/", views.owner_reports, name="owner_reports"),
+    path("leasing/", views.leasing_pipeline, name="leasing_pipeline"),
 ]

@@ -20,9 +20,17 @@ from django.db.models.functions import Coalesce
 from ninja import Router
 from ninja.pagination import LimitOffsetPagination, paginate
 
+from django.shortcuts import get_object_or_404
+
 from leasing.models import Application, Lease, Prospect, Showing
 from maintenance.models import WorkOrder
-from market.models import DailyLeasingSummary, DailyUnitSnapshot, ListingCycle
+from market.models import (
+    DailyLeasingSummary,
+    DailyMarketStats,
+    DailySegmentStats,
+    DailyUnitSnapshot,
+    ListingCycle,
+)
 from properties.models import Owner, Portfolio, Property, Unit
 
 from .schemas import (
@@ -32,6 +40,8 @@ from .schemas import (
     LeaseExpirationDetailSchema,
     LeaseExpirationMonthSchema,
     LeasingFunnelSchema,
+    LeasingPipelineSchema,
+    OwnerReportDetailSchema,
     OwnerVacancySchema,
     PortfolioSummarySchema,
     PropertyPerformanceSchema,
@@ -41,6 +51,7 @@ from .schemas import (
     RentGapSchema,
     RentSegmentSchema,
     RevenueLeakageSummarySchema,
+    ScorecardSummaryRowSchema,
     TurnCycleSchema,
     VacantUnitSchema,
 )
@@ -966,4 +977,455 @@ def renewal_pipeline(request, months_ahead: int = 6):
         "total_active_leases": total_active,
         "clustering": clustering,
         "leases": lease_list,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 15. Leasing Pipeline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/leasing-pipeline", response=LeasingPipelineSchema)
+def leasing_pipeline(request):
+    """Aggregated leasing pipeline stats: funnel, screening, scorecards."""
+    from screening.models import ApplicantScorecard, ScreeningApplication
+
+    today = date.today()
+    cutoff_30d = today - timedelta(days=30)
+
+    # Funnel (30d)
+    prospects_30d = Prospect.objects.filter(created_at__date__gte=cutoff_30d).count()
+    showings_30d = Showing.objects.filter(
+        created_at__date__gte=cutoff_30d, status="completed"
+    ).count()
+    apps_30d = Application.objects.filter(created_at__date__gte=cutoff_30d).count()
+    approved_30d = Application.objects.filter(
+        created_at__date__gte=cutoff_30d, primary_status=6
+    ).count()
+    leases_30d = Lease.objects.filter(
+        start_date__gte=cutoff_30d, is_renewal=False
+    ).count()
+
+    # Screening status counts
+    screening_pending = ScreeningApplication.objects.filter(status="pending").count()
+    screening_in_progress = ScreeningApplication.objects.filter(status="in_progress").count()
+    screening_completed = ScreeningApplication.objects.filter(status="completed").count()
+
+    # Scorecard aggregates
+    scorecards = ApplicantScorecard.objects.all()
+    scorecards_count = scorecards.count()
+    avg_score_val = scorecards.aggregate(avg=Avg("total_score"))["avg"]
+
+    auto_deny = scorecards.filter(recommendation="auto_deny").count()
+    platinum = scorecards.filter(recommendation="platinum").count()
+    strong = scorecards.filter(recommendation="strong").count()
+    borderline = scorecards.filter(recommendation="borderline").count()
+    high_risk = scorecards.filter(recommendation="high_risk").count()
+    reject = scorecards.filter(recommendation="reject").count()
+
+    return {
+        "total_prospects_30d": prospects_30d,
+        "total_showings_30d": showings_30d,
+        "total_applications_30d": apps_30d,
+        "total_approved_30d": approved_30d,
+        "screening_pending": screening_pending,
+        "screening_in_progress": screening_in_progress,
+        "screening_completed": screening_completed,
+        "scorecards_count": scorecards_count,
+        "avg_score": round(avg_score_val, 1) if avg_score_val else None,
+        "auto_deny_count": auto_deny,
+        "platinum_count": platinum,
+        "strong_count": strong,
+        "borderline_count": borderline,
+        "high_risk_count": high_risk,
+        "reject_count": reject,
+        "lead_to_app_rate": _pct(apps_30d, prospects_30d),
+        "app_to_lease_rate": _pct(leases_30d, apps_30d),
+    }
+
+
+@router.get("/leasing-pipeline/scorecards", response=list[ScorecardSummaryRowSchema])
+def leasing_pipeline_scorecards(request):
+    """Recent scorecards table data for the leasing pipeline page."""
+    from screening.models import ApplicantScorecard
+
+    scorecards = (
+        ApplicantScorecard.objects.select_related(
+            "screening_application", "screening_application__unit"
+        )
+        .order_by("-updated_at")[:50]
+    )
+
+    results = []
+    for sc in scorecards:
+        app = sc.screening_application
+        unit = app.unit
+        results.append({
+            "id": sc.id,
+            "applicant_name": app.applicant_name,
+            "applicant_email": app.applicant_email,
+            "unit_address": unit.address_line_1 if unit else None,
+            "total_score": sc.total_score,
+            "recommendation": sc.recommendation,
+            "screening_status": app.status,
+            "reviewed_by": sc.reviewed_by,
+            "updated_at": sc.updated_at.isoformat(),
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 16. Owner Report Detail
+# ---------------------------------------------------------------------------
+
+
+def _week_monday(d: date) -> date:
+    """Return the Monday of the week containing date d."""
+    return d - timedelta(days=d.weekday())
+
+
+def _summarize_feedback(showings_list) -> list[dict]:
+    """Convert Showing objects with feedback JSONField into readable summaries."""
+    results = []
+    for s in showings_list:
+        fb = s.feedback or {}
+        if not fb:
+            continue
+        parts = []
+        # Handle common feedback structures
+        if isinstance(fb, str):
+            parts.append(fb)
+        elif isinstance(fb, dict):
+            for key in ("comments", "overall_comments", "notes", "summary"):
+                if fb.get(key):
+                    parts.append(str(fb[key]))
+            if fb.get("liked"):
+                parts.append(f"Liked: {fb['liked']}")
+            if fb.get("disliked"):
+                parts.append(f"Concerns: {fb['disliked']}")
+            if fb.get("would_apply_if"):
+                parts.append(f"Would apply if: {fb['would_apply_if']}")
+            # Fallback: if no known keys matched, dump values
+            if not parts:
+                vals = [str(v) for v in fb.values() if v]
+                if vals:
+                    parts.append("; ".join(vals))
+        if parts:
+            prospect_name = s.prospect.name if s.prospect else ""
+            results.append({
+                "date": s.completed_at.strftime("%Y-%m-%d") if s.completed_at else None,
+                "prospect_name": prospect_name,
+                "feedback_summary": " ".join(parts),
+            })
+    return results
+
+
+def _zillow_url(address, city, state, zip_code):
+    """Construct a Zillow search URL from address components."""
+    import re
+    raw = f"{address} {city} {state} {zip_code}".strip()
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", raw).strip("-")
+    return f"https://www.zillow.com/homes/{slug}_rb/" if slug else ""
+
+
+@router.get(
+    "/owner-report-detail/{owner_id}", response=OwnerReportDetailSchema
+)
+def owner_report_detail(
+    request,
+    owner_id: int,
+    week_date: Optional[date] = None,
+):
+    """Rich per-unit data for an owner's vacant units. Powers the owner report email."""
+    from dashboard.models import PropertyWeeklyNote
+
+    owner = get_object_or_404(Owner.objects.prefetch_related("portfolios__properties__units"), pk=owner_id)
+
+    # Determine week boundaries
+    today = date.today()
+    if not week_date:
+        week_date = _week_monday(today)
+    week_start = week_date
+    week_end = week_date + timedelta(days=6)
+    prev_start = week_date - timedelta(days=7)
+    prev_end = week_date - timedelta(days=1)
+
+    # Find vacant units for this owner
+    active_lease_unit_ids = set(
+        Lease.objects.filter(primary_lease_status=2).values_list("unit_id", flat=True)
+    )
+    vacant_units = []
+    for portfolio in owner.portfolios.all():
+        for prop in portfolio.properties.filter(is_active=True):
+            for unit in prop.units.filter(is_active=True):
+                if unit.id not in active_lease_unit_ids:
+                    vacant_units.append(unit)
+
+    if not vacant_units:
+        return {
+            "owner_id": owner.id,
+            "owner_name": owner.name,
+            "owner_email": owner.email,
+            "portfolio_averages": {"avg_dom": None, "avg_list_price": None, "avg_portfolio_rent": None, "active_unit_count": 0},
+            "units": [],
+        }
+
+    unit_ids = [u.id for u in vacant_units]
+
+    # ── Batch queries ────────────────────────────────────────────────────
+
+    # Weekly leasing metrics (this week)
+    weekly_map = {}
+    for row in DailyLeasingSummary.objects.filter(
+        unit_id__in=unit_ids,
+        summary_date__gte=week_start,
+        summary_date__lte=week_end,
+    ).values("unit_id").annotate(
+        leads=Coalesce(Sum("leads_count"), 0),
+        showings=Coalesce(Sum("showings_completed_count"), 0),
+        missed=Coalesce(Sum("showings_missed_count"), 0),
+        apps=Coalesce(Sum("applications_count"), 0),
+    ):
+        weekly_map[row["unit_id"]] = row
+
+    # Previous week
+    prev_map = {}
+    for row in DailyLeasingSummary.objects.filter(
+        unit_id__in=unit_ids,
+        summary_date__gte=prev_start,
+        summary_date__lte=prev_end,
+    ).values("unit_id").annotate(
+        leads=Coalesce(Sum("leads_count"), 0),
+        showings=Coalesce(Sum("showings_completed_count"), 0),
+        missed=Coalesce(Sum("showings_missed_count"), 0),
+        apps=Coalesce(Sum("applications_count"), 0),
+    ):
+        prev_map[row["unit_id"]] = row
+
+    # All-time
+    alltime_map = {}
+    for row in DailyLeasingSummary.objects.filter(
+        unit_id__in=unit_ids,
+    ).values("unit_id").annotate(
+        leads=Coalesce(Sum("leads_count"), 0),
+        showings=Coalesce(Sum("showings_completed_count"), 0),
+        missed=Coalesce(Sum("showings_missed_count"), 0),
+        apps=Coalesce(Sum("applications_count"), 0),
+    ):
+        alltime_map[row["unit_id"]] = row
+
+    # Latest snapshot per unit
+    snapshot_map = {}
+    for uid in unit_ids:
+        snap = DailyUnitSnapshot.objects.filter(unit_id=uid).order_by("-snapshot_date").first()
+        if snap:
+            snapshot_map[uid] = snap
+
+    # Active days per unit (for leads-per-active-day)
+    active_days_map = dict(
+        DailyUnitSnapshot.objects.filter(unit_id__in=unit_ids, status="active")
+        .values("unit_id")
+        .annotate(days=Count("id"))
+        .values_list("unit_id", "days")
+    )
+
+    # Market context: latest segment stats per zip code
+    zip_codes = set()
+    for u in vacant_units:
+        zc = u.postal_code or (u.property.postal_code if u.property else "")
+        if zc:
+            zip_codes.add(zc)
+
+    zip_context_map = {}
+    if zip_codes:
+        latest_seg_date = (
+            DailySegmentStats.objects.filter(segment_type="zip_code")
+            .order_by("-snapshot_date")
+            .values_list("snapshot_date", flat=True)
+            .first()
+        )
+        if latest_seg_date:
+            for seg in DailySegmentStats.objects.filter(
+                segment_type="zip_code",
+                segment_value__in=zip_codes,
+                snapshot_date=latest_seg_date,
+            ):
+                zip_context_map[seg.segment_value] = {
+                    "zip_avg_list_price": seg.average_price,
+                    "zip_avg_dom": seg.average_dom,
+                    "zip_active_count": seg.active_unit_count,
+                }
+
+    # Showing feedback (completed this week)
+    feedback_showings = (
+        Showing.objects.filter(
+            unit_id__in=unit_ids,
+            status="completed",
+            completed_at__date__gte=week_start,
+            completed_at__date__lte=week_end,
+        )
+        .select_related("prospect")
+        .order_by("completed_at")
+    )
+    feedback_by_unit = defaultdict(list)
+    for s in feedback_showings:
+        if s.feedback:
+            feedback_by_unit[s.unit_id].append(s)
+
+    # Upcoming showings
+    from django.utils import timezone as tz
+    now = tz.now()
+    upcoming_showings = (
+        Showing.objects.filter(
+            unit_id__in=unit_ids,
+            status__in=["scheduled", "confirmed"],
+            scheduled_at__gte=now,
+        )
+        .select_related("prospect")
+        .order_by("scheduled_at")
+    )
+    upcoming_by_unit = defaultdict(list)
+    for s in upcoming_showings:
+        upcoming_by_unit[s.unit_id].append(s)
+
+    # Portfolio averages
+    latest_market = DailyMarketStats.objects.order_by("-snapshot_date").first()
+    portfolio_avgs = {
+        "avg_dom": latest_market.average_dom if latest_market else None,
+        "avg_list_price": latest_market.average_price if latest_market else None,
+        "avg_portfolio_rent": latest_market.average_portfolio_rent if latest_market else None,
+        "active_unit_count": latest_market.active_unit_count if latest_market else 0,
+    }
+
+    # Property notes
+    notes_map = {}
+    for note in PropertyWeeklyNote.objects.filter(unit_id__in=unit_ids, week_date=week_date):
+        notes_map[note.unit_id] = note
+
+    # Previous notes (last 4 weeks, for context)
+    prev_notes_map = defaultdict(list)
+    four_weeks_ago = week_date - timedelta(days=28)
+    for note in PropertyWeeklyNote.objects.filter(
+        unit_id__in=unit_ids,
+        week_date__gte=four_weeks_ago,
+        week_date__lt=week_date,
+    ).order_by("-week_date"):
+        prev_notes_map[note.unit_id].append({
+            "week_date": note.week_date.isoformat(),
+            "author": note.author,
+            "note_text": note.note_text,
+        })
+
+    # ── Build per-unit results ───────────────────────────────────────────
+
+    unit_results = []
+    for unit in vacant_units:
+        prop = unit.property
+        zc = unit.postal_code or (prop.postal_code if prop else "")
+        address = unit.address_line_1 or (prop.address_line_1 if prop else "")
+        city = unit.city or (prop.city if prop else "")
+        state = unit.state or (prop.state if prop else "")
+
+        w = weekly_map.get(unit.id, {})
+        p = prev_map.get(unit.id, {})
+        a = alltime_map.get(unit.id, {})
+        snap = snapshot_map.get(unit.id)
+
+        # Leads per active day
+        total_leads = a.get("leads", 0)
+        active_days = active_days_map.get(unit.id, 0)
+        dom = snap.days_on_market if snap else 0
+        divisor = max(active_days, dom or 0, 1)
+        lpd = round(total_leads / divisor, 2)
+
+        # Market context for this zip
+        mkt = zip_context_map.get(zc, {})
+
+        # Price recommendation
+        price_rec = {"recommended": False, "current_lpd": lpd, "threshold": 0.5, "message": ""}
+        current_price = snap.listed_price if snap else unit.target_rental_rate
+        if lpd < 0.5 and current_price:
+            suggested = max(Decimal(str(float(current_price) - 50)), Decimal("0"))
+            mkt_avg = mkt.get("zip_avg_list_price")
+            msg = (
+                f"Based on current activity ({lpd} leads/day vs 0.5 threshold), "
+                f"we recommend a $50 adjustment."
+            )
+            if mkt_avg:
+                msg += f" Similar units in {zc} are listing at ${mkt_avg:,.0f}."
+            price_rec = {
+                "recommended": True,
+                "current_lpd": lpd,
+                "threshold": 0.5,
+                "suggested_price": suggested,
+                "market_avg": mkt_avg,
+                "message": msg,
+            }
+
+        # Showing feedback
+        fb_list = _summarize_feedback(feedback_by_unit.get(unit.id, []))
+
+        # Upcoming showings
+        upcoming = []
+        for s in upcoming_by_unit.get(unit.id, []):
+            upcoming.append({
+                "date": s.scheduled_at.strftime("%Y-%m-%d") if s.scheduled_at else "",
+                "time": s.scheduled_at.strftime("%-I:%M %p") if s.scheduled_at else "",
+                "prospect_name": s.prospect.name if s.prospect else "",
+            })
+
+        # Current week note
+        note = notes_map.get(unit.id)
+
+        unit_results.append({
+            "unit_id": unit.id,
+            "address": address,
+            "city": city,
+            "state": state,
+            "zip_code": zc,
+            "bedrooms": unit.bedrooms,
+            "target_rent": unit.target_rental_rate,
+            "current_list_price": snap.listed_price if snap else None,
+            "days_on_market": snap.days_on_market if snap else None,
+            "date_listed": snap.date_listed if snap else None,
+            "weekly": {
+                "leads": w.get("leads", 0),
+                "showings": w.get("showings", 0),
+                "missed": w.get("missed", 0),
+                "apps": w.get("apps", 0),
+            },
+            "prev_weekly": {
+                "leads": p.get("leads", 0),
+                "showings": p.get("showings", 0),
+                "missed": p.get("missed", 0),
+                "apps": p.get("apps", 0),
+            },
+            "all_time": {
+                "leads": a.get("leads", 0),
+                "showings": a.get("showings", 0),
+                "missed": a.get("missed", 0),
+                "apps": a.get("apps", 0),
+            },
+            "leads_per_active_day": lpd,
+            "market_context": {
+                "zip_avg_list_price": mkt.get("zip_avg_list_price"),
+                "zip_avg_dom": mkt.get("zip_avg_dom"),
+                "zip_active_count": mkt.get("zip_active_count", 0),
+            },
+            "showing_feedback": fb_list,
+            "upcoming_showings": upcoming,
+            "price_recommendation": price_rec,
+            "zillow_url": _zillow_url(address, city, state, zc),
+            "property_note": note.note_text if note else "",
+            "property_note_author": note.author if note else "",
+            "prev_notes": prev_notes_map.get(unit.id, []),
+        })
+
+    return {
+        "owner_id": owner.id,
+        "owner_name": owner.name,
+        "owner_email": owner.email,
+        "portfolio_averages": portfolio_avgs,
+        "units": unit_results,
     }

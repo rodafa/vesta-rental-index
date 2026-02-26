@@ -6,7 +6,7 @@
 
 {% block content %}
 <h1 class="page-title">Owner Reports</h1>
-<p class="page-subtitle" id="report-date">Loading...</p>
+<p class="page-subtitle">Week of <span id="report-date">Loading...</span></p>
 
 <div class="split-layout">
   <div class="panel-left">
@@ -18,7 +18,7 @@
     </div>
   </div>
   <div class="panel-right">
-    <div class="card">
+    <div class="card" id="owner-detail-card">
       <div id="owner-detail">
         <div class="empty-state">Select an owner from the list</div>
       </div>
@@ -26,11 +26,21 @@
   </div>
 </div>
 
-<div style="margin-top: .5rem;">
+<div style="margin-top: .5rem; display: flex; gap: .5rem;">
   <button class="btn btn-success" id="send-all-btn">Send All Reviewed</button>
+</div>
+
+<div id="email-preview-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.5);">
+  <div style="position:absolute;inset:40px;background:#fff;border-radius:8px;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:12px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
+      <strong>Email Preview</strong>
+      <button class="btn btn-secondary btn-sm" id="close-preview-btn">Close</button>
+    </div>
+    <iframe id="preview-iframe" style="flex:1;border:none;width:100%;"></iframe>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/owner_reports.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/owner_reports.js' %}?v=3"></script>
 {% endblock %}

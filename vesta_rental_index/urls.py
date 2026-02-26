@@ -12,6 +12,7 @@ from integrations.api import router as webhooks_router
 from leasing.api import router as leasing_router
 from market.api import router as market_router
 from properties.api import router as properties_router
+from screening.api import router as screening_router
 
 
 class VestaAPIKey(APIKeyHeader):
@@ -49,6 +50,7 @@ api.add_router("/market/", market_router)
 api.add_router("/analytics/", analytics_router)
 api.add_router("/dashboard/", dashboard_api_router)
 api.add_router("/webhooks/", webhooks_router)
+api.add_router("/screening/", screening_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

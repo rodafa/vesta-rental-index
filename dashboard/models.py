@@ -26,6 +26,11 @@ class OwnerReportNote(models.Model):
     report_date = models.DateField(db_index=True)
     sent_at = models.DateTimeField(null=True, blank=True)
 
+    # Email tracking
+    opened_at = models.DateTimeField(null=True, blank=True)
+    sendgrid_message_id = models.CharField(max_length=255, blank=True)
+    properties_included = models.JSONField(default=list, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -35,6 +40,31 @@ class OwnerReportNote(models.Model):
 
     def __str__(self):
         return f"Note for {self.owner.name} - {self.report_date}"
+
+
+class PropertyWeeklyNote(models.Model):
+    """Per-unit weekly notes for owner reports. One note per unit per week."""
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="weekly_notes",
+    )
+    week_date = models.DateField(
+        db_index=True, help_text="Monday of the report week"
+    )
+    author = models.CharField(max_length=100)
+    note_text = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["unit", "week_date"]
+        ordering = ["-week_date"]
+
+    def __str__(self):
+        return f"Note for Unit #{self.unit_id} - {self.week_date}"
 
 
 class UnitNote(models.Model):

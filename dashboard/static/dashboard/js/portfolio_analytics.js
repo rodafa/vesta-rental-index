@@ -2,8 +2,10 @@
  * Portfolio Analytics — portfolio-wide trends, charts, and segment comparison.
  * Fetches monthly-reports (market-level), monthly-segments (zip/bed detail),
  * rent-analysis (segments), and portfolio-summary.
+ * Auto-refreshes every 60 seconds.
  */
-document.addEventListener('DOMContentLoaded', async () => {
+
+async function loadAll() {
   try {
     var [monthlyData, segmentsData, portfolio, monthlySegData] = await Promise.all([
       VestaAPI.get('/market/monthly-reports?limit=24&offset=0'),
@@ -23,7 +25,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     VestaAPI.render('portfolio-stats', '<div class="loading">Error loading data</div>');
     VestaAPI.render('segment-body', '<tr><td colspan="7" class="loading">Error loading data</td></tr>');
   }
+}
 
+document.addEventListener('DOMContentLoaded', function () {
+  loadAll();
+  setInterval(loadAll, 60000);
   document.getElementById('filter-apply').addEventListener('click', applyFilters);
 });
 

@@ -332,3 +332,119 @@ class RenewalPipelineSchema(Schema):
     total_active_leases: int
     clustering: list[ExpirationClusterSchema]
     leases: list[RenewalPipelineLeaseSchema]
+
+
+# ---------------------------------------------------------------------------
+# Leasing Pipeline
+# ---------------------------------------------------------------------------
+
+
+class LeasingPipelineSchema(Schema):
+    total_prospects_30d: int
+    total_showings_30d: int
+    total_applications_30d: int
+    total_approved_30d: int
+    screening_pending: int
+    screening_in_progress: int
+    screening_completed: int
+    scorecards_count: int
+    avg_score: Optional[float] = None
+    auto_deny_count: int
+    platinum_count: int
+    strong_count: int
+    borderline_count: int
+    high_risk_count: int
+    reject_count: int
+    lead_to_app_rate: float
+    app_to_lease_rate: float
+
+
+class ScorecardSummaryRowSchema(Schema):
+    id: int
+    applicant_name: str
+    applicant_email: str
+    unit_address: Optional[str] = None
+    total_score: int
+    recommendation: str
+    screening_status: str
+    reviewed_by: str
+    updated_at: str
+
+
+# ---------------------------------------------------------------------------
+# Owner Report Detail
+# ---------------------------------------------------------------------------
+
+
+class WeeklyMetricsSchema(Schema):
+    leads: int = 0
+    showings: int = 0
+    missed: int = 0
+    apps: int = 0
+
+
+class ShowingFeedbackSchema(Schema):
+    date: Optional[str] = None
+    prospect_name: str = ""
+    feedback_summary: str = ""
+
+
+class UpcomingShowingSchema(Schema):
+    date: str
+    time: str = ""
+    prospect_name: str = ""
+
+
+class PriceRecommendationSchema(Schema):
+    recommended: bool = False
+    current_lpd: float = 0.0
+    threshold: float = 0.5
+    suggested_price: Optional[Decimal] = None
+    market_avg: Optional[Decimal] = None
+    message: str = ""
+
+
+class MarketContextSchema(Schema):
+    zip_avg_list_price: Optional[Decimal] = None
+    zip_avg_dom: Optional[int] = None
+    zip_active_count: int = 0
+
+
+class OwnerReportUnitSchema(Schema):
+    unit_id: int
+    address: str
+    city: str
+    state: str
+    zip_code: str = ""
+    bedrooms: Optional[int] = None
+    target_rent: Optional[Decimal] = None
+    current_list_price: Optional[Decimal] = None
+    days_on_market: Optional[int] = None
+    date_listed: Optional[date] = None
+    weekly: WeeklyMetricsSchema
+    prev_weekly: WeeklyMetricsSchema
+    all_time: WeeklyMetricsSchema
+    leads_per_active_day: float = 0.0
+    market_context: MarketContextSchema
+    showing_feedback: list[ShowingFeedbackSchema] = []
+    upcoming_showings: list[UpcomingShowingSchema] = []
+    price_recommendation: PriceRecommendationSchema
+    zillow_url: str = ""
+    property_note: str = ""
+    property_note_author: str = ""
+    prev_notes: list[dict] = []
+
+
+class PortfolioAvgSchema(Schema):
+    avg_dom: Optional[int] = None
+    avg_list_price: Optional[Decimal] = None
+    avg_portfolio_rent: Optional[Decimal] = None
+    active_unit_count: int = 0
+
+
+class OwnerReportDetailSchema(Schema):
+    owner_id: int
+    owner_name: str
+    owner_email: str
+    portfolio_averages: PortfolioAvgSchema
+    units: list[OwnerReportUnitSchema]

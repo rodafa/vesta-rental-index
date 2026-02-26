@@ -1,0 +1,172 @@
+{% load i18n %}<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#333;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;">
+<tr><td align="center" style="padding:24px 16px;">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;">
+
+{# ── Header ─────────────────────────────────────────────── #}
+<tr><td style="background:#1a1a2e;padding:28px 32px;border-radius:8px 8px 0 0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td style="color:#fff;font-size:22px;font-weight:700;letter-spacing:.5px;">Vesta</td>
+    <td align="right" style="color:rgba(255,255,255,.6);font-size:13px;">Weekly Vacancy Report &middot; {{ report_date|date:"M j, Y" }}</td>
+  </tr></table>
+</td></tr>
+
+{# ── Greeting + Summary ─────────────────────────────────── #}
+<tr><td style="background:#fff;padding:28px 32px;border-bottom:1px solid #eee;">
+  <p style="margin:0 0 12px;font-size:16px;">Hi {{ owner_name }},</p>
+  {% if summary_text %}
+  <p style="margin:0;font-size:14px;line-height:1.6;color:#444;">{{ summary_text|linebreaksbr }}</p>
+  {% else %}
+  <p style="margin:0;font-size:14px;color:#888;">Here's this week's update on your vacant properties.</p>
+  {% endif %}
+</td></tr>
+
+{# ── Property Cards ──────────────────────────────────────── #}
+{% for unit in units %}
+<tr><td style="background:#fff;padding:24px 32px;border-bottom:1px solid #eee;">
+
+  {# Property header #}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;"><tr>
+    <td>
+      <p style="margin:0;font-size:15px;font-weight:700;color:#1a1a2e;">{{ unit.address }}</p>
+      <p style="margin:2px 0 0;font-size:12px;color:#888;">{{ unit.city }}, {{ unit.state }} {{ unit.zip_code }}{% if unit.bedrooms %} &middot; {{ unit.bedrooms }}BR{% endif %}</p>
+    </td>
+    <td align="right" style="vertical-align:top;">
+      {% if unit.days_on_market != None %}
+      <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;{% if unit.days_on_market >= 30 %}background:#f8d7da;color:#721c24;{% elif unit.days_on_market >= 14 %}background:#fff3cd;color:#856404;{% else %}background:#d4edda;color:#155724;{% endif %}">{{ unit.days_on_market }} DOM</span>
+      {% endif %}
+    </td>
+  </tr></table>
+
+  {# Weekly + All-Time Performance #}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
+  <tr>
+    <td width="50%" style="vertical-align:top;padding-right:8px;">
+      <p style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">This Week</p>
+      <table role="presentation" width="100%" cellpadding="4" cellspacing="0" style="font-size:13px;">
+        <tr style="background:#f8f9ff;">
+          <td style="color:#888;">Leads</td>
+          <td align="right" style="font-weight:600;">{{ unit.weekly.leads }}{% if unit.leads_delta %}<span style="font-size:11px;color:{% if unit.leads_delta > 0 %}#28a745{% else %}#dc3545{% endif %};margin-left:4px;">{% if unit.leads_delta > 0 %}+{% endif %}{{ unit.leads_delta }}</span>{% endif %}</td>
+        </tr>
+        <tr>
+          <td style="color:#888;">Showings</td>
+          <td align="right" style="font-weight:600;">{{ unit.weekly.showings }}</td>
+        </tr>
+        <tr style="background:#f8f9ff;">
+          <td style="color:#888;">Missed</td>
+          <td align="right" style="font-weight:600;{% if unit.weekly.missed > 0 %}color:#dc3545;{% endif %}">{{ unit.weekly.missed }}</td>
+        </tr>
+        <tr>
+          <td style="color:#888;">Apps</td>
+          <td align="right" style="font-weight:600;">{{ unit.weekly.apps }}</td>
+        </tr>
+      </table>
+    </td>
+    <td width="50%" style="vertical-align:top;padding-left:8px;">
+      <p style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">All-Time</p>
+      <table role="presentation" width="100%" cellpadding="4" cellspacing="0" style="font-size:13px;">
+        <tr style="background:#f8f9ff;">
+          <td style="color:#888;">Leads</td>
+          <td align="right" style="font-weight:600;">{{ unit.all_time.leads }}</td>
+        </tr>
+        <tr>
+          <td style="color:#888;">Showings</td>
+          <td align="right" style="font-weight:600;">{{ unit.all_time.showings }}</td>
+        </tr>
+        <tr style="background:#f8f9ff;">
+          <td style="color:#888;">Missed</td>
+          <td align="right" style="font-weight:600;">{{ unit.all_time.missed }}</td>
+        </tr>
+        <tr>
+          <td style="color:#888;">Apps</td>
+          <td align="right" style="font-weight:600;">{{ unit.all_time.apps }}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  </table>
+
+  {# Market Context #}
+  <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="background:#f0f4ff;border-radius:6px;font-size:13px;margin-bottom:12px;">
+  <tr>
+    <td style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.5px;" colspan="4"><strong>Market Context</strong></td>
+  </tr>
+  <tr>
+    <td style="color:#888;">List Price</td>
+    <td style="font-weight:600;">{% if unit.current_list_price %}${{ unit.current_list_price|floatformat:0 }}{% else %}&mdash;{% endif %}</td>
+    <td style="color:#888;">Zip Avg</td>
+    <td style="font-weight:600;">{% if unit.market_context.zip_avg_list_price %}${{ unit.market_context.zip_avg_list_price|floatformat:0 }}{% else %}&mdash;{% endif %}</td>
+  </tr>
+  </table>
+
+  {# Showing Feedback #}
+  {% if unit.showing_feedback %}
+  <div style="margin-bottom:12px;">
+    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Showing Feedback</p>
+    {% for fb in unit.showing_feedback %}
+    <p style="margin:0 0 4px;font-size:13px;line-height:1.5;color:#444;padding-left:8px;border-left:3px solid #4a90d9;">
+      {% if fb.prospect_name %}<strong>{{ fb.prospect_name }}</strong>{% if fb.date %} ({{ fb.date }}){% endif %}: {% endif %}{{ fb.feedback_summary }}
+    </p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Upcoming Showings #}
+  {% if unit.upcoming_showings %}
+  <div style="margin-bottom:12px;">
+    <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Upcoming Showings</p>
+    {% for s in unit.upcoming_showings %}
+    <p style="margin:0 0 2px;font-size:13px;color:#444;">{{ s.date }} at {{ s.time }}{% if s.prospect_name %} &mdash; {{ s.prospect_name }}{% endif %}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# Staff Notes #}
+  {% if unit.property_note %}
+  <div style="background:#fffde7;border-radius:6px;padding:10px 14px;margin-bottom:12px;">
+    <p style="margin:0 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Notes</p>
+    <p style="margin:0;font-size:13px;line-height:1.5;color:#444;">{{ unit.property_note|linebreaksbr }}</p>
+  </div>
+  {% endif %}
+
+  {# Price Recommendation #}
+  {% if unit.price_recommendation.recommended %}
+  <div style="background:#fff3cd;border-radius:6px;padding:10px 14px;border-left:3px solid #856404;">
+    <p style="margin:0;font-size:13px;line-height:1.5;color:#856404;font-weight:600;">{{ unit.price_recommendation.message }}</p>
+  </div>
+  {% endif %}
+
+  {# Zillow Link #}
+  {% if unit.zillow_url %}
+  <p style="margin:12px 0 0;"><a href="{{ unit.zillow_url }}" style="color:#4a90d9;font-size:13px;text-decoration:none;" target="_blank">View on Zillow &rarr;</a></p>
+  {% endif %}
+
+</td></tr>
+{% endfor %}
+
+{# ── Portfolio Totals ────────────────────────────────────── #}
+{% if portfolio_averages %}
+<tr><td style="background:#f8f9ff;padding:20px 32px;border-top:2px solid #eee;">
+  <p style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;font-weight:600;">Portfolio Averages</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="font-size:13px;"><tr>
+    {% if portfolio_averages.active_unit_count %}<td style="padding-right:24px;"><span style="color:#888;">Active Units:</span> <strong>{{ portfolio_averages.active_unit_count }}</strong></td>{% endif %}
+    {% if portfolio_averages.avg_dom != None %}<td style="padding-right:24px;"><span style="color:#888;">Avg DOM:</span> <strong>{{ portfolio_averages.avg_dom }}</strong></td>{% endif %}
+    {% if portfolio_averages.avg_list_price %}<td style="padding-right:24px;"><span style="color:#888;">Avg List Price:</span> <strong>${{ portfolio_averages.avg_list_price|floatformat:0 }}</strong></td>{% endif %}
+    {% if portfolio_averages.avg_portfolio_rent %}<td><span style="color:#888;">Avg Rent:</span> <strong>${{ portfolio_averages.avg_portfolio_rent|floatformat:0 }}</strong></td>{% endif %}
+  </tr></table>
+</td></tr>
+{% endif %}
+
+{# ── Footer ──────────────────────────────────────────────── #}
+<tr><td style="background:#1a1a2e;padding:20px 32px;border-radius:0 0 8px 8px;text-align:center;">
+  <p style="margin:0;color:rgba(255,255,255,.5);font-size:12px;">Vesta Property Management &middot; Sent {{ report_date|date:"M j, Y" }}</p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

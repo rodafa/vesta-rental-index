@@ -1,11 +1,12 @@
 /**
  * Daily Pulse — Monday morning overview.
  * Loads headline stats and active listings alert table.
+ * Auto-refreshes every 60 seconds.
  */
 var _allListings = [];
 var _domFilterActive = false;
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function loadAll() {
   try {
     var [portfolio, dailyStats, funnel, listings] = await Promise.all([
       VestaAPI.get('/analytics/portfolio-summary'),
@@ -75,7 +76,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Render active listings alert table
-    renderListingsTable(_allListings);
+    if (_domFilterActive) {
+      renderListingsTable(_allListings.filter(function (item) {
+        return item.days_on_market >= 30;
+      }));
+    } else {
+      renderListingsTable(_allListings);
+    }
   } catch (err) {
     console.error('Daily Pulse load error:', err);
     VestaAPI.render('headline-stats', '<div class="loading">Error loading data</div>');
@@ -84,6 +91,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       '<tr><td colspan="10" class="loading">Error loading data</td></tr>'
     );
   }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  loadAll();
+  setInterval(loadAll, 60000);
 });
 
 function renderListingsTable(items) {

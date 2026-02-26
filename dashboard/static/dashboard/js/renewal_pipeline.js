@@ -1,7 +1,10 @@
 /**
  * Renewal Pipeline — expirations, clustering, below-market flags.
+ * Auto-refreshes every 60 seconds.
  */
-document.addEventListener('DOMContentLoaded', async () => {
+var _clusteringChart = null;
+
+async function loadAll() {
   try {
     var data = await VestaAPI.get('/analytics/renewal-pipeline?months_ahead=6');
     renderStats(data);
@@ -11,6 +14,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Renewal Pipeline load error:', err);
     VestaAPI.render('renewal-stats', '<div class="loading">Error loading data</div>');
   }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  loadAll();
+  setInterval(loadAll, 60000);
 });
 
 function renderStats(d) {
@@ -50,7 +58,9 @@ function renderClusteringChart(clustering, totalActive) {
   var ctx = document.getElementById('clustering-chart');
   if (!ctx) return;
 
-  new Chart(ctx, {
+  if (_clusteringChart) _clusteringChart.destroy();
+
+  _clusteringChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: labels,

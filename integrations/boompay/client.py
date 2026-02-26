@@ -1,5 +1,9 @@
 """
-BoomPay/BoomScreen API client with HTTP Basic Auth, pagination, and retry with backoff.
+BoomPay/BoomScreen API client with JWT Bearer auth, pagination, and retry with backoff.
+
+Auth flow: POST {access_key, secret_key} to /partner/v1/authenticate → JWT token.
+All subsequent requests use Authorization: Bearer {token}.
+On 401, re-authenticate once and retry.
 """
 
 import logging
@@ -24,8 +28,8 @@ class BoompayClient:
     """
     HTTP client for the BoomPay/BoomScreen REST API.
 
-    Uses HTTP Basic Auth (API key as username, API secret as password).
-    Handles 1-indexed pagination and retries with exponential backoff on 429/5xx.
+    Uses JWT Bearer token authentication. Authenticates lazily on first
+    request and re-authenticates on 401.
     """
 
     MAX_RETRIES = 3
@@ -48,20 +52,64 @@ class BoompayClient:
             )
 
         self.session = requests.Session()
-        self.session.auth = (self.api_key, self.api_secret)
         self.session.headers.update({
             "Accept": "application/json",
             "Content-Type": "application/json",
         })
+        self._token = None
 
-    def _request(self, method, path, params=None):
-        """Make a single HTTP request with retry logic."""
+    def _authenticate(self):
+        """POST credentials to /partner/v1/authenticate and store JWT token."""
+        url = f"{self.base_url}/partner/v1/authenticate"
+        try:
+            response = self.session.post(
+                url,
+                json={"access_key": self.api_key, "secret_key": self.api_secret},
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise BoompayAPIError(f"Authentication request failed: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise BoompayAPIError(
+                f"Authentication failed ({response.status_code}): {response.text[:500]}",
+                status_code=response.status_code,
+                response_body=response.text,
+            )
+
+        data = response.json()
+        self._token = data.get("token") or data.get("access_token") or data.get("jwt")
+        if not self._token:
+            raise BoompayAPIError(
+                "Authentication response missing token",
+                response_body=response.text,
+            )
+        logger.info("BoomPay: authenticated successfully")
+
+    def _ensure_auth(self):
+        """Authenticate if we don't have a token yet."""
+        if not self._token:
+            self._authenticate()
+
+    def _get_auth_headers(self):
+        """Return Authorization header dict with current Bearer token."""
+        return {"Authorization": f"Bearer {self._token}"}
+
+    def _request(self, method, path, params=None, json_body=None):
+        """Make a single HTTP request with retry logic and 401 re-auth."""
+        self._ensure_auth()
         url = f"{self.base_url}/{path.lstrip('/')}"
+        reauthenticated = False
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
                 response = self.session.request(
-                    method, url, params=params, timeout=30
+                    method,
+                    url,
+                    params=params,
+                    json=json_body,
+                    headers=self._get_auth_headers(),
+                    timeout=30,
                 )
             except requests.RequestException as exc:
                 if attempt < self.MAX_RETRIES:
@@ -73,6 +121,13 @@ class BoompayClient:
                     time.sleep(wait)
                     continue
                 raise BoompayAPIError(f"Request failed after retries: {exc}") from exc
+
+            # Handle 401: re-authenticate once, then retry
+            if response.status_code == 401 and not reauthenticated:
+                logger.info("BoomPay: 401 received, re-authenticating")
+                self._authenticate()
+                reauthenticated = True
+                continue
 
             if response.status_code in self.RETRYABLE_STATUS_CODES:
                 if attempt < self.MAX_RETRIES:
@@ -112,6 +167,11 @@ class BoompayClient:
     def get(self, path, params=None):
         """GET request, returns parsed JSON."""
         response = self._request("GET", path, params=params)
+        return response.json()
+
+    def post(self, path, json_body=None, params=None):
+        """POST request, returns parsed JSON."""
+        response = self._request("POST", path, params=params, json_body=json_body)
         return response.json()
 
     def _extract_records(self, data):

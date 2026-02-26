@@ -1,7 +1,9 @@
 /**
  * Revenue Intelligence — rent gap, turn time, concessions.
+ * Auto-refreshes every 60 seconds.
  */
-document.addEventListener('DOMContentLoaded', async () => {
+
+async function loadAll() {
   try {
     var [summary, gaps, turns, concessions] = await Promise.all([
       VestaAPI.get('/analytics/revenue-leakage-summary'),
@@ -18,6 +20,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Revenue Intelligence load error:', err);
     VestaAPI.render('revenue-stats', '<div class="loading">Error loading data</div>');
   }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  loadAll();
+  setInterval(loadAll, 60000);
 });
 
 function renderStats(s) {

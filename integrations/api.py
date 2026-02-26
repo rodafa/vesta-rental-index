@@ -43,8 +43,27 @@ class RentEngineWebhookAuth(APIKeyHeader):
         return None
 
 
+class BoomPayWebhookAuth(APIKeyHeader):
+    """
+    Validates X-BoomPay-Signature header against the configured secret.
+
+    If BOOMPAY.WEBHOOK_SECRET is not set (empty string), all requests
+    are allowed — this supports local dev without configuring secrets.
+    """
+
+    param_name = "X-BoomPay-Signature"
+
+    def authenticate(self, request: HttpRequest, key: str | None):
+        expected = settings.BOOMPAY.get("WEBHOOK_SECRET", "")
+        if not expected:
+            return "dev"  # No secret configured — allow all (dev mode)
+        if key == expected:
+            return key
+        return None
+
+
 # ---------------------------------------------------------------------------
-# Endpoint
+# RentEngine Endpoint
 # ---------------------------------------------------------------------------
 
 
@@ -97,6 +116,60 @@ def rentengine_webhook(request: HttpRequest):
         process_webhook_event(event)
     except Exception:
         logger.exception("Failed to process RentEngine webhook event %s", event.pk)
+        return {"status": "error", "detail": "Processing failed"}
+
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# BoomPay Endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("/boompay/", auth=[BoomPayWebhookAuth()], response={200: dict})
+def boompay_webhook(request: HttpRequest):
+    """
+    Receive a webhook event from BoomPay/BoomScreen.
+
+    Expected JSON body:
+        {
+            "event": "application_submitted | application_approved | ...",
+            "data": { ... } or "application": { ... }
+        }
+    """
+    from integrations.boompay.processors import process_boompay_webhook
+
+    body = request.ninja_parsed_body if hasattr(request, "ninja_parsed_body") else {}
+    if not body:
+        import json
+
+        try:
+            body = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning("BoomPay webhook: invalid JSON body")
+            return {"status": "error", "detail": "Invalid JSON"}
+
+    event_type = body.get("event", "")
+
+    # Persist raw event
+    event = WebhookEvent.objects.create(
+        source="boompay",
+        event_type=event_type,
+        table_name="",  # BoomPay doesn't use table names
+        record=body,
+        old_record={},
+    )
+    logger.info(
+        "BoomPay webhook received: %s (event %s)",
+        event_type,
+        event.pk,
+    )
+
+    # Process
+    try:
+        process_boompay_webhook(event)
+    except Exception:
+        logger.exception("Failed to process BoomPay webhook event %s", event.pk)
         return {"status": "error", "detail": "Processing failed"}
 
     return {"status": "ok"}
