@@ -388,11 +388,15 @@ def list_property_notes(
 
 @router.post("/property-notes", response=PropertyWeeklyNoteSchema)
 def create_property_note(request, data: PropertyWeeklyNoteCreateSchema):
+    # Use logged-in user as author when available
+    author = data.author
+    if hasattr(request, "user") and request.user.is_authenticated:
+        author = request.user.get_full_name() or request.user.username
     note, _ = PropertyWeeklyNote.objects.update_or_create(
         unit_id=data.unit_id,
         week_date=data.week_date,
         defaults={
-            "author": data.author,
+            "author": author,
             "note_text": data.note_text,
         },
     )
@@ -445,9 +449,13 @@ def list_unit_notes(request, unit_id: Optional[int] = None):
 
 @router.post("/unit-notes", response=UnitNoteSchema)
 def create_unit_note(request, data: UnitNoteCreateSchema):
+    # Use logged-in user as author when available
+    author = data.author
+    if hasattr(request, "user") and request.user.is_authenticated:
+        author = request.user.get_full_name() or request.user.username
     note = UnitNote.objects.create(
         unit_id=data.unit_id,
-        author=data.author,
+        author=author,
         note_text=data.note_text,
     )
     return _unit_note_to_dict(note)

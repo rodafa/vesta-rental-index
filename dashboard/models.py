@@ -1,4 +1,17 @@
+from django.contrib.auth.models import User
 from django.db import models
+
+
+class StaffProfile(models.Model):
+    """Tracks staff-specific flags like forced password change."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="staff_profile"
+    )
+    must_change_password = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"Profile for {self.user.username}"
 
 
 class OwnerReportNote(models.Model):

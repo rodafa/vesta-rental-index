@@ -2,40 +2,62 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth.decorators import login_required
 from django.db.models import Avg
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views import View
 
 from dashboard.models import UnitNote
 from leasing.models import Lease
 from properties.models import Portfolio, Property, Unit
 
 
+@login_required
 def daily_pulse(request):
     return render(request, "dashboard/daily_pulse.html", {"today": date.today()})
 
 
+@login_required
 def property_detail(request, unit_id):
     return render(request, "dashboard/property_detail.html", {"unit_id": unit_id})
 
 
+@login_required
 def portfolio_analytics(request):
     return render(request, "dashboard/portfolio_analytics.html")
 
 
+@login_required
 def owner_reports(request):
     return render(request, "dashboard/owner_reports.html")
 
 
+@login_required
 def revenue_intelligence(request):
     return render(request, "dashboard/revenue_intelligence.html")
 
 
+@login_required
 def renewal_pipeline(request):
     return render(request, "dashboard/renewal_pipeline.html")
 
 
+@login_required
 def leasing_pipeline(request):
     return render(request, "dashboard/leasing_pipeline.html")
+
+
+class PasswordChangeCompleteView(View):
+    """Clear the must_change_password flag and redirect to dashboard."""
+
+    def get(self, request):
+        try:
+            profile = request.user.staff_profile
+            profile.must_change_password = False
+            profile.save(update_fields=["must_change_password"])
+        except Exception:
+            pass
+        return redirect("dashboard:daily_pulse")
 
 
 def owner_dashboard(request, portfolio_slug):

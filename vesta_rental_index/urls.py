@@ -1,13 +1,14 @@
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.auth.views import LoginView, LogoutView, PasswordChangeView
 from django.db import connection
 from django.urls import include, path
 from ninja import NinjaAPI
-from ninja.security import APIKeyHeader
+from ninja.security import APIKeyCookie, APIKeyHeader
 
 from analytics.api import router as analytics_router
 from dashboard.api import router as dashboard_api_router
-from dashboard.views import owner_dashboard
+from dashboard.views import PasswordChangeCompleteView, owner_dashboard
 from integrations.api import router as webhooks_router
 from leasing.api import router as leasing_router
 from market.api import router as market_router
@@ -27,11 +28,22 @@ class VestaAPIKey(APIKeyHeader):
         return None
 
 
+class SessionAuth(APIKeyCookie):
+    """Allow access via Django session cookie (for logged-in dashboard users)."""
+
+    param_name = "sessionid"
+
+    def authenticate(self, request, key):
+        if request.user and request.user.is_authenticated:
+            return request.user
+        return None
+
+
 api = NinjaAPI(
     title="Vesta Rental Index API",
     version="0.1.0",
     description="Internal rental performance index for Vesta Property Management.",
-    auth=[VestaAPIKey()],
+    auth=[VestaAPIKey(), SessionAuth()],
 )
 
 
@@ -54,6 +66,21 @@ api.add_router("/screening/", screening_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("accounts/login/", LoginView.as_view(), name="login"),
+    path("accounts/logout/", LogoutView.as_view(next_page="/accounts/login/"), name="logout"),
+    path(
+        "accounts/password-change/",
+        PasswordChangeView.as_view(
+            template_name="registration/password_change.html",
+            success_url="/accounts/password-change/done/",
+        ),
+        name="password_change",
+    ),
+    path(
+        "accounts/password-change/done/",
+        PasswordChangeCompleteView.as_view(),
+        name="password_change_done",
+    ),
     path("api/", api.urls),
     path("dashboard/", include("dashboard.urls")),
     path("owner/<slug:portfolio_slug>/", owner_dashboard, name="owner_dashboard"),

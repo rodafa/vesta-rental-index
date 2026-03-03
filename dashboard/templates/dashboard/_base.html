@@ -5,11 +5,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Dashboard{% endblock %} — Vesta</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=4">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   {% block head_extra %}{% endblock %}
 </head>
-<body>
+<body data-username="{{ user.get_full_name|default:user.username }}">
   <nav class="sidebar">
     <div class="sidebar-brand">Vesta</div>
     <a href="{% url 'dashboard:daily_pulse' %}" class="nav-link {% block nav_pulse %}{% endblock %}">Daily Pulse</a>
@@ -18,6 +18,10 @@
     <a href="{% url 'dashboard:renewal_pipeline' %}" class="nav-link {% block nav_renewals %}{% endblock %}">Renewal Pipeline</a>
     <a href="{% url 'dashboard:owner_reports' %}" class="nav-link {% block nav_owners %}{% endblock %}">Leasing Updates</a>
     <a href="{% url 'dashboard:leasing_pipeline' %}" class="nav-link {% block nav_leasing %}{% endblock %}">Leasing Pipeline</a>
+    <div class="sidebar-user">
+      <span class="sidebar-username">{{ user.get_full_name|default:user.username }}</span>
+      <a href="{% url 'logout' %}" class="nav-link sidebar-logout">Logout</a>
+    </div>
   </nav>
 
   <main class="content">
