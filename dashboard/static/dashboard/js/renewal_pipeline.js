@@ -49,7 +49,7 @@ function renderClusteringChart(clustering, totalActive) {
   var counts = clustering.map(function (c) { return c.count; });
   var threshold = Math.round(totalActive * 0.15);
   var colors = clustering.map(function (c) {
-    return c.is_concentrated ? '#dc3545cc' : '#4a90d9cc';
+    return c.is_concentrated ? '#dc3545cc' : '#6EA5CDcc';
   });
 
   // Concentrated months for callout

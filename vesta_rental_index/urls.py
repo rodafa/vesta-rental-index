@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.contrib.auth.views import LoginView, LogoutView, PasswordChangeView
 from django.db import connection
 from django.urls import include, path
+from django.views.generic import RedirectView
 from ninja import NinjaAPI
 from ninja.security import APIKeyCookie, APIKeyHeader
 
@@ -84,5 +85,5 @@ urlpatterns = [
     path("api/", api.urls),
     path("dashboard/", include("dashboard.urls")),
     path("owner/<slug:portfolio_slug>/", owner_dashboard, name="owner_dashboard"),
-    path("", include("leasing.urls")),
+    path("", RedirectView.as_view(url="/dashboard/", permanent=False)),
 ]

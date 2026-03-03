@@ -69,7 +69,7 @@ function renderFunnelChart(stats) {
       datasets: [{
         label: '30-Day Funnel',
         data: data,
-        backgroundColor: ['#4a90d9cc', '#50c878cc', '#f5a623cc', '#7b68eecc'],
+        backgroundColor: ['#6EA5CDcc', '#50c878cc', '#f5a623cc', '#7b68eecc'],
         borderRadius: 3,
       }],
     },
