@@ -169,6 +169,7 @@ def _render_owner_email(owner, report_data, note):
             "avg_dom": g_avg_dom,
             "active_count": active_count,
         },
+        "logo_url": settings.VESTA_LOGO_URL,
     }
     return render_to_string("emails/owner_report.html", context)
 

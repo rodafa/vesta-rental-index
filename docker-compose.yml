@@ -36,6 +36,7 @@ services:
       BOOMPAY_API_KEY: ${BOOMPAY_API_KEY:-}
       BOOMPAY_API_SECRET: ${BOOMPAY_API_SECRET:-}
       VESTA_API_KEY: ${VESTA_API_KEY:-}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
     depends_on:
       - db
 

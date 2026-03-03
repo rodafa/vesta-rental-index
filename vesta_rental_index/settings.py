@@ -33,6 +33,12 @@ ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").sp
 _csrf_origins = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(",") if o.strip()]
 
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 
 # Application definition
 
@@ -196,3 +202,7 @@ if SENDGRID_API_KEY:
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("VESTA_FROM_EMAIL", "reports@vestapm.com")
+VESTA_LOGO_URL = os.environ.get(
+    "VESTA_LOGO_URL",
+    "https://vestapm.com/wp-content/uploads/2026/02/cropped-Full-Logo-All-White-Green-Flame.png",
+)
