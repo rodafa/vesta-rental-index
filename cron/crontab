@@ -1,9 +1,8 @@
 # Vesta Rental Index — daily data pipeline (UTC)
-0 2 * * * /app/cron/run_command.sh sync_rentvine_all
-0 3 * * * /app/cron/run_command.sh sync_rentengine_all
-0 4 * * * /app/cron/run_command.sh aggregate_market_data --all
+# Full pipeline: RentVine -> RentEngine -> BoomPay -> Market Aggregation -> Owner Links
+0 2 * * * /app/cron/run_command.sh run_pipeline
 
-# Monday night: generate draft owner reports for Tuesday review
-0 22 * * 1 /app/cron/run_command.sh generate_weekly_reports
+# Monday night: full pipeline + weekly owner reports for Tuesday review
+0 22 * * 1 /app/cron/run_command.sh run_pipeline --include-reports
 
 # trailing newline required for cron
