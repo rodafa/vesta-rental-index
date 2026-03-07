@@ -5,6 +5,13 @@ EXEMPT_PATHS = [
     "/accounts/logout/",
     "/accounts/password-change/",
     "/accounts/password-change/done/",
+    "/accounts/password-reset/",
+    "/accounts/password-reset/done/",
+    "/accounts/password-reset/complete/",
+]
+
+EXEMPT_PREFIXES = [
+    "/accounts/password-reset/confirm/",
 ]
 
 
@@ -20,7 +27,10 @@ class ForcePasswordChangeMiddleware:
             if not request.path.startswith(("/dashboard/", "/accounts/")):
                 return self.get_response(request)
 
-            if request.path not in EXEMPT_PATHS:
+            is_exempt = request.path in EXEMPT_PATHS or any(
+                request.path.startswith(p) for p in EXEMPT_PREFIXES
+            )
+            if not is_exempt:
                 try:
                     if request.user.staff_profile.must_change_password:
                         return redirect("/accounts/password-change/")
