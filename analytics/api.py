@@ -158,14 +158,14 @@ def leasing_funnel(
     lease_f = Q(is_renewal=False)
 
     if date_from:
-        prospect_f &= Q(created_at__date__gte=date_from)
-        showing_f &= Q(created_at__date__gte=date_from)
-        app_f &= Q(created_at__date__gte=date_from)
+        prospect_f &= Q(source_created_at__date__gte=date_from)
+        showing_f &= Q(scheduled_at__date__gte=date_from)
+        app_f &= Q(source_created_at__date__gte=date_from)
         lease_f &= Q(start_date__gte=date_from)
     if date_to:
-        prospect_f &= Q(created_at__date__lte=date_to)
-        showing_f &= Q(created_at__date__lte=date_to)
-        app_f &= Q(created_at__date__lte=date_to)
+        prospect_f &= Q(source_created_at__date__lte=date_to)
+        showing_f &= Q(scheduled_at__date__lte=date_to)
+        app_f &= Q(source_created_at__date__lte=date_to)
         lease_f &= Q(start_date__lte=date_to)
 
     if property_id:
@@ -218,16 +218,16 @@ def prospect_sources(
 ):
     prospect_qs = Prospect.objects.exclude(source="")
     if date_from:
-        prospect_qs = prospect_qs.filter(created_at__date__gte=date_from)
+        prospect_qs = prospect_qs.filter(source_created_at__date__gte=date_from)
     if date_to:
-        prospect_qs = prospect_qs.filter(created_at__date__lte=date_to)
+        prospect_qs = prospect_qs.filter(source_created_at__date__lte=date_to)
 
     # Showings date filter applied within the annotation
     showing_filter = Q(showings__status="completed")
     if date_from:
-        showing_filter &= Q(showings__created_at__date__gte=date_from)
+        showing_filter &= Q(showings__scheduled_at__date__gte=date_from)
     if date_to:
-        showing_filter &= Q(showings__created_at__date__lte=date_to)
+        showing_filter &= Q(showings__scheduled_at__date__lte=date_to)
 
     sources = (
         prospect_qs.values("source")
@@ -241,9 +241,9 @@ def prospect_sources(
     # Application counts joined through unit_of_interest (no direct FK)
     app_qs = Application.objects.all()
     if date_from:
-        app_qs = app_qs.filter(created_at__date__gte=date_from)
+        app_qs = app_qs.filter(source_created_at__date__gte=date_from)
     if date_to:
-        app_qs = app_qs.filter(created_at__date__lte=date_to)
+        app_qs = app_qs.filter(source_created_at__date__lte=date_to)
 
     source_units = (
         prospect_qs.exclude(unit_of_interest__isnull=True)
@@ -1010,14 +1010,18 @@ def leasing_pipeline(request):
     today = date.today()
     cutoff_30d = today - timedelta(days=30)
 
-    # Funnel (30d)
-    prospects_30d = Prospect.objects.filter(created_at__date__gte=cutoff_30d).count()
-    showings_30d = Showing.objects.filter(
-        created_at__date__gte=cutoff_30d, status="completed"
+    # Funnel (30d) — use source dates, not Django created_at (which reflects sync time)
+    prospects_30d = Prospect.objects.filter(
+        source_created_at__date__gte=cutoff_30d
     ).count()
-    apps_30d = Application.objects.filter(created_at__date__gte=cutoff_30d).count()
+    showings_30d = Showing.objects.filter(
+        scheduled_at__date__gte=cutoff_30d, status="completed"
+    ).count()
+    apps_30d = Application.objects.filter(
+        source_created_at__date__gte=cutoff_30d
+    ).count()
     approved_30d = Application.objects.filter(
-        created_at__date__gte=cutoff_30d, primary_status=6
+        source_created_at__date__gte=cutoff_30d, primary_status=6
     ).count()
     leases_30d = Lease.objects.filter(
         start_date__gte=cutoff_30d, is_renewal=False
