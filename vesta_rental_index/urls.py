@@ -62,16 +62,9 @@ api = NinjaAPI(
 
 @api.get("/health", auth=None, tags=["System"])
 def health_check(request):
-    key = settings.VESTA_API_KEY
     try:
         connection.ensure_connection()
-        return {
-            "status": "ok",
-            "db": "connected",
-            "key_len": len(key),
-            "key_start": key[:4] if key else "(empty)",
-            "key_end": key[-4:] if key else "(empty)",
-        }
+        return {"status": "ok", "db": "connected"}
     except Exception as e:
         return {"status": "error", "db": str(e)}
 
