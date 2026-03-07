@@ -1,3 +1,4 @@
+import datetime
 import io
 import logging
 import threading
@@ -83,6 +84,13 @@ def _run_pipeline(run_id, include_reports):
     summary="Trigger the full data pipeline",
 )
 def trigger_pipeline(request, payload: TriggerIn = TriggerIn()):
+    # Mark stale runs (running for >60 min) as failed — likely killed by redeploy
+    stale_cutoff = timezone.now() - datetime.timedelta(minutes=60)
+    PipelineRun.objects.filter(
+        status__in=["started", "running"],
+        started_at__lt=stale_cutoff,
+    ).update(status="failed", completed_at=timezone.now(), output="Marked as failed: likely killed by redeploy")
+
     # Guard: reject if a run is already in progress
     active = PipelineRun.objects.filter(status__in=["started", "running"]).first()
     if active:
