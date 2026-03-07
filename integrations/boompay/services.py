@@ -64,9 +64,14 @@ class ApplicationSyncService(_BaseSyncService):
     def _resolve_unit(self, unit_address, unit_id):
         """Try to match a Unit by address or external ID."""
         if unit_id:
-            unit = Unit.objects.filter(rentvine_id=unit_id).first()
-            if unit:
-                return unit
+            # Only attempt rentvine_id lookup if value is numeric
+            try:
+                numeric_id = int(unit_id)
+                unit = Unit.objects.filter(rentvine_id=numeric_id).first()
+                if unit:
+                    return unit
+            except (ValueError, TypeError):
+                pass
 
         if unit_address:
             unit = Unit.objects.filter(address_line_1__iexact=unit_address).first()
@@ -78,7 +83,7 @@ class ApplicationSyncService(_BaseSyncService):
     def sync(self, dry_run=False):
         log = self._create_log()
         try:
-            records = self.client.get_all("/applications")
+            records = self.client.get_all("/partner/v1/applications")
         except Exception as exc:
             self._fail_log(log, exc)
             raise
@@ -153,7 +158,7 @@ class ReportSyncService(_BaseSyncService):
         for app in applications:
             try:
                 records = self.client.get_all(
-                    f"/applications/{app.boompay_id}/reports"
+                    f"/partner/v1/applications/{app.boompay_id}/reports"
                 )
             except Exception as exc:
                 msg = f"Error fetching reports for application {app.boompay_id}: {exc}"

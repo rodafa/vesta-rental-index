@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 APPLICATION_STATUS_MAP = {
     # API value (lowercased) -> our ScreeningApplication.STATUS_CHOICES value
+    "started": "pending",
     "pending": "pending",
-    "submitted": "pending",
+    "submitted": "in_progress",
     "new": "pending",
     "in_progress": "in_progress",
     "in progress": "in_progress",
@@ -28,6 +29,7 @@ APPLICATION_STATUS_MAP = {
     "completed": "completed",
     "complete": "completed",
     "approved": "completed",
+    "rejected": "completed",
     "denied": "completed",
     "declined": "completed",
     "expired": "expired",
@@ -120,15 +122,26 @@ def map_application(data):
     applicant_name = str(
         _get(data, "applicant_name", "applicantName", "name", "full_name", "fullName", default="")
     )
-    # Try to build name from first/last if not found
+    applicant_email = str(
+        _get(data, "applicant_email", "applicantEmail", "email", default="")
+    )
+
+    # Try to build name/email from first/last at top level
     if not applicant_name:
         first = str(_get(data, "first_name", "firstName", default=""))
         last = str(_get(data, "last_name", "lastName", default=""))
         applicant_name = f"{first} {last}".strip()
 
-    applicant_email = str(
-        _get(data, "applicant_email", "applicantEmail", "email", default="")
-    )
+    # Fall back to nested applicants array (BoomScreen format)
+    applicants = data.get("applicants") or []
+    if applicants and isinstance(applicants, list):
+        primary = applicants[0]
+        if not applicant_name:
+            first = str(primary.get("first_name", ""))
+            last = str(primary.get("last_name", ""))
+            applicant_name = f"{first} {last}".strip()
+        if not applicant_email:
+            applicant_email = str(primary.get("email", ""))
 
     defaults = {
         "applicant_name": applicant_name,

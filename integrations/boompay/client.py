@@ -78,7 +78,12 @@ class BoompayClient:
             )
 
         data = response.json()
-        self._token = data.get("token") or data.get("access_token") or data.get("jwt")
+        self._token = (
+            data.get("token")
+            or data.get("access_token")
+            or data.get("auth_token")
+            or data.get("jwt")
+        )
         if not self._token:
             raise BoompayAPIError(
                 "Authentication response missing token",
@@ -218,7 +223,7 @@ class BoompayClient:
             if meta.get("hasMore") is False or meta.get("has_more") is False:
                 return None
 
-        return {"page": current_page + 1, "page_size": page_size}
+        return {"page": current_page + 1, "per_page": page_size}
 
     def get_all(self, path, page_size=None):
         """
@@ -230,7 +235,7 @@ class BoompayClient:
         page = 1
 
         while True:
-            params = {"page": page, "page_size": page_size}
+            params = {"page": page, "per_page": page_size}
             data = self.get(path, params=params)
             records = self._extract_records(data)
 

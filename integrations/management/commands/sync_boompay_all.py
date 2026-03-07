@@ -4,16 +4,14 @@ import time
 from django.core.management.base import BaseCommand
 
 from integrations.boompay.client import BoompayClient
-from integrations.boompay.services import (
-    ApplicationSyncService,
-    ReportSyncService,
-)
+from integrations.boompay.services import ApplicationSyncService
 
 logger = logging.getLogger(__name__)
 
 SYNC_ORDER = [
     ("applications", ApplicationSyncService),
-    ("reports", ReportSyncService),
+    # Reports endpoint not available in BoomScreen partner API;
+    # screening data is embedded in application records.
 ]
 
 
