@@ -545,19 +545,27 @@ def active_listings(request):
         snapshot_date=latest_date, status="active"
     ).select_related("unit", "unit__property", "unit__property__portfolio")
 
-    # Batch-fetch leasing aggregates for all active units
+    # Batch-fetch leasing aggregates from source models (not DailyLeasingSummary
+    # which stores cumulative totals that inflate when summed across days).
     active_unit_ids = [s.unit_id for s in snapshots]
-    leasing_agg = (
-        DailyLeasingSummary.objects.filter(unit_id__in=active_unit_ids)
-        .values("unit_id")
-        .annotate(
-            total_leads=Coalesce(Sum("leads_count"), 0),
-            total_showings=Coalesce(Sum("showings_completed_count"), 0),
-            total_missed=Coalesce(Sum("showings_missed_count"), 0),
-            total_apps=Coalesce(Sum("applications_count"), 0),
-        )
-    )
-    leasing_map = {row["unit_id"]: row for row in leasing_agg}
+
+    def _unit_counts(qs, field):
+        return dict(qs.filter(**{field + "__in": active_unit_ids})
+                    .values_list(field).annotate(n=Count("id")).values_list(field, "n"))
+
+    leads_by_unit = _unit_counts(Prospect.objects, "unit_of_interest_id")
+    showings_by_unit = _unit_counts(Showing.objects.filter(status="completed"), "unit_id")
+    missed_by_unit = _unit_counts(Showing.objects.filter(status="missed"), "unit_id")
+    apps_by_unit = _unit_counts(Application.objects, "unit_id")
+
+    leasing_map = {}
+    for uid in active_unit_ids:
+        leasing_map[uid] = {
+            "total_leads": leads_by_unit.get(uid, 0),
+            "total_showings": showings_by_unit.get(uid, 0),
+            "total_missed": missed_by_unit.get(uid, 0),
+            "total_apps": apps_by_unit.get(uid, 0),
+        }
 
     results = []
     for snap in snapshots:
@@ -1207,46 +1215,72 @@ def owner_report_detail(
     unit_ids = [u.id for u in listed_units]
 
     # ── Batch queries ────────────────────────────────────────────────────
+    # Use source models with original dates instead of DailyLeasingSummary
+    # (which stores cumulative totals, not weekly increments).
 
-    # Weekly leasing metrics (this week)
+    def _count_by_unit(qs, unit_field, unit_ids):
+        """Return {unit_id: count} from a filtered queryset."""
+        return dict(
+            qs.filter(**{unit_field + "__in": unit_ids})
+            .values_list(unit_field)
+            .annotate(n=Count("id"))
+            .values_list(unit_field, "n")
+        )
+
+    # This week
+    wk_leads = _count_by_unit(
+        Prospect.objects.filter(source_created_at__date__gte=week_start, source_created_at__date__lte=week_end),
+        "unit_of_interest_id", unit_ids)
+    wk_showings = _count_by_unit(
+        Showing.objects.filter(scheduled_at__date__gte=week_start, scheduled_at__date__lte=week_end, status="completed"),
+        "unit_id", unit_ids)
+    wk_missed = _count_by_unit(
+        Showing.objects.filter(scheduled_at__date__gte=week_start, scheduled_at__date__lte=week_end, status="missed"),
+        "unit_id", unit_ids)
+    wk_apps = _count_by_unit(
+        Application.objects.filter(source_created_at__date__gte=week_start, source_created_at__date__lte=week_end),
+        "unit_id", unit_ids)
+
     weekly_map = {}
-    for row in DailyLeasingSummary.objects.filter(
-        unit_id__in=unit_ids,
-        summary_date__gte=week_start,
-        summary_date__lte=week_end,
-    ).values("unit_id").annotate(
-        leads=Coalesce(Sum("leads_count"), 0),
-        showings=Coalesce(Sum("showings_completed_count"), 0),
-        missed=Coalesce(Sum("showings_missed_count"), 0),
-        apps=Coalesce(Sum("applications_count"), 0),
-    ):
-        weekly_map[row["unit_id"]] = row
+    for uid in unit_ids:
+        weekly_map[uid] = {
+            "leads": wk_leads.get(uid, 0), "showings": wk_showings.get(uid, 0),
+            "missed": wk_missed.get(uid, 0), "apps": wk_apps.get(uid, 0),
+        }
 
     # Previous week
-    prev_map = {}
-    for row in DailyLeasingSummary.objects.filter(
-        unit_id__in=unit_ids,
-        summary_date__gte=prev_start,
-        summary_date__lte=prev_end,
-    ).values("unit_id").annotate(
-        leads=Coalesce(Sum("leads_count"), 0),
-        showings=Coalesce(Sum("showings_completed_count"), 0),
-        missed=Coalesce(Sum("showings_missed_count"), 0),
-        apps=Coalesce(Sum("applications_count"), 0),
-    ):
-        prev_map[row["unit_id"]] = row
+    pv_leads = _count_by_unit(
+        Prospect.objects.filter(source_created_at__date__gte=prev_start, source_created_at__date__lte=prev_end),
+        "unit_of_interest_id", unit_ids)
+    pv_showings = _count_by_unit(
+        Showing.objects.filter(scheduled_at__date__gte=prev_start, scheduled_at__date__lte=prev_end, status="completed"),
+        "unit_id", unit_ids)
+    pv_missed = _count_by_unit(
+        Showing.objects.filter(scheduled_at__date__gte=prev_start, scheduled_at__date__lte=prev_end, status="missed"),
+        "unit_id", unit_ids)
+    pv_apps = _count_by_unit(
+        Application.objects.filter(source_created_at__date__gte=prev_start, source_created_at__date__lte=prev_end),
+        "unit_id", unit_ids)
 
-    # All-time
+    prev_map = {}
+    for uid in unit_ids:
+        prev_map[uid] = {
+            "leads": pv_leads.get(uid, 0), "showings": pv_showings.get(uid, 0),
+            "missed": pv_missed.get(uid, 0), "apps": pv_apps.get(uid, 0),
+        }
+
+    # All-time (per unit)
+    at_leads = _count_by_unit(Prospect.objects, "unit_of_interest_id", unit_ids)
+    at_showings = _count_by_unit(Showing.objects.filter(status="completed"), "unit_id", unit_ids)
+    at_missed = _count_by_unit(Showing.objects.filter(status="missed"), "unit_id", unit_ids)
+    at_apps = _count_by_unit(Application.objects, "unit_id", unit_ids)
+
     alltime_map = {}
-    for row in DailyLeasingSummary.objects.filter(
-        unit_id__in=unit_ids,
-    ).values("unit_id").annotate(
-        leads=Coalesce(Sum("leads_count"), 0),
-        showings=Coalesce(Sum("showings_completed_count"), 0),
-        missed=Coalesce(Sum("showings_missed_count"), 0),
-        apps=Coalesce(Sum("applications_count"), 0),
-    ):
-        alltime_map[row["unit_id"]] = row
+    for uid in unit_ids:
+        alltime_map[uid] = {
+            "leads": at_leads.get(uid, 0), "showings": at_showings.get(uid, 0),
+            "missed": at_missed.get(uid, 0), "apps": at_apps.get(uid, 0),
+        }
 
     # Latest snapshot per unit
     snapshot_map = {}
