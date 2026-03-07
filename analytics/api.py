@@ -180,22 +180,57 @@ def leasing_funnel(
         lease_f &= Q(property__portfolio_id=portfolio_id)
 
     total_prospects = Prospect.objects.filter(prospect_f).count()
+
     # Showings/Applications: no individual records from bulk sync.
-    # Use DailyLeasingSummary Max-per-unit totals.
-    _funnel_summary = (
-        DailyLeasingSummary.objects.values("unit_id").annotate(
-            show=Max("showings_completed_count"),
-            miss=Max("showings_missed_count"),
+    # DailyLeasingSummary stores cumulative totals per unit per day.
+    # For date-filtered queries: delta = Max(in period) - Max(before period).
+    # For unfiltered: just use Max per unit.
+    _dls_qs = DailyLeasingSummary.objects.all()
+
+    if date_from:
+        # Current period: max cumulative in the date range
+        current_qs = _dls_qs.filter(summary_date__gte=date_from)
+        if date_to:
+            current_qs = current_qs.filter(summary_date__lte=date_to)
+        current = {}
+        for row in current_qs.values("unit_id").annotate(
+            show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
             app=Max("applications_count"),
-        ).aggregate(
-            total_show=Coalesce(Sum("show"), 0),
-            total_miss=Coalesce(Sum("miss"), 0),
-            total_app=Coalesce(Sum("app"), 0),
+        ):
+            current[row["unit_id"]] = row
+
+        # Prior period: max cumulative before date_from
+        prior = {}
+        for row in _dls_qs.filter(summary_date__lt=date_from).values("unit_id").annotate(
+            show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
+            app=Max("applications_count"),
+        ):
+            prior[row["unit_id"]] = row
+
+        # Delta per unit, summed
+        total_showings_completed = 0
+        total_showings_missed = 0
+        total_applications = 0
+        for uid, cur in current.items():
+            prv = prior.get(uid, {})
+            total_showings_completed += max(cur["show"] - prv.get("show", 0), 0)
+            total_showings_missed += max(cur["miss"] - prv.get("miss", 0), 0)
+            total_applications += max(cur["app"] - prv.get("app", 0), 0)
+    else:
+        # No date filter — all-time cumulative (Max per unit, then sum)
+        _agg = (
+            _dls_qs.values("unit_id").annotate(
+                show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
+                app=Max("applications_count"),
+            ).aggregate(
+                total_show=Coalesce(Sum("show"), 0), total_miss=Coalesce(Sum("miss"), 0),
+                total_app=Coalesce(Sum("app"), 0),
+            )
         )
-    )
-    total_showings_completed = _funnel_summary["total_show"]
-    total_showings_missed = _funnel_summary["total_miss"]
-    total_applications = _funnel_summary["total_app"]
+        total_showings_completed = _agg["total_show"]
+        total_showings_missed = _agg["total_miss"]
+        total_applications = _agg["total_app"]
+
     total_approved = 0
     total_declined = 0
     total_leases_signed = Lease.objects.filter(lease_f).count()
@@ -1043,20 +1078,28 @@ def leasing_pipeline(request):
     prospects_30d = Prospect.objects.filter(
         source_created_at__date__gte=cutoff_30d
     ).count()
-    # Showings/Apps: no individual records from bulk sync, use DailyLeasingSummary.
-    # Take Max per unit (latest cumulative snapshot), then Sum across units.
-    _summary_agg = (
-        DailyLeasingSummary.objects.values("unit_id").annotate(
-            show=Max("showings_completed_count"),
-            app=Max("applications_count"),
-        ).aggregate(
-            total_show=Coalesce(Sum("show"), 0),
-            total_app=Coalesce(Sum("app"), 0),
-        )
-    )
-    showings_30d = _summary_agg["total_show"]
-    apps_30d = _summary_agg["total_app"]
-    approved_30d = 0  # No approval status in DailyLeasingSummary
+    # Showings/Apps: delta = Max(in period) - Max(before period) per unit
+    current_30d = {}
+    for row in DailyLeasingSummary.objects.filter(
+        summary_date__gte=cutoff_30d,
+    ).values("unit_id").annotate(
+        show=Max("showings_completed_count"), app=Max("applications_count"),
+    ):
+        current_30d[row["unit_id"]] = row
+    prior_30d = {}
+    for row in DailyLeasingSummary.objects.filter(
+        summary_date__lt=cutoff_30d,
+    ).values("unit_id").annotate(
+        show=Max("showings_completed_count"), app=Max("applications_count"),
+    ):
+        prior_30d[row["unit_id"]] = row
+    showings_30d = 0
+    apps_30d = 0
+    for uid, cur in current_30d.items():
+        prv = prior_30d.get(uid, {})
+        showings_30d += max(cur["show"] - prv.get("show", 0), 0)
+        apps_30d += max(cur["app"] - prv.get("app", 0), 0)
+    approved_30d = 0
     leases_30d = Lease.objects.filter(
         start_date__gte=cutoff_30d, is_renewal=False
     ).count()
