@@ -20,6 +20,7 @@ router = Router(tags=["Pipeline"])
 
 class TriggerIn(Schema):
     include_reports: bool = False
+    force: bool = False
 
 
 class TriggerOut(Schema):
@@ -84,12 +85,18 @@ def _run_pipeline(run_id, include_reports):
     summary="Trigger the full data pipeline",
 )
 def trigger_pipeline(request, payload: TriggerIn = TriggerIn()):
-    # Mark stale runs (running for >60 min) as failed — likely killed by redeploy
-    stale_cutoff = timezone.now() - datetime.timedelta(minutes=60)
+    # Mark stale runs (running for >30 min) as failed — likely killed by redeploy
+    stale_cutoff = timezone.now() - datetime.timedelta(minutes=30)
     PipelineRun.objects.filter(
         status__in=["started", "running"],
         started_at__lt=stale_cutoff,
     ).update(status="failed", completed_at=timezone.now(), output="Marked as failed: likely killed by redeploy")
+
+    # Force flag: mark ALL active runs as failed
+    if payload.force:
+        PipelineRun.objects.filter(
+            status__in=["started", "running"],
+        ).update(status="failed", completed_at=timezone.now(), output="Force-reset by user")
 
     # Guard: reject if a run is already in progress
     active = PipelineRun.objects.filter(status__in=["started", "running"]).first()
