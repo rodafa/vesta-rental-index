@@ -10,10 +10,9 @@ on:
 jobs:
   trigger-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
       - name: Trigger pipeline
-        id: trigger
         run: |
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "X-API-Key: ${{ secrets.VESTA_API_KEY }}" \
@@ -24,51 +23,15 @@ jobs:
 
           echo "HTTP $HTTP_CODE: $BODY"
 
-          if [ "$HTTP_CODE" = "409" ]; then
-            echo "Pipeline already running — skipping"
-            echo "already_running=true" >> "$GITHUB_OUTPUT"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Pipeline triggered successfully"
             exit 0
           fi
 
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "Failed to trigger pipeline"
-            exit 1
+          if [ "$HTTP_CODE" = "409" ]; then
+            echo "Pipeline already running — skipping"
+            exit 0
           fi
 
-          RUN_ID=$(echo "$BODY" | jq -r '.run_id')
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "already_running=false" >> "$GITHUB_OUTPUT"
-
-      - name: Poll for completion
-        if: steps.trigger.outputs.already_running != 'true'
-        run: |
-          RUN_ID=${{ steps.trigger.outputs.run_id }}
-          echo "Waiting for pipeline run #$RUN_ID to complete..."
-
-          for i in $(seq 1 60); do
-            sleep 30
-
-            RESPONSE=$(curl -s -w "\n%{http_code}" \
-              -H "X-API-Key: ${{ secrets.VESTA_API_KEY }}" \
-              "https://dashboard.vestapm.com/api/pipeline/status?run_id=$RUN_ID")
-
-            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-            BODY=$(echo "$RESPONSE" | head -1)
-            STATUS=$(echo "$BODY" | jq -r '.status')
-
-            echo "[$i/60] Status: $STATUS"
-
-            if [ "$STATUS" = "completed" ]; then
-              echo "Pipeline completed successfully"
-              exit 0
-            fi
-
-            if [ "$STATUS" = "failed" ]; then
-              echo "Pipeline failed"
-              echo "$BODY" | jq -r '.output' | tail -50
-              exit 1
-            fi
-          done
-
-          echo "Timed out waiting for pipeline (30 minutes)"
+          echo "Failed to trigger pipeline"
           exit 1
