@@ -14,7 +14,7 @@ from properties.models import Portfolio, Property, Unit
 
 @login_required
 def daily_pulse(request):
-    return render(request, "dashboard/daily_pulse.html", {"today": date.today()})
+    return render(request, "dashboard/daily_pulse.html")
 
 
 @login_required

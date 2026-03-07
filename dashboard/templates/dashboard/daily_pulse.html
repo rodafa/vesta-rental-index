@@ -6,7 +6,7 @@
 
 {% block content %}
 <h1 class="page-title">Daily Pulse</h1>
-<p class="page-subtitle">{{ today|date:"l, F j, Y" }}</p>
+<p class="page-subtitle" id="pulse-date"></p>
 
 <div id="headline-stats" class="stats-grid">
   <div class="loading">Loading headline stats...</div>
@@ -35,5 +35,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/daily_pulse.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/daily_pulse.js' %}?v=3"></script>
 {% endblock %}

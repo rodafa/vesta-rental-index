@@ -6,6 +6,16 @@
 var _allListings = [];
 var _domFilterActive = false;
 
+// Render today's date in the user's local timezone
+(function () {
+  var el = document.getElementById('pulse-date');
+  if (el) {
+    el.textContent = new Date().toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+  }
+})();
+
 async function loadAll() {
   try {
     var [portfolio, dailyStats, funnel, listings] = await Promise.all([
