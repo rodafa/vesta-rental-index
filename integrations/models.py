@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class WebhookEvent(models.Model):
@@ -87,3 +88,29 @@ class APISyncLog(models.Model):
 
     def __str__(self):
         return f"{self.source} {self.endpoint} ({self.status}) @ {self.started_at}"
+
+
+class PipelineRun(models.Model):
+    """Tracks background pipeline executions triggered via the API."""
+
+    STATUS_CHOICES = [
+        ("started", "Started"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="started", db_index=True
+    )
+
+    include_reports = models.BooleanField(default=False)
+    output = models.TextField(blank=True)
+
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"PipelineRun #{self.pk} ({self.status}) @ {self.started_at}"

@@ -19,6 +19,7 @@ from analytics.api import router as analytics_router
 from dashboard.api import router as dashboard_api_router
 from dashboard.views import PasswordChangeCompleteView, owner_dashboard
 from integrations.api import router as webhooks_router
+from integrations.pipeline_api import router as pipeline_router
 from leasing.api import router as leasing_router
 from market.api import router as market_router
 from properties.api import router as properties_router
@@ -75,6 +76,7 @@ api.add_router("/analytics/", analytics_router)
 api.add_router("/dashboard/", dashboard_api_router)
 api.add_router("/webhooks/", webhooks_router)
 api.add_router("/screening/", screening_router)
+api.add_router("/pipeline/", pipeline_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
