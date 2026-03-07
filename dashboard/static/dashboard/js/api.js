@@ -5,11 +5,23 @@
 const VestaAPI = (() => {
   const BASE = '/api';
 
+  function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[2]) : null;
+  }
+
   async function request(path, options = {}) {
     const url = path.startsWith('http') ? path : `${BASE}${path}`;
+    const hdrs = { ...options.headers };
+    if (options.method && options.method !== 'GET') {
+      hdrs['Content-Type'] = 'application/json';
+      const csrf = getCookie('csrftoken');
+      if (csrf) hdrs['X-CSRFToken'] = csrf;
+    }
     const resp = await fetch(url, {
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      credentials: 'same-origin',
       ...options,
+      headers: hdrs,
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');

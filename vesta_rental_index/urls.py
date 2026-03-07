@@ -42,6 +42,9 @@ class SessionAuth(APIKeyCookie):
 
     param_name = "sessionid"
 
+    def __init__(self):
+        super().__init__(csrf=False)
+
     def authenticate(self, request, key):
         if request.user and request.user.is_authenticated:
             return request.user
