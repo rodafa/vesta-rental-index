@@ -180,15 +180,24 @@ def leasing_funnel(
         lease_f &= Q(property__portfolio_id=portfolio_id)
 
     total_prospects = Prospect.objects.filter(prospect_f).count()
-    total_showings_completed = Showing.objects.filter(
-        showing_f, status="completed"
-    ).count()
-    total_showings_missed = Showing.objects.filter(
-        showing_f, status="missed"
-    ).count()
-    total_applications = Application.objects.filter(app_f).count()
-    total_approved = Application.objects.filter(app_f, primary_status=6).count()
-    total_declined = Application.objects.filter(app_f, primary_status=7).count()
+    # Showings/Applications: no individual records from bulk sync.
+    # Use DailyLeasingSummary Max-per-unit totals.
+    _funnel_summary = (
+        DailyLeasingSummary.objects.values("unit_id").annotate(
+            show=Max("showings_completed_count"),
+            miss=Max("showings_missed_count"),
+            app=Max("applications_count"),
+        ).aggregate(
+            total_show=Coalesce(Sum("show"), 0),
+            total_miss=Coalesce(Sum("miss"), 0),
+            total_app=Coalesce(Sum("app"), 0),
+        )
+    )
+    total_showings_completed = _funnel_summary["total_show"]
+    total_showings_missed = _funnel_summary["total_miss"]
+    total_applications = _funnel_summary["total_app"]
+    total_approved = 0
+    total_declined = 0
     total_leases_signed = Lease.objects.filter(lease_f).count()
 
     return {
@@ -545,26 +554,37 @@ def active_listings(request):
         snapshot_date=latest_date, status="active"
     ).select_related("unit", "unit__property", "unit__property__portfolio")
 
-    # Batch-fetch leasing aggregates from source models (not DailyLeasingSummary
-    # which stores cumulative totals that inflate when summed across days).
+    # Batch-fetch leasing aggregates:
+    # - Leads from Prospect records (have accurate source_created_at dates)
+    # - Showings/Apps from DailyLeasingSummary Max (cumulative snapshots from
+    #   RentEngine; no Showing/Application records exist from bulk sync)
     active_unit_ids = [s.unit_id for s in snapshots]
 
-    def _unit_counts(qs, field):
-        return dict(qs.filter(**{field + "__in": active_unit_ids})
-                    .values_list(field).annotate(n=Count("id")).values_list(field, "n"))
+    leads_by_unit = dict(
+        Prospect.objects.filter(unit_of_interest_id__in=active_unit_ids)
+        .values_list("unit_of_interest_id")
+        .annotate(n=Count("id"))
+        .values_list("unit_of_interest_id", "n")
+    )
 
-    leads_by_unit = _unit_counts(Prospect.objects, "unit_of_interest_id")
-    showings_by_unit = _unit_counts(Showing.objects.filter(status="completed"), "unit_id")
-    missed_by_unit = _unit_counts(Showing.objects.filter(status="missed"), "unit_id")
-    apps_by_unit = _unit_counts(Application.objects, "unit_id")
+    summary_by_unit = {}
+    for row in DailyLeasingSummary.objects.filter(
+        unit_id__in=active_unit_ids
+    ).values("unit_id").annotate(
+        total_showings=Coalesce(Max("showings_completed_count"), 0),
+        total_missed=Coalesce(Max("showings_missed_count"), 0),
+        total_apps=Coalesce(Max("applications_count"), 0),
+    ):
+        summary_by_unit[row["unit_id"]] = row
 
     leasing_map = {}
     for uid in active_unit_ids:
+        s = summary_by_unit.get(uid, {})
         leasing_map[uid] = {
             "total_leads": leads_by_unit.get(uid, 0),
-            "total_showings": showings_by_unit.get(uid, 0),
-            "total_missed": missed_by_unit.get(uid, 0),
-            "total_apps": apps_by_unit.get(uid, 0),
+            "total_showings": s.get("total_showings", 0),
+            "total_missed": s.get("total_missed", 0),
+            "total_apps": s.get("total_apps", 0),
         }
 
     results = []
@@ -1018,19 +1038,25 @@ def leasing_pipeline(request):
     today = date.today()
     cutoff_30d = today - timedelta(days=30)
 
-    # Funnel (30d) — use source dates, not Django created_at (which reflects sync time)
+    # Funnel (30d)
+    # Leads: count Prospect records with accurate source dates
     prospects_30d = Prospect.objects.filter(
         source_created_at__date__gte=cutoff_30d
     ).count()
-    showings_30d = Showing.objects.filter(
-        scheduled_at__date__gte=cutoff_30d, status="completed"
-    ).count()
-    apps_30d = Application.objects.filter(
-        source_created_at__date__gte=cutoff_30d
-    ).count()
-    approved_30d = Application.objects.filter(
-        source_created_at__date__gte=cutoff_30d, primary_status=6
-    ).count()
+    # Showings/Apps: no individual records from bulk sync, use DailyLeasingSummary.
+    # Take Max per unit (latest cumulative snapshot), then Sum across units.
+    _summary_agg = (
+        DailyLeasingSummary.objects.values("unit_id").annotate(
+            show=Max("showings_completed_count"),
+            app=Max("applications_count"),
+        ).aggregate(
+            total_show=Coalesce(Sum("show"), 0),
+            total_app=Coalesce(Sum("app"), 0),
+        )
+    )
+    showings_30d = _summary_agg["total_show"]
+    apps_30d = _summary_agg["total_app"]
+    approved_30d = 0  # No approval status in DailyLeasingSummary
     leases_30d = Lease.objects.filter(
         start_date__gte=cutoff_30d, is_renewal=False
     ).count()
@@ -1215,71 +1241,87 @@ def owner_report_detail(
     unit_ids = [u.id for u in listed_units]
 
     # ── Batch queries ────────────────────────────────────────────────────
-    # Use source models with original dates instead of DailyLeasingSummary
-    # (which stores cumulative totals, not weekly increments).
+    # Leads: count Prospect records using source_created_at (accurate dates).
+    # Showings/Apps: use DailyLeasingSummary with Max (cumulative snapshots).
+    #   Weekly delta = this_week_max - prev_week_max.
+    #   Showing/Application records don't exist (no sync service), only
+    #   DailyLeasingSummary has those counts from RentEngine leasing-performance.
 
-    def _count_by_unit(qs, unit_field, unit_ids):
-        """Return {unit_id: count} from a filtered queryset."""
+    def _count_leads(unit_ids, date_gte=None, date_lte=None):
+        """Count Prospect records per unit using source_created_at."""
+        qs = Prospect.objects.filter(unit_of_interest_id__in=unit_ids)
+        if date_gte:
+            qs = qs.filter(source_created_at__date__gte=date_gte)
+        if date_lte:
+            qs = qs.filter(source_created_at__date__lte=date_lte)
         return dict(
-            qs.filter(**{unit_field + "__in": unit_ids})
-            .values_list(unit_field)
+            qs.values_list("unit_of_interest_id")
             .annotate(n=Count("id"))
-            .values_list(unit_field, "n")
+            .values_list("unit_of_interest_id", "n")
         )
 
-    # This week
-    wk_leads = _count_by_unit(
-        Prospect.objects.filter(source_created_at__date__gte=week_start, source_created_at__date__lte=week_end),
-        "unit_of_interest_id", unit_ids)
-    wk_showings = _count_by_unit(
-        Showing.objects.filter(scheduled_at__date__gte=week_start, scheduled_at__date__lte=week_end, status="completed"),
-        "unit_id", unit_ids)
-    wk_missed = _count_by_unit(
-        Showing.objects.filter(scheduled_at__date__gte=week_start, scheduled_at__date__lte=week_end, status="missed"),
-        "unit_id", unit_ids)
-    wk_apps = _count_by_unit(
-        Application.objects.filter(source_created_at__date__gte=week_start, source_created_at__date__lte=week_end),
-        "unit_id", unit_ids)
+    def _max_leasing_summary(unit_ids, date_gte=None, date_lte=None):
+        """Get latest cumulative showings/apps from DailyLeasingSummary (Max, not Sum)."""
+        qs = DailyLeasingSummary.objects.filter(unit_id__in=unit_ids)
+        if date_gte:
+            qs = qs.filter(summary_date__gte=date_gte)
+        if date_lte:
+            qs = qs.filter(summary_date__lte=date_lte)
+        result = {}
+        for row in qs.values("unit_id").annotate(
+            showings=Coalesce(Max("showings_completed_count"), 0),
+            missed=Coalesce(Max("showings_missed_count"), 0),
+            apps=Coalesce(Max("applications_count"), 0),
+        ):
+            result[row["unit_id"]] = row
+        return result
 
-    weekly_map = {}
-    for uid in unit_ids:
-        weekly_map[uid] = {
-            "leads": wk_leads.get(uid, 0), "showings": wk_showings.get(uid, 0),
-            "missed": wk_missed.get(uid, 0), "apps": wk_apps.get(uid, 0),
-        }
+    # This week — leads from Prospect, showings/apps from latest DailyLeasingSummary
+    wk_leads = _count_leads(unit_ids, week_start, week_end)
+    wk_summary = _max_leasing_summary(unit_ids, week_start, week_end)
 
     # Previous week
-    pv_leads = _count_by_unit(
-        Prospect.objects.filter(source_created_at__date__gte=prev_start, source_created_at__date__lte=prev_end),
-        "unit_of_interest_id", unit_ids)
-    pv_showings = _count_by_unit(
-        Showing.objects.filter(scheduled_at__date__gte=prev_start, scheduled_at__date__lte=prev_end, status="completed"),
-        "unit_id", unit_ids)
-    pv_missed = _count_by_unit(
-        Showing.objects.filter(scheduled_at__date__gte=prev_start, scheduled_at__date__lte=prev_end, status="missed"),
-        "unit_id", unit_ids)
-    pv_apps = _count_by_unit(
-        Application.objects.filter(source_created_at__date__gte=prev_start, source_created_at__date__lte=prev_end),
-        "unit_id", unit_ids)
+    pv_leads = _count_leads(unit_ids, prev_start, prev_end)
+    pv_summary = _max_leasing_summary(unit_ids, prev_start, prev_end)
 
+    # All-time
+    at_leads = _count_leads(unit_ids)
+    at_summary = _max_leasing_summary(unit_ids)
+
+    # Build maps — showings/apps delta = this_week_max - prev_week_max
+    weekly_map = {}
     prev_map = {}
-    for uid in unit_ids:
-        prev_map[uid] = {
-            "leads": pv_leads.get(uid, 0), "showings": pv_showings.get(uid, 0),
-            "missed": pv_missed.get(uid, 0), "apps": pv_apps.get(uid, 0),
-        }
-
-    # All-time (per unit)
-    at_leads = _count_by_unit(Prospect.objects, "unit_of_interest_id", unit_ids)
-    at_showings = _count_by_unit(Showing.objects.filter(status="completed"), "unit_id", unit_ids)
-    at_missed = _count_by_unit(Showing.objects.filter(status="missed"), "unit_id", unit_ids)
-    at_apps = _count_by_unit(Application.objects, "unit_id", unit_ids)
-
     alltime_map = {}
     for uid in unit_ids:
+        wk_s = wk_summary.get(uid, {})
+        pv_s = pv_summary.get(uid, {})
+        at_s = at_summary.get(uid, {})
+
+        # Weekly showings/apps = cumulative this week minus cumulative prev week
+        wk_show = wk_s.get("showings", 0)
+        pv_show = pv_s.get("showings", 0)
+        wk_miss = wk_s.get("missed", 0)
+        pv_miss = pv_s.get("missed", 0)
+        wk_app = wk_s.get("apps", 0)
+        pv_app = pv_s.get("apps", 0)
+
+        weekly_map[uid] = {
+            "leads": wk_leads.get(uid, 0),
+            "showings": max(wk_show - pv_show, 0),
+            "missed": max(wk_miss - pv_miss, 0),
+            "apps": max(wk_app - pv_app, 0),
+        }
+        prev_map[uid] = {
+            "leads": pv_leads.get(uid, 0),
+            "showings": pv_show,  # no prior week to diff against yet
+            "missed": pv_miss,
+            "apps": pv_app,
+        }
         alltime_map[uid] = {
-            "leads": at_leads.get(uid, 0), "showings": at_showings.get(uid, 0),
-            "missed": at_missed.get(uid, 0), "apps": at_apps.get(uid, 0),
+            "leads": at_leads.get(uid, 0),
+            "showings": at_s.get("showings", 0),
+            "missed": at_s.get("missed", 0),
+            "apps": at_s.get("apps", 0),
         }
 
     # Latest snapshot per unit
