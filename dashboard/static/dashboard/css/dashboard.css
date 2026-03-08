@@ -378,6 +378,25 @@ textarea {
   line-height: 1.5;
 }
 
+/* Structured feedback grid (5 fields) */
+.fb-grid { display: flex; flex-direction: column; gap: .35rem; }
+.fb-row { display: grid; grid-template-columns: 180px 1fr; gap: .5rem; align-items: baseline; }
+.fb-label { font-size: .75rem; font-weight: 600; color: var(--text-muted); }
+.fb-value { font-size: .85rem; color: var(--text); }
+
+/* Owner notes */
+.owner-note-item {
+  background: var(--card-bg);
+  border-radius: 6px;
+  padding: .75rem 1rem;
+  margin-bottom: .5rem;
+  border-left: 3px solid var(--border);
+}
+.owner-note-item.owner-note-current {
+  border-left-color: var(--accent);
+  background: var(--accent-bg, #f0f4ff);
+}
+
 /* === Grid Helpers === */
 .grid-2 {
   display: grid;
@@ -689,4 +708,36 @@ body.owner-view {
   padding: .25rem 0;
   border-bottom: 1px solid var(--border);
   line-height: 1.4;
+}
+
+/* Price history */
+.price-drop-line { margin-top: .1rem; }
+.price-drop-badge {
+  display: inline-block;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--red);
+  background: var(--red-bg);
+  padding: .1rem .4rem;
+  border-radius: 4px;
+}
+
+/* Showing notes block */
+.showing-notes-block {
+  margin-top: .4rem;
+  padding: .3rem .4rem;
+  background: var(--bg-subtle, #f8f9fa);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.showing-note-item {
+  font-size: .75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: .1rem 0;
+}
+.sn-date {
+  font-weight: 600;
+  color: var(--text-secondary, #555);
+  margin-right: .2rem;
 }

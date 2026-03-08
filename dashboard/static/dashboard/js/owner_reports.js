@@ -250,9 +250,18 @@ document.addEventListener('DOMContentLoaded', function () {
         u.days_on_market + ' DOM</span></div>';
     }
 
-    // List price
+    // List price + price history
     if (u.current_list_price) {
       html += '<div class="detail-line"><strong>' + VestaAPI.$(u.current_list_price) + '</strong></div>';
+    }
+    if (u.price_history && u.price_history.length) {
+      for (var ph = 0; ph < u.price_history.length; ph++) {
+        var drop = u.price_history[ph];
+        html += '<div class="detail-line price-drop-line">' +
+          '<span class="price-drop-badge">\u2193 $' + VestaAPI.num(parseFloat(drop.drop_amount)) +
+          ' (' + parseFloat(drop.drop_percent).toFixed(1) + '%) on ' + VestaAPI.dateStr(drop.date) + '</span>' +
+          '</div>';
+      }
     }
 
     // Beds / baths / sqft
@@ -301,6 +310,21 @@ document.addEventListener('DOMContentLoaded', function () {
     var lpd = u.leads_per_active_day;
     var lpdCls = lpd < 0.5 ? 'low' : 'ok';
     html += '<div class="lpd-callout ' + lpdCls + '">Leads/day: ' + VestaAPI.num(lpd) + '</div>';
+
+    // ── Showing notes (from PropertyWeeklyNote or Showing feedback)
+    if (u.showing_feedback && u.showing_feedback.length) {
+      html += '<div class="showing-notes-block">';
+      html += '<div class="metric-block-title">Showing Notes</div>';
+      for (var sn = 0; sn < u.showing_feedback.length; sn++) {
+        var sf = u.showing_feedback[sn];
+        html += '<div class="showing-note-item">';
+        if (sf.date) html += '<span class="sn-date">' + VestaAPI.dateStr(sf.date) + '</span> ';
+        if (sf.prospect_name) html += '<strong>' + esc(sf.prospect_name) + '</strong>: ';
+        html += esc(sf.feedback_summary);
+        html += '</div>';
+      }
+      html += '</div>';
+    }
 
     // ── Market context (single line with median)
     if (medians && medians.median_dom != null) {
@@ -393,11 +417,12 @@ document.addEventListener('DOMContentLoaded', function () {
     var feedback = u.showing_feedback || [];
     for (var f = 0; f < Math.min(feedback.length, 3); f++) {
       var fb = feedback[f];
-      var prospect = fb.prospect_name || 'A prospect';
-      if (f === 0 && showings > 0) {
-        parts.push(prospect + ' toured and ' + lowerFirst(fb.feedback_summary) + '.');
+      if (!fb.feedback_summary) continue;
+      if (fb.prospect_name) {
+        parts.push(fb.prospect_name + ': ' + lowerFirst(fb.feedback_summary) + '.');
       } else {
-        parts.push(prospect + ': ' + lowerFirst(fb.feedback_summary) + '.');
+        // Note from staff (no individual prospect) — include as-is
+        parts.push(fb.feedback_summary);
       }
     }
 

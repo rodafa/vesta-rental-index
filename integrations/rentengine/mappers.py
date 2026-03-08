@@ -238,6 +238,58 @@ def map_leasing_performance(data):
 # Webhook mappers
 # ---------------------------------------------------------------------------
 
+
+def map_showing_webhook(record):
+    """
+    Map a RentEngine showing webhook record to Showing model fields.
+
+    RentEngine showing feedback has five structured fields:
+      liked, disliked, maintenance_issues, would_apply_today_if, other
+
+    Returns a dict of defaults for Showing.objects.update_or_create().
+    """
+    raw_status = str(_get(record, "status", default="") or "").lower().replace(" ", "_")
+    valid_statuses = {"scheduled", "confirmed", "arrived", "started", "completed", "missed", "failed", "canceled"}
+    status = raw_status if raw_status in valid_statuses else ""
+
+    raw_method = str(_get(record, "showing_method", "showingMethod", "type", default="") or "").lower().replace(" ", "_")
+    valid_methods = {"accompanied", "self_guided", "remote_guided", "remote_guided_gated"}
+    showing_method = raw_method if raw_method in valid_methods else ""
+
+    # Try nested feedback object first, then flat fields on the record
+    fb_raw = _get(record, "feedback", "showing_feedback", default=None)
+    if isinstance(fb_raw, dict):
+        feedback = {
+            "liked": str(fb_raw.get("liked", "") or ""),
+            "disliked": str(fb_raw.get("disliked", "") or ""),
+            "maintenance_issues": str(fb_raw.get("maintenance_issues", fb_raw.get("maintenanceIssues", "")) or ""),
+            "would_apply_today_if": str(fb_raw.get("would_apply_today_if", fb_raw.get("wouldApplyTodayIf", fb_raw.get("would_apply_if", ""))) or ""),
+            "other": str(fb_raw.get("other", "") or ""),
+        }
+    elif isinstance(fb_raw, str) and fb_raw.strip():
+        feedback = {"other": fb_raw.strip()}
+    else:
+        # Try flat fields directly on the record
+        feedback = {
+            "liked": str(_get(record, "liked", default="") or ""),
+            "disliked": str(_get(record, "disliked", default="") or ""),
+            "maintenance_issues": str(_get(record, "maintenance_issues", "maintenanceIssues", default="") or ""),
+            "would_apply_today_if": str(_get(record, "would_apply_today_if", "wouldApplyTodayIf", "would_apply_if", default="") or ""),
+            "other": str(_get(record, "other", default="") or ""),
+        }
+
+    feedback = {k: v for k, v in feedback.items() if v}  # strip empty
+
+    return {
+        "status": status,
+        "showing_method": showing_method,
+        "scheduled_at": _safe_datetime(_get(record, "scheduled_at", "scheduledAt", "schedule_time", default=None)),
+        "completed_at": _safe_datetime(_get(record, "completed_at", "completedAt", "completion_time", default=None)),
+        "feedback": feedback,
+        "raw_data": record,
+    }
+
+
 def _normalize_event_type(raw_value):
     """
     Normalize a RentEngine event type string to our EVENT_TYPE_CHOICES key.

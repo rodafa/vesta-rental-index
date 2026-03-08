@@ -50,6 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPriceHistory(priceDrops);
     renderShowingFeedback(showings);
     await loadAndRenderNotes();
+    await loadAndRenderOwnerNotes();
     renderActivityLog(events);
   } catch (err) {
     console.error('Property Detail load error:', err);
@@ -248,43 +249,66 @@ function renderPriceHistory(priceDrops) {
 
 // ── Showing Feedback ─────────────────────────────────────────────────────────
 
+var FEEDBACK_LABELS = [
+  { key: 'liked',               label: 'What they liked' },
+  { key: 'disliked',            label: 'What they disliked' },
+  { key: 'maintenance_issues',  label: 'Maintenance issues noticed' },
+  { key: 'would_apply_today_if', label: 'Would apply today if' },
+  { key: 'other',               label: 'Other' },
+];
+
 function renderShowingFeedback(showings) {
-  if (!showings.length) {
-    VestaAPI.render('feedback-cards', '<div class="empty-state">No showings recorded</div>');
+  // Only show completed showings; sort newest first
+  var completed = showings.filter(function (s) { return s.status === 'completed'; });
+  completed.sort(function (a, b) {
+    var da = a.completed_at || a.scheduled_at || '';
+    var db = b.completed_at || b.scheduled_at || '';
+    return da > db ? -1 : da < db ? 1 : 0;
+  });
+
+  if (!completed.length) {
+    VestaAPI.render('feedback-cards', '<div class="empty-state">No completed showings recorded</div>');
     return;
   }
 
   var html = '';
-  for (var i = 0; i < showings.length; i++) {
-    var s = showings[i];
+  for (var i = 0; i < completed.length; i++) {
+    var s = completed[i];
     var headerParts = [];
-    // Use scheduled_at for date, showing_method for method
-    if (s.scheduled_at) {
-      headerParts.push(VestaAPI.dateStr(s.scheduled_at.split('T')[0]));
-    }
-    if (s.showing_method) headerParts.push(s.showing_method);
-    if (s.status) headerParts.push(s.status);
+    var dateStr = s.completed_at || s.scheduled_at;
+    if (dateStr) headerParts.push(VestaAPI.dateStr(dateStr.split('T')[0]));
+    if (s.showing_method) headerParts.push(s.showing_method.replace(/_/g, ' '));
 
-    var bodyHtml = '';
     var feedback = s.feedback;
     if (feedback && typeof feedback === 'string') {
       try { feedback = JSON.parse(feedback); } catch (e) { feedback = null; }
     }
-    if (feedback && typeof feedback === 'object' && Object.keys(feedback).length > 0) {
-      var pairs = [];
-      var keys = Object.keys(feedback);
-      for (var k = 0; k < keys.length; k++) {
-        pairs.push('<strong>' + escapeHtml(keys[k]) + ':</strong> ' + escapeHtml(String(feedback[keys[k]])));
+
+    var hasFeedback = feedback && typeof feedback === 'object' && Object.keys(feedback).length > 0;
+    var bodyHtml = '';
+
+    if (hasFeedback) {
+      var rows = '';
+      for (var f = 0; f < FEEDBACK_LABELS.length; f++) {
+        var fl = FEEDBACK_LABELS[f];
+        var val = feedback[fl.key];
+        if (val) {
+          rows +=
+            '<div class="fb-row">' +
+              '<div class="fb-label">' + fl.label + '</div>' +
+              '<div class="fb-value">' + escapeHtml(String(val)) + '</div>' +
+            '</div>';
+        }
       }
-      bodyHtml = pairs.join('<br>');
+      bodyHtml = rows || '<span style="color:var(--text-muted)">No feedback details</span>';
     } else {
-      bodyHtml = '<span style="color:var(--text-muted)">No feedback</span>';
+      bodyHtml = '<span style="color:var(--text-muted)">No feedback recorded</span>';
     }
 
     html +=
       '<div class="feedback-card">' +
         '<div class="fc-header">' + headerParts.join(' &middot; ') + '</div>' +
-        '<div class="fc-body">' + bodyHtml + '</div>' +
+        '<div class="fc-body fb-grid">' + bodyHtml + '</div>' +
       '</div>';
   }
 
@@ -385,6 +409,85 @@ function renderNotes(notes) {
       '</div>';
   }
   VestaAPI.render('notes-list', html);
+}
+
+// ── Vesta Notes To Owners ─────────────────────────────────────────────────
+
+function weekMonday() {
+  var d = new Date();
+  var day = d.getDay();
+  var diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  var monday = new Date(d.setDate(diff));
+  return monday.toISOString().split('T')[0];
+}
+
+async function loadAndRenderOwnerNotes() {
+  try {
+    var notes = await VestaAPI.get('/dashboard/property-notes?unit_id=' + UNIT_ID);
+    renderOwnerNotes(notes);
+  } catch (err) {
+    console.error('Owner notes load error:', err);
+    VestaAPI.render('owner-notes-list', '<div class="empty-state">Error loading owner notes</div>');
+  }
+
+  var submitBtn = document.getElementById('owner-note-submit');
+  if (submitBtn && !submitBtn._bound) {
+    submitBtn._bound = true;
+    submitBtn.addEventListener('click', async function () {
+      var author = document.getElementById('owner-note-author').value.trim();
+      var text = document.getElementById('owner-note-text').value.trim();
+      var statusEl = document.getElementById('owner-note-status');
+      if (!author || !text) {
+        if (statusEl) statusEl.textContent = 'Please fill in both fields.';
+        return;
+      }
+
+      try {
+        await VestaAPI.post('/dashboard/property-notes', {
+          unit_id: UNIT_ID,
+          week_date: weekMonday(),
+          author: author,
+          note_text: text,
+        });
+        document.getElementById('owner-note-text').value = '';
+        if (statusEl) {
+          statusEl.textContent = 'Saved.';
+          setTimeout(function () { statusEl.textContent = ''; }, 3000);
+        }
+        await loadAndRenderOwnerNotes();
+      } catch (err) {
+        console.error('Owner note create error:', err);
+        if (statusEl) statusEl.textContent = 'Error saving note.';
+      }
+    });
+  }
+}
+
+function renderOwnerNotes(notes) {
+  if (!notes || notes.length === 0) {
+    VestaAPI.render('owner-notes-list', '<div class="empty-state">No owner notes yet</div>');
+    return;
+  }
+
+  // Sort newest first
+  var sorted = notes.slice().sort(function (a, b) {
+    return a.week_date > b.week_date ? -1 : a.week_date < b.week_date ? 1 : 0;
+  });
+
+  var html = '';
+  for (var i = 0; i < sorted.length; i++) {
+    var n = sorted[i];
+    var isCurrentWeek = n.week_date === weekMonday();
+    var weekLabel = isCurrentWeek ? 'This week' : 'Week of ' + VestaAPI.dateStr(n.week_date);
+    html +=
+      '<div class="owner-note-item' + (isCurrentWeek ? ' owner-note-current' : '') + '">' +
+        '<div class="fc-header">' +
+          weekLabel + ' &middot; ' + escapeHtml(n.author) +
+        '</div>' +
+        '<div class="fc-body">' + escapeHtml(n.note_text) + '</div>' +
+      '</div>';
+  }
+  VestaAPI.render('owner-notes-list', html);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

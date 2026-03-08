@@ -13,8 +13,9 @@ from integrations.models import WebhookEvent
 from integrations.rentengine.mappers import (
     map_leasing_event_webhook,
     map_prospect_webhook,
+    map_showing_webhook,
 )
-from leasing.models import LeasingEvent, Prospect
+from leasing.models import LeasingEvent, Prospect, Showing
 from properties.models import Unit
 
 logger = logging.getLogger(__name__)
@@ -126,7 +127,43 @@ def _handle_leasing_event(event: WebhookEvent):
     )
 
 
+def _handle_showing(event: WebhookEvent):
+    record = event.record or {}
+    rentengine_id = record.get("id")
+    if not rentengine_id:
+        logger.warning("Showing webhook missing record.id, skipping (event %s)", event.pk)
+        return
+
+    if event.event_type.upper() == "DELETE":
+        logger.info("Showing DELETE received (rentengine_id=%s) — no action", rentengine_id)
+        return
+
+    defaults = map_showing_webhook(record)
+
+    # Resolve prospect FK
+    prospect_id = record.get("prospect_id")
+    if prospect_id:
+        defaults["prospect"] = Prospect.objects.filter(rentengine_id=prospect_id).first()
+
+    # Resolve unit FK
+    unit_id = record.get("unit_id")
+    if unit_id:
+        defaults["unit"] = Unit.objects.filter(rentengine_id=unit_id).first()
+
+    obj, created = Showing.objects.update_or_create(
+        rentengine_id=rentengine_id,
+        defaults=defaults,
+    )
+    logger.info(
+        "Showing %s (rentengine_id=%s) via webhook %s",
+        "created" if created else "updated",
+        rentengine_id,
+        event.pk,
+    )
+
+
 _HANDLERS = {
     "prospects": _handle_prospect,
     "leasing_events": _handle_leasing_event,
+    "showings": _handle_showing,
 }

@@ -30,6 +30,8 @@ from market.models import (
     DailySegmentStats,
     DailyUnitSnapshot,
     ListingCycle,
+    PriceDrop,
+    WeeklyLeasingSummary,
 )
 from properties.models import Owner, Portfolio, Property, Unit
 
@@ -181,14 +183,38 @@ def leasing_funnel(
 
     total_prospects = Prospect.objects.filter(prospect_f).count()
 
-    # Showings/Applications: no individual records from bulk sync.
-    # DailyLeasingSummary stores cumulative totals per unit per day.
-    # For date-filtered queries: delta = Max(in period) - Max(before period).
-    # For unfiltered: just use Max per unit.
-    _dls_qs = DailyLeasingSummary.objects.all()
+    # Showings/Applications: prefer WeeklyLeasingSummary (incremental, from
+    # Google Sheet imports or corrected aggregator). Fall back to
+    # DailyLeasingSummary cumulative delta for units without weekly data.
+
+    # Build WeeklyLeasingSummary filter
+    wls_f = Q()
+    if property_id:
+        wls_f &= Q(unit__property_id=property_id)
+    if portfolio_id:
+        wls_f &= Q(unit__property__portfolio_id=portfolio_id)
 
     if date_from:
-        # Current period: max cumulative in the date range
+        wls_qs = WeeklyLeasingSummary.objects.filter(
+            wls_f, week_ending__gte=date_from,
+        )
+        if date_to:
+            wls_qs = wls_qs.filter(week_ending__lte=date_to)
+
+        # Sum incremental weekly counts
+        wls_agg = wls_qs.aggregate(
+            show=Coalesce(Sum("showings_completed_count"), 0),
+            miss=Coalesce(Sum("showings_missed_count"), 0),
+            app=Coalesce(Sum("applications_count"), 0),
+        )
+        # Units covered by WeeklyLeasingSummary
+        wls_unit_ids = set(wls_qs.values_list("unit_id", flat=True))
+
+        # Fallback: DailyLeasingSummary delta for units NOT in WeeklyLeasingSummary
+        _dls_qs = DailyLeasingSummary.objects.all()
+        if wls_unit_ids:
+            _dls_qs = _dls_qs.exclude(unit_id__in=wls_unit_ids)
+
         current_qs = _dls_qs.filter(summary_date__gte=date_from)
         if date_to:
             current_qs = current_qs.filter(summary_date__lte=date_to)
@@ -199,7 +225,6 @@ def leasing_funnel(
         ):
             current[row["unit_id"]] = row
 
-        # Prior period: max cumulative before date_from
         prior = {}
         for row in _dls_qs.filter(summary_date__lt=date_from).values("unit_id").annotate(
             show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
@@ -207,17 +232,31 @@ def leasing_funnel(
         ):
             prior[row["unit_id"]] = row
 
-        # Delta per unit, summed
-        total_showings_completed = 0
-        total_showings_missed = 0
-        total_applications = 0
+        dls_show = dls_miss = dls_app = 0
         for uid, cur in current.items():
             prv = prior.get(uid, {})
-            total_showings_completed += max(cur["show"] - prv.get("show", 0), 0)
-            total_showings_missed += max(cur["miss"] - prv.get("miss", 0), 0)
-            total_applications += max(cur["app"] - prv.get("app", 0), 0)
+            dls_show += max(cur["show"] - prv.get("show", 0), 0)
+            dls_miss += max(cur["miss"] - prv.get("miss", 0), 0)
+            dls_app += max(cur["app"] - prv.get("app", 0), 0)
+
+        total_showings_completed = wls_agg["show"] + dls_show
+        total_showings_missed = wls_agg["miss"] + dls_miss
+        total_applications = wls_agg["app"] + dls_app
     else:
-        # No date filter — all-time cumulative (Max per unit, then sum)
+        # No date filter — sum all WeeklyLeasingSummary + DailyLeasingSummary fallback
+        wls_agg = WeeklyLeasingSummary.objects.filter(wls_f).aggregate(
+            show=Coalesce(Sum("showings_completed_count"), 0),
+            miss=Coalesce(Sum("showings_missed_count"), 0),
+            app=Coalesce(Sum("applications_count"), 0),
+        )
+        wls_unit_ids = set(
+            WeeklyLeasingSummary.objects.filter(wls_f).values_list("unit_id", flat=True)
+        )
+
+        _dls_qs = DailyLeasingSummary.objects.all()
+        if wls_unit_ids:
+            _dls_qs = _dls_qs.exclude(unit_id__in=wls_unit_ids)
+
         _agg = (
             _dls_qs.values("unit_id").annotate(
                 show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
@@ -227,9 +266,9 @@ def leasing_funnel(
                 total_app=Coalesce(Sum("app"), 0),
             )
         )
-        total_showings_completed = _agg["total_show"]
-        total_showings_missed = _agg["total_miss"]
-        total_applications = _agg["total_app"]
+        total_showings_completed = wls_agg["show"] + _agg["total_show"]
+        total_showings_missed = wls_agg["miss"] + _agg["total_miss"]
+        total_applications = wls_agg["app"] + _agg["total_app"]
 
     total_approved = 0
     total_declined = 0
@@ -1285,10 +1324,9 @@ def owner_report_detail(
 
     # ── Batch queries ────────────────────────────────────────────────────
     # Leads: count Prospect records using source_created_at (accurate dates).
-    # Showings/Apps: use DailyLeasingSummary with Max (cumulative snapshots).
-    #   Weekly delta = this_week_max - prev_week_max.
-    #   Showing/Application records don't exist (no sync service), only
-    #   DailyLeasingSummary has those counts from RentEngine leasing-performance.
+    # Showings/Apps: prefer WeeklyLeasingSummary (incremental, from imports
+    #   or corrected aggregator). Fall back to DailyLeasingSummary cumulative
+    #   delta for units without weekly data.
 
     def _count_leads(unit_ids, date_gte=None, date_lte=None):
         """Count Prospect records per unit using source_created_at."""
@@ -1303,68 +1341,132 @@ def owner_report_detail(
             .values_list("unit_of_interest_id", "n")
         )
 
-    def _max_leasing_summary(unit_ids, date_gte=None, date_lte=None):
-        """Get latest cumulative showings/apps from DailyLeasingSummary (Max, not Sum)."""
-        qs = DailyLeasingSummary.objects.filter(unit_id__in=unit_ids)
-        if date_gte:
-            qs = qs.filter(summary_date__gte=date_gte)
-        if date_lte:
-            qs = qs.filter(summary_date__lte=date_lte)
+    def _weekly_leasing(unit_ids, date_gte, date_lte):
+        """Get incremental showings/apps from WeeklyLeasingSummary for the period."""
+        qs = WeeklyLeasingSummary.objects.filter(
+            unit_id__in=unit_ids,
+            week_ending__gte=date_gte,
+            week_ending__lte=date_lte,
+        )
         result = {}
         for row in qs.values("unit_id").annotate(
-            showings=Coalesce(Max("showings_completed_count"), 0),
-            missed=Coalesce(Max("showings_missed_count"), 0),
-            apps=Coalesce(Max("applications_count"), 0),
+            showings=Coalesce(Sum("showings_completed_count"), 0),
+            missed=Coalesce(Sum("showings_missed_count"), 0),
+            apps=Coalesce(Sum("applications_count"), 0),
         ):
             result[row["unit_id"]] = row
         return result
 
-    # This week — leads from Prospect, showings/apps from latest DailyLeasingSummary
+    def _dls_delta(unit_ids, date_gte, date_lte):
+        """Fallback: DailyLeasingSummary cumulative delta for a period."""
+        cur_qs = DailyLeasingSummary.objects.filter(
+            unit_id__in=unit_ids, summary_date__gte=date_gte, summary_date__lte=date_lte,
+        )
+        current = {}
+        for row in cur_qs.values("unit_id").annotate(
+            showings=Coalesce(Max("showings_completed_count"), 0),
+            missed=Coalesce(Max("showings_missed_count"), 0),
+            apps=Coalesce(Max("applications_count"), 0),
+        ):
+            current[row["unit_id"]] = row
+
+        prv_qs = DailyLeasingSummary.objects.filter(
+            unit_id__in=unit_ids, summary_date__lt=date_gte,
+        )
+        prior = {}
+        for row in prv_qs.values("unit_id").annotate(
+            showings=Coalesce(Max("showings_completed_count"), 0),
+            missed=Coalesce(Max("showings_missed_count"), 0),
+            apps=Coalesce(Max("applications_count"), 0),
+        ):
+            prior[row["unit_id"]] = row
+
+        result = {}
+        for uid, cur in current.items():
+            prv = prior.get(uid, {})
+            result[uid] = {
+                "unit_id": uid,
+                "showings": max(cur["showings"] - prv.get("showings", 0), 0),
+                "missed": max(cur["missed"] - prv.get("missed", 0), 0),
+                "apps": max(cur["apps"] - prv.get("apps", 0), 0),
+            }
+        return result
+
+    def _leasing_for_period(unit_ids, date_gte, date_lte):
+        """Get showings/apps per unit: WeeklyLeasingSummary first, DLS delta fallback."""
+        wls = _weekly_leasing(unit_ids, date_gte, date_lte)
+        # Units not covered by weekly data
+        uncovered = [uid for uid in unit_ids if uid not in wls]
+        dls = _dls_delta(uncovered, date_gte, date_lte) if uncovered else {}
+        merged = {}
+        merged.update(wls)
+        merged.update(dls)
+        return merged
+
+    def _alltime_leasing(unit_ids):
+        """All-time showings/apps: sum all WeeklyLeasingSummary + DLS fallback."""
+        wls = {}
+        for row in WeeklyLeasingSummary.objects.filter(unit_id__in=unit_ids).values("unit_id").annotate(
+            showings=Coalesce(Sum("showings_completed_count"), 0),
+            missed=Coalesce(Sum("showings_missed_count"), 0),
+            apps=Coalesce(Sum("applications_count"), 0),
+        ):
+            wls[row["unit_id"]] = row
+
+        # Fallback for units without weekly data
+        uncovered = [uid for uid in unit_ids if uid not in wls]
+        dls = {}
+        if uncovered:
+            for row in DailyLeasingSummary.objects.filter(unit_id__in=uncovered).values("unit_id").annotate(
+                showings=Coalesce(Max("showings_completed_count"), 0),
+                missed=Coalesce(Max("showings_missed_count"), 0),
+                apps=Coalesce(Max("applications_count"), 0),
+            ):
+                dls[row["unit_id"]] = row
+
+        merged = {}
+        merged.update(wls)
+        merged.update(dls)
+        return merged
+
+    # This week — leads from Prospect, showings/apps from WeeklyLeasingSummary/DLS
     wk_leads = _count_leads(unit_ids, week_start, week_end)
-    wk_summary = _max_leasing_summary(unit_ids, week_start, week_end)
+    wk_leasing = _leasing_for_period(unit_ids, week_start, week_end)
 
     # Previous week
     pv_leads = _count_leads(unit_ids, prev_start, prev_end)
-    pv_summary = _max_leasing_summary(unit_ids, prev_start, prev_end)
+    pv_leasing = _leasing_for_period(unit_ids, prev_start, prev_end)
 
     # All-time
     at_leads = _count_leads(unit_ids)
-    at_summary = _max_leasing_summary(unit_ids)
+    at_leasing = _alltime_leasing(unit_ids)
 
-    # Build maps — showings/apps delta = this_week_max - prev_week_max
+    # Build maps
     weekly_map = {}
     prev_map = {}
     alltime_map = {}
     for uid in unit_ids:
-        wk_s = wk_summary.get(uid, {})
-        pv_s = pv_summary.get(uid, {})
-        at_s = at_summary.get(uid, {})
-
-        # Weekly showings/apps = cumulative this week minus cumulative prev week
-        wk_show = wk_s.get("showings", 0)
-        pv_show = pv_s.get("showings", 0)
-        wk_miss = wk_s.get("missed", 0)
-        pv_miss = pv_s.get("missed", 0)
-        wk_app = wk_s.get("apps", 0)
-        pv_app = pv_s.get("apps", 0)
+        wk_l = wk_leasing.get(uid, {})
+        pv_l = pv_leasing.get(uid, {})
+        at_l = at_leasing.get(uid, {})
 
         weekly_map[uid] = {
             "leads": wk_leads.get(uid, 0),
-            "showings": max(wk_show - pv_show, 0),
-            "missed": max(wk_miss - pv_miss, 0),
-            "apps": max(wk_app - pv_app, 0),
+            "showings": wk_l.get("showings", 0),
+            "missed": wk_l.get("missed", 0),
+            "apps": wk_l.get("apps", 0),
         }
         prev_map[uid] = {
             "leads": pv_leads.get(uid, 0),
-            "showings": pv_show,  # no prior week to diff against yet
-            "missed": pv_miss,
-            "apps": pv_app,
+            "showings": pv_l.get("showings", 0),
+            "missed": pv_l.get("missed", 0),
+            "apps": pv_l.get("apps", 0),
         }
         alltime_map[uid] = {
             "leads": at_leads.get(uid, 0),
-            "showings": at_s.get("showings", 0),
-            "missed": at_s.get("missed", 0),
-            "apps": at_s.get("apps", 0),
+            "showings": at_l.get("showings", 0),
+            "missed": at_l.get("missed", 0),
+            "apps": at_l.get("apps", 0),
         }
 
     # Latest snapshot per unit
@@ -1468,6 +1570,21 @@ def owner_report_detail(
             "note_text": note.note_text,
         })
 
+    # Price history: PriceDrop records for last 180 days
+    price_drop_map = defaultdict(list)
+    cutoff_180 = date.today() - timedelta(days=180)
+    for pd in PriceDrop.objects.filter(
+        unit_id__in=unit_ids,
+        detected_date__gte=cutoff_180,
+    ).order_by("detected_date"):
+        price_drop_map[pd.unit_id].append({
+            "date": pd.detected_date.isoformat(),
+            "previous_price": pd.previous_price,
+            "new_price": pd.new_price,
+            "drop_amount": pd.drop_amount,
+            "drop_percent": pd.drop_percent,
+        })
+
     # ── Build per-unit results ───────────────────────────────────────────
 
     unit_results = []
@@ -1514,8 +1631,26 @@ def owner_report_detail(
                 "message": msg,
             }
 
-        # Showing feedback
+        # Showing feedback — prefer actual Showing records, fall back to weekly note text
         fb_list = _summarize_feedback(feedback_by_unit.get(unit.id, []))
+        if not fb_list:
+            # Fall back to most recent PropertyWeeklyNote for this unit as feedback proxy
+            fb_note = notes_map.get(unit.id)
+            if not fb_note:
+                pn_list = prev_notes_map.get(unit.id, [])
+                if pn_list:
+                    fb_note_data = pn_list[0]  # most recent prev note
+                    fb_list = [{
+                        "date": fb_note_data["week_date"],
+                        "prospect_name": "",
+                        "feedback_summary": fb_note_data["note_text"],
+                    }]
+            if fb_note and not fb_list:
+                fb_list = [{
+                    "date": week_date.isoformat(),
+                    "prospect_name": "",
+                    "feedback_summary": fb_note.note_text,
+                }]
 
         # Upcoming showings
         upcoming = []
@@ -1570,6 +1705,7 @@ def owner_report_detail(
             "showing_feedback": fb_list,
             "upcoming_showings": upcoming,
             "price_recommendation": price_rec,
+            "price_history": price_drop_map.get(unit.id, []),
             "zillow_url": _zillow_url(address, city, state, zc),
             "property_note": note.note_text if note else "",
             "property_note_author": note.author if note else "",

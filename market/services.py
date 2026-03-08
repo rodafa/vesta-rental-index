@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models import Avg, Count, F, Max, Q, Sum
 from django.db.models.functions import Coalesce
 
 from leasing.models import Lease
@@ -340,21 +340,53 @@ class DailySegmentStatsAggregator:
 
 
 class WeeklyLeasingSummaryAggregator:
-    """Aggregate DailyLeasingSummary into weekly summaries per unit."""
+    """Aggregate DailyLeasingSummary into weekly summaries per unit.
+
+    DailyLeasingSummary stores CUMULATIVE totals, so we compute the
+    weekly increment as Max(in week) - Max(before week), floored at 0.
+    """
 
     def run(self, week_ending):
         """week_ending is a Sunday. Aggregates Mon-Sun."""
         week_start = week_ending - timedelta(days=6)
 
-        daily = DailyLeasingSummary.objects.filter(
+        # Current week: max cumulative value per unit within the week
+        current = {}
+        for row in DailyLeasingSummary.objects.filter(
             summary_date__gte=week_start,
             summary_date__lte=week_ending,
         ).values("unit_id", "unit__property__address_line_1").annotate(
-            total_leads=Sum("leads_count"),
-            total_showings=Sum("showings_completed_count"),
-            total_missed=Sum("showings_missed_count"),
-            total_apps=Sum("applications_count"),
-        )
+            max_leads=Max("leads_count"),
+            max_showings=Max("showings_completed_count"),
+            max_missed=Max("showings_missed_count"),
+            max_apps=Max("applications_count"),
+        ):
+            current[row["unit_id"]] = row
+
+        # Prior period: max cumulative value before the week
+        prior = {}
+        for row in DailyLeasingSummary.objects.filter(
+            summary_date__lt=week_start,
+        ).values("unit_id").annotate(
+            max_leads=Max("leads_count"),
+            max_showings=Max("showings_completed_count"),
+            max_missed=Max("showings_missed_count"),
+            max_apps=Max("applications_count"),
+        ):
+            prior[row["unit_id"]] = row
+
+        # Compute delta per unit
+        daily = []
+        for uid, cur in current.items():
+            prv = prior.get(uid, {})
+            daily.append({
+                "unit_id": uid,
+                "unit__property__address_line_1": cur["unit__property__address_line_1"],
+                "total_leads": max((cur["max_leads"] or 0) - (prv.get("max_leads") or 0), 0),
+                "total_showings": max((cur["max_showings"] or 0) - (prv.get("max_showings") or 0), 0),
+                "total_missed": max((cur["max_missed"] or 0) - (prv.get("max_missed") or 0), 0),
+                "total_apps": max((cur["max_apps"] or 0) - (prv.get("max_apps") or 0), 0),
+            })
 
         created_count = 0
         updated_count = 0

@@ -34,15 +34,33 @@
   <div class="loading">Loading feedback...</div>
 </div>
 
-<div class="section-title">Staff Notes</div>
+<div class="section-title">Vesta Internal Notes</div>
 <div id="notes-section" class="card">
   <div id="notes-list" class="loading">Loading notes...</div>
   <div style="margin-top:.75rem; border-top:1px solid var(--border); padding-top:.75rem;">
     <div style="display:flex; gap:.5rem; margin-bottom:.5rem;">
       <input type="text" id="note-author" placeholder="Your name" style="padding:.4rem .6rem; border:1px solid var(--border-medium); border-radius:6px; font-size:.82rem; width:160px;">
     </div>
-    <textarea id="note-text" placeholder="Add a note..." style="min-height:60px;"></textarea>
+    <textarea id="note-text" placeholder="Add an internal note (staff only)..." style="min-height:60px;"></textarea>
     <button class="btn btn-primary btn-sm" id="note-submit">Add Note</button>
+  </div>
+</div>
+
+<div class="section-title">Vesta Notes To Owners</div>
+<div id="owner-notes-section" class="card">
+  <p style="font-size:.8rem; color:var(--text-muted); margin-bottom:.75rem;">
+    Weekly notes sent to the property owner. Each entry is stamped to a week and becomes the source of truth for the owner report email.
+  </p>
+  <div id="owner-notes-list" class="loading">Loading owner notes...</div>
+  <div style="margin-top:.75rem; border-top:1px solid var(--border); padding-top:.75rem;">
+    <div style="display:flex; gap:.5rem; margin-bottom:.5rem;">
+      <input type="text" id="owner-note-author" placeholder="Your name" style="padding:.4rem .6rem; border:1px solid var(--border-medium); border-radius:6px; font-size:.82rem; width:160px;">
+    </div>
+    <textarea id="owner-note-text" placeholder="Write this week's update for the owner..." style="min-height:80px;"></textarea>
+    <div style="display:flex; align-items:center; gap:.75rem; margin-top:.4rem;">
+      <button class="btn btn-primary btn-sm" id="owner-note-submit">Save Owner Note</button>
+      <span id="owner-note-status" style="font-size:.8rem; color:var(--green);"></span>
+    </div>
   </div>
 </div>
 
@@ -66,5 +84,5 @@
 {% block scripts %}
 <script>const UNIT_ID = {{ unit_id }};</script>
 <script src="{% static 'dashboard/js/charts.js' %}?v=2"></script>
-<script src="{% static 'dashboard/js/property_detail.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/property_detail.js' %}?v=3"></script>
 {% endblock %}

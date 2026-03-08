@@ -391,6 +391,14 @@ class ShowingFeedbackSchema(Schema):
     feedback_summary: str = ""
 
 
+class PriceDropSchema(Schema):
+    date: str
+    previous_price: Decimal
+    new_price: Decimal
+    drop_amount: Decimal
+    drop_percent: Decimal
+
+
 class UpcomingShowingSchema(Schema):
     date: str
     time: str = ""
@@ -434,6 +442,7 @@ class OwnerReportUnitSchema(Schema):
     showing_feedback: list[ShowingFeedbackSchema] = []
     upcoming_showings: list[UpcomingShowingSchema] = []
     price_recommendation: PriceRecommendationSchema
+    price_history: list[PriceDropSchema] = []
     zillow_url: str = ""
     property_note: str = ""
     property_note_author: str = ""
