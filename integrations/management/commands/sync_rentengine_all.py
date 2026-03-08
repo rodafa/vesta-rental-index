@@ -7,6 +7,7 @@ from integrations.rentengine.client import RentEngineClient
 from integrations.rentengine.services import (
     UnitSyncService,
     LeasingPerformanceSyncService,
+    ShowingFeedbackSyncService,
 )
 
 logger = logging.getLogger(__name__)
@@ -14,11 +15,12 @@ logger = logging.getLogger(__name__)
 SYNC_ORDER = [
     ("units", UnitSyncService),
     ("leasing", LeasingPerformanceSyncService),
+    ("showings", ShowingFeedbackSyncService),
 ]
 
 
 class Command(BaseCommand):
-    help = "Sync all entities from RentEngine in order: units -> leasing performance"
+    help = "Sync all entities from RentEngine in order: units -> leasing -> showing feedback"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -29,7 +31,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip",
             nargs="+",
-            choices=["units", "leasing"],
+            choices=["units", "leasing", "showings"],
             default=[],
             help="Skip specific sync steps (e.g., --skip leasing)",
         )

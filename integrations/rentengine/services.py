@@ -19,6 +19,8 @@ from integrations.models import APISyncLog
 from market.models import DailyUnitSnapshot, DailyLeasingSummary
 from properties.models import Unit
 
+from django.utils.dateparse import parse_datetime
+
 from .client import RentEngineClient
 from .mappers import map_re_unit, map_daily_snapshot, map_leasing_performance
 
@@ -336,6 +338,176 @@ class LeasingPerformanceSyncService(_BaseSyncService):
                 msg = f"Error syncing leasing performance for unit {unit.rentengine_id}: {exc}"
                 logger.error(msg)
                 errors.append(msg)
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            fetched=total_fetched,
+            errors=errors,
+        )
+        return {
+            "fetched": total_fetched,
+            "created": created_count,
+            "updated": updated_count,
+            "errors": len(errors),
+        }
+
+
+def _parse_feedback_text(text):
+    """
+    Parse RentEngine's free-text showing feedback into 5 structured fields.
+
+    RentEngine formats feedback as labeled sections, e.g.:
+      "Things the prospect liked:\nNice location\nThings the prospect did NOT like:\nNothing\n
+       They said they would apply today if:\nPossibly applying"
+
+    Returns a dict with keys: liked, disliked, maintenance_issues,
+    would_apply_today_if, other. Empty string when section absent.
+    """
+    if not text:
+        return {}
+
+    # Map section header patterns → output key
+    section_patterns = [
+        (re.compile(r"things the prospect liked\s*:", re.IGNORECASE), "liked"),
+        (re.compile(r"things the prospect did not like\s*:", re.IGNORECASE), "disliked"),
+        (re.compile(r"maintenance issues?\s*(noticed)?\s*:", re.IGNORECASE), "maintenance_issues"),
+        (re.compile(r"they said they would apply today if\s*:", re.IGNORECASE), "would_apply_today_if"),
+        (re.compile(r"other\s*:", re.IGNORECASE), "other"),
+    ]
+
+    # Find positions of each section header
+    segments = []  # list of (start_pos, key)
+    for pattern, key in section_patterns:
+        m = pattern.search(text)
+        if m:
+            segments.append((m.end(), key))
+
+    if not segments:
+        # No known headers — store the whole text in "other"
+        clean = text.strip()
+        return {"other": clean} if clean else {}
+
+    # Sort by position so we can extract text between headers
+    segments.sort(key=lambda x: x[0])
+
+    result = {}
+    for i, (start, key) in enumerate(segments):
+        end = segments[i + 1][0] - len(text) if i + 1 < len(segments) else len(text)
+        # Slice text between this header end and next header start
+        next_start = segments[i + 1][0] if i + 1 < len(segments) else len(text)
+        # Back up to before the next header label itself
+        chunk = text[start:next_start]
+        # Remove the next header text if it bleeds in
+        for pattern, _ in section_patterns:
+            chunk = pattern.sub("", chunk)
+        value = chunk.strip().strip("\n").strip()
+        if value:
+            result[key] = value
+
+    return result
+
+
+class ShowingFeedbackSyncService(_BaseSyncService):
+    """
+    Sync showing feedback from RentEngine's leasing-performance endpoint.
+
+    The /reporting/leasing-performance/units/{id} response includes a
+    `showing_feedback` array with prospect_id, prospect_name, created_at,
+    and a free-text feedback string.
+
+    This service upserts Showing records (keyed on unit + prospect + completed_at)
+    and parses the feedback text into 5 structured fields.
+    """
+
+    endpoint = "reporting/leasing-performance/showing-feedback"
+
+    def sync(self, dry_run=False):
+        from datetime import timedelta
+        from leasing.models import Prospect, Showing
+
+        log = self._create_log()
+        today = timezone.now().date()
+        today_str = today.isoformat()
+        start_date = (today - timedelta(days=365)).isoformat()
+
+        units = Unit.objects.filter(rentengine_id__isnull=False)
+        created_count = 0
+        updated_count = 0
+        total_fetched = 0
+        errors = []
+
+        for unit in units:
+            try:
+                data = self.client.get(
+                    f"/reporting/leasing-performance/units/{unit.rentengine_id}",
+                    params={
+                        "start": f"{start_date}T00:00:00Z",
+                        "end": f"{today_str}T23:59:59Z",
+                    },
+                )
+            except Exception as exc:
+                msg = f"Error fetching leasing performance for unit {unit.rentengine_id}: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+                continue
+
+            feedback_list = data.get("showing_feedback") or []
+            total_fetched += len(feedback_list)
+
+            for fb in feedback_list:
+                if not fb.get("feedback"):
+                    continue  # skip showings without feedback
+
+                try:
+                    prospect_rentengine_id = fb.get("prospect_id")
+                    raw_dt = fb.get("created_at") or ""
+                    completed_at = parse_datetime(raw_dt) if raw_dt else None
+                    if not completed_at:
+                        continue
+
+                    feedback_dict = _parse_feedback_text(fb["feedback"])
+
+                    if dry_run:
+                        logger.info(
+                            "DRY RUN showing feedback unit=%s prospect=%s: %s",
+                            unit.rentengine_id, prospect_rentengine_id, feedback_dict,
+                        )
+                        continue
+
+                    # Resolve prospect FK
+                    prospect = None
+                    if prospect_rentengine_id:
+                        prospect = Prospect.objects.filter(
+                            rentengine_id=prospect_rentengine_id
+                        ).first()
+                        if prospect is None:
+                            # Create a minimal prospect record so FK is set
+                            prospect, _ = Prospect.objects.get_or_create(
+                                rentengine_id=prospect_rentengine_id,
+                                defaults={"name": fb.get("prospect_name", ""), "raw_data": fb},
+                            )
+
+                    _, was_created = Showing.objects.update_or_create(
+                        unit=unit,
+                        prospect=prospect,
+                        completed_at=completed_at,
+                        defaults={
+                            "status": "completed",
+                            "feedback": feedback_dict,
+                            "raw_data": fb,
+                        },
+                    )
+                    if was_created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
+
+                except Exception as exc:
+                    msg = f"Error syncing showing feedback for unit {unit.rentengine_id}: {exc}"
+                    logger.error(msg)
+                    errors.append(msg)
 
         self._complete_log(
             log,
