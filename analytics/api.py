@@ -1719,3 +1719,44 @@ def owner_report_detail(
         "portfolio_medians": portfolio_medians,
         "units": unit_results,
     }
+
+
+# ---------------------------------------------------------------------------
+# Backfill monthly aggregations
+# ---------------------------------------------------------------------------
+
+
+@router.post("/backfill-monthly", response=dict)
+def backfill_monthly(request, start_month: str, end_month: str):
+    """
+    Re-run MonthlyMarketReport + MonthlySegmentStats for each month in range.
+    start_month / end_month format: YYYY-MM
+    """
+    from market.services import MonthlyMarketReportAggregator, MonthlySegmentStatsAggregator
+
+    def _parse(s):
+        parts = s.split("-")
+        return int(parts[0]), int(parts[1])
+
+    start_year, start_mo = _parse(start_month)
+    end_year, end_mo = _parse(end_month)
+
+    results = []
+    year, month = start_year, start_mo
+    while (year, month) <= (end_year, end_mo):
+        try:
+            r1 = MonthlyMarketReportAggregator().run(year, month)
+            r2 = MonthlySegmentStatsAggregator().run(year, month)
+            results.append({
+                "month": f"{year}-{month:02d}",
+                "report": r1,
+                "segments": r2,
+            })
+        except Exception as exc:
+            results.append({"month": f"{year}-{month:02d}", "error": str(exc)})
+        if month == 12:
+            year, month = year + 1, 1
+        else:
+            month += 1
+
+    return {"months_processed": len(results), "results": results}
