@@ -438,21 +438,22 @@ class MonthlyMarketReportAggregator:
             avg_30_plus=Avg("count_30_plus_dom"),
         )
 
-        # Sum leasing activity for the month
-        leasing_agg = DailyLeasingSummary.objects.filter(
-            summary_date__year=year,
-            summary_date__month=month,
+        # Sum leasing activity for the month using WeeklyLeasingSummary
+        # (incremental counts keyed by week_ending date, not sync date)
+        leasing_agg = WeeklyLeasingSummary.objects.filter(
+            week_ending__year=year,
+            week_ending__month=month,
         ).aggregate(
-            total_leads=Sum("leads_count"),
-            total_showings=Sum("showings_completed_count"),
-            total_missed=Sum("showings_missed_count"),
-            total_apps=Sum("applications_count"),
+            total_leads=Coalesce(Sum("leads_count"), 0),
+            total_showings=Coalesce(Sum("showings_completed_count"), 0),
+            total_missed=Coalesce(Sum("showings_missed_count"), 0),
+            total_apps=Coalesce(Sum("applications_count"), 0),
         )
 
-        leads = leasing_agg["total_leads"] or 0
-        showings = leasing_agg["total_showings"] or 0
-        missed = leasing_agg["total_missed"] or 0
-        apps = leasing_agg["total_apps"] or 0
+        leads = leasing_agg["total_leads"]
+        showings = leasing_agg["total_showings"]
+        missed = leasing_agg["total_missed"]
+        apps = leasing_agg["total_apps"]
 
         _, created = MonthlyMarketReport.objects.update_or_create(
             report_month=first_day,
@@ -504,10 +505,11 @@ class MonthlySegmentStatsAggregator:
             buckets[key]["doms"].append(snap.days_on_market or 0)
             buckets[key]["unit_ids"].add(unit.id)
 
-        # Leasing summaries for the month
-        leasing = DailyLeasingSummary.objects.filter(
-            summary_date__year=year,
-            summary_date__month=month,
+        # Leasing summaries for the month using WeeklyLeasingSummary
+        # (incremental counts keyed by week_ending date, not sync date)
+        leasing = WeeklyLeasingSummary.objects.filter(
+            week_ending__year=year,
+            week_ending__month=month,
         ).values("unit_id").annotate(
             total_leads=Sum("leads_count"),
             total_showings=Sum("showings_completed_count"),
