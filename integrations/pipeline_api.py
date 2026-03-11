@@ -145,12 +145,13 @@ def import_historical(request):
             call_command("import_weekly_sheets", dir="data/xlsx/non-active", stdout=buf, stderr=buf)
             logger.info("Historical import: starting import_historical_events")
             call_command("import_historical_events", stdout=buf, stderr=buf)
-            logger.info("Historical import: starting aggregate_market_data backfill")
+            logger.info("Historical import: starting aggregate_market_data backfill (skip-weekly)")
             call_command(
                 "aggregate_market_data",
                 backfill=True,
                 start="2025-11-17",
                 end=datetime.date.today().isoformat(),
+                skip_weekly=True,
                 stdout=buf,
                 stderr=buf,
             )
@@ -161,6 +162,58 @@ def import_historical(request):
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
     return {"status": "started", "message": "Historical import running in background — check server logs"}
+
+
+@router.post(
+    "/rebuild-weekly-data",
+    response={200: dict},
+    summary="Fix WeeklyLeasingSummary by clearing and re-importing from XLSX, then re-aggregating monthly reports",
+)
+def rebuild_weekly_data(request):
+    """
+    Corrects WeeklyLeasingSummary data that was corrupted by the backfill overwriting XLSX-based records.
+    Steps:
+      1. Delete all WeeklyLeasingSummary and MonthlyMarketReport records
+      2. Re-run import_weekly_sheets from XLSX (live + non-active)
+      3. Re-run monthly aggregation for Nov 2025 – current month
+    """
+    from market.models import MonthlyMarketReport, WeeklyLeasingSummary
+
+    def _run():
+        buf = io.StringIO()
+        try:
+            deleted_weekly = WeeklyLeasingSummary.objects.all().delete()
+            deleted_monthly = MonthlyMarketReport.objects.all().delete()
+            logger.info(
+                "rebuild-weekly-data: deleted %s WeeklyLeasingSummary, %s MonthlyMarketReport",
+                deleted_weekly[0], deleted_monthly[0],
+            )
+
+            logger.info("rebuild-weekly-data: re-importing XLSX (live)")
+            call_command("import_weekly_sheets", dir="data/xlsx/live", stdout=buf, stderr=buf)
+            logger.info("rebuild-weekly-data: re-importing XLSX (non-active)")
+            call_command("import_weekly_sheets", dir="data/xlsx/non-active", stdout=buf, stderr=buf)
+
+            # Re-run monthly aggregation for each month (Nov 2025 – today)
+            today = datetime.date.today()
+            current_month = datetime.date(2025, 11, 1)
+            end_month = datetime.date(today.year, today.month, 1)
+            while current_month <= end_month:
+                month_str = f"{current_month.year}-{current_month.month:02d}"
+                logger.info("rebuild-weekly-data: monthly aggregation for %s", month_str)
+                call_command("aggregate_market_data", monthly=month_str, stdout=buf, stderr=buf)
+                if current_month.month == 12:
+                    current_month = datetime.date(current_month.year + 1, 1, 1)
+                else:
+                    current_month = datetime.date(current_month.year, current_month.month + 1, 1)
+
+            logger.info("rebuild-weekly-data: complete")
+        except Exception:
+            logger.exception("rebuild-weekly-data failed")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "message": "Weekly data rebuild running in background — check server logs"}
 
 
 @router.get(

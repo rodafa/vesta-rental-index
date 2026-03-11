@@ -56,6 +56,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Run daily + weekly + monthly aggregations.",
         )
+        parser.add_argument(
+            "--skip-weekly",
+            action="store_true",
+            help="Skip weekly aggregation during backfill (use when WeeklyLeasingSummary is populated from XLSX import).",
+        )
 
     def handle(self, *args, **options):
         start_time = time.time()
@@ -113,6 +118,7 @@ class Command(BaseCommand):
 
         start = datetime.strptime(options["start"], "%Y-%m-%d").date()
         end = datetime.strptime(options["end"], "%Y-%m-%d").date()
+        skip_weekly = options.get("skip_weekly", False)
 
         self.stdout.write(f"Backfilling {start} to {end}")
         current = start
@@ -121,11 +127,14 @@ class Command(BaseCommand):
             current += timedelta(days=1)
 
         # Run weekly for each complete week in the range
-        self.stdout.write("\nBackfilling weekly summaries...")
-        week_end = start + timedelta(days=(6 - start.weekday()))  # Next Sunday
-        while week_end <= end:
-            self._handle_weekly_for_date(week_end)
-            week_end += timedelta(days=7)
+        if skip_weekly:
+            self.stdout.write("\nSkipping weekly summaries (--skip-weekly flag set)")
+        else:
+            self.stdout.write("\nBackfilling weekly summaries...")
+            week_end = start + timedelta(days=(6 - start.weekday()))  # Next Sunday
+            while week_end <= end:
+                self._handle_weekly_for_date(week_end)
+                week_end += timedelta(days=7)
 
         # Run monthly for each month in the range
         self.stdout.write("\nBackfilling monthly reports...")
