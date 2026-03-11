@@ -123,6 +123,46 @@ def trigger_pipeline(request, payload: TriggerIn = TriggerIn()):
     }
 
 
+@router.post(
+    "/import-historical",
+    response={200: dict},
+    summary="One-shot: import historical XLSX + CSV + backfill aggregations",
+)
+def import_historical(request):
+    """
+    Runs the three historical import commands in a background thread.
+    Safe to call multiple times — commands use update_or_create.
+    Protected by the same VESTA_API_KEY auth as the pipeline trigger.
+    """
+    import datetime
+
+    def _run():
+        buf = io.StringIO()
+        try:
+            logger.info("Historical import: starting import_weekly_sheets (live)")
+            call_command("import_weekly_sheets", dir="data/xlsx/live", stdout=buf, stderr=buf)
+            logger.info("Historical import: starting import_weekly_sheets (non-active)")
+            call_command("import_weekly_sheets", dir="data/xlsx/non-active", stdout=buf, stderr=buf)
+            logger.info("Historical import: starting import_historical_events")
+            call_command("import_historical_events", stdout=buf, stderr=buf)
+            logger.info("Historical import: starting aggregate_market_data backfill")
+            call_command(
+                "aggregate_market_data",
+                backfill=True,
+                start="2025-11-17",
+                end=datetime.date.today().isoformat(),
+                stdout=buf,
+                stderr=buf,
+            )
+            logger.info("Historical import: complete")
+        except Exception:
+            logger.exception("Historical import failed")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "message": "Historical import running in background — check server logs"}
+
+
 @router.get(
     "/status",
     response={200: StatusOut, 404: dict},
