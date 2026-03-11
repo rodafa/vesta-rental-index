@@ -122,6 +122,106 @@ def rentengine_webhook(request: HttpRequest):
 
 
 # ---------------------------------------------------------------------------
+# SendGrid Delivery Webhook
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sendgrid/", response={200: dict})
+def sendgrid_webhook(request: HttpRequest):
+    """
+    Receive delivery event webhooks from SendGrid.
+
+    SendGrid POSTs a JSON array of events. Each event includes:
+        {
+            "event": "delivered | open | bounce | ...",
+            "sg_message_id": "...",
+            "timestamp": 1234567890,
+            "reason": "..." (bounce only)
+        }
+
+    We match on sendgrid_message_id to update OwnerReportNote status.
+
+    Signature verification uses X-Twilio-Email-Event-Webhook-Signature header
+    and SENDGRID_WEBHOOK_SECRET from settings. If the secret is not configured,
+    verification is skipped (dev mode).
+    """
+    import hashlib
+    import hmac
+    import json
+
+    from django.utils import timezone as tz
+
+    from dashboard.models import OwnerReportNote
+
+    # ── Signature verification ────────────────────────────────────────────
+    secret = settings.SENDGRID_WEBHOOK_SECRET
+    if secret:
+        sig_header = request.META.get("HTTP_X_TWILIO_EMAIL_EVENT_WEBHOOK_SIGNATURE", "")
+        ts_header = request.META.get("HTTP_X_TWILIO_EMAIL_EVENT_WEBHOOK_TIMESTAMP", "")
+        if sig_header and ts_header:
+            payload = ts_header.encode() + request.body
+            expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, sig_header):
+                logger.warning("SendGrid webhook: invalid signature")
+                return {"status": "error", "detail": "Invalid signature"}
+        else:
+            logger.warning("SendGrid webhook: missing signature headers")
+            return {"status": "error", "detail": "Missing signature headers"}
+
+    # ── Parse body ────────────────────────────────────────────────────────
+    try:
+        events = json.loads(request.body)
+        if not isinstance(events, list):
+            events = [events]
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("SendGrid webhook: invalid JSON body")
+        return {"status": "error", "detail": "Invalid JSON"}
+
+    processed = 0
+    for event in events:
+        event_type = event.get("event", "")
+        # SendGrid appends filter info after a dot — use only the base message ID
+        sg_msg_id = (event.get("sg_message_id") or "").split(".")[0]
+        if not sg_msg_id:
+            continue
+
+        try:
+            note = OwnerReportNote.objects.get(sendgrid_message_id=sg_msg_id)
+        except OwnerReportNote.DoesNotExist:
+            logger.debug("SendGrid webhook: no note for message_id %s", sg_msg_id)
+            continue
+        except OwnerReportNote.MultipleObjectsReturned:
+            logger.warning("SendGrid webhook: multiple notes for message_id %s", sg_msg_id)
+            continue
+
+        if event_type == "delivered":
+            note.status = "delivered"
+            note.delivered_at = tz.now()
+            note.save(update_fields=["status", "delivered_at"])
+            logger.info("SendGrid: delivered note %s (owner %s)", note.pk, note.owner_id)
+
+        elif event_type == "open":
+            if not note.opened_at:
+                note.opened_at = tz.now()
+                note.save(update_fields=["opened_at"])
+            logger.info("SendGrid: opened note %s (owner %s)", note.pk, note.owner_id)
+
+        elif event_type == "bounce":
+            note.status = "bounced"
+            note.bounce_reason = event.get("reason") or ""
+            note.save(update_fields=["status", "bounce_reason"])
+            logger.warning(
+                "SendGrid: bounce for note %s (owner %s): %s",
+                note.pk, note.owner_id, note.bounce_reason,
+            )
+
+        processed += 1
+
+    logger.info("SendGrid webhook: processed %d of %d events", processed, len(events))
+    return {"status": "ok", "processed": processed}
+
+
+# ---------------------------------------------------------------------------
 # BoomPay Endpoint
 # ---------------------------------------------------------------------------
 

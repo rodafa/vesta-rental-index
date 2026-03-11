@@ -27,6 +27,8 @@ class OwnerReportNote(models.Model):
         ("draft", "Draft"),
         ("reviewed", "Reviewed"),
         ("sent", "Sent"),
+        ("delivered", "Delivered"),
+        ("bounced", "Bounced"),
     ]
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
@@ -41,6 +43,8 @@ class OwnerReportNote(models.Model):
 
     # Email tracking
     opened_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    bounce_reason = models.TextField(blank=True)
     sendgrid_message_id = models.CharField(max_length=255, blank=True)
     properties_included = models.JSONField(default=list, blank=True)
 

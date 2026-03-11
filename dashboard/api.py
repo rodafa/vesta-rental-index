@@ -35,6 +35,8 @@ def _note_to_dict(note):
         "report_date": note.report_date,
         "sent_at": note.sent_at.isoformat() if note.sent_at else None,
         "opened_at": note.opened_at.isoformat() if note.opened_at else None,
+        "delivered_at": note.delivered_at.isoformat() if note.delivered_at else None,
+        "bounce_reason": note.bounce_reason,
         "properties_included": note.properties_included,
         "updated_at": note.updated_at.isoformat(),
     }
@@ -60,7 +62,7 @@ def _render_owner_email(owner, report_data, note):
 
     week_date = note.report_date
     week_end = week_date + timedelta(days=6)
-    summary_text = note.email_body or note.notes_text or ""
+    summary_text = note.email_body or ""
 
     # Gather property notes for this week
     unit_ids = [u["unit_id"] for u in report_data.get("units", [])]
@@ -204,6 +206,8 @@ class OwnerReportNoteSchema(Schema):
     report_date: date
     sent_at: Optional[str] = None
     opened_at: Optional[str] = None
+    delivered_at: Optional[str] = None
+    bounce_reason: str = ""
     properties_included: list = []
     updated_at: str
 

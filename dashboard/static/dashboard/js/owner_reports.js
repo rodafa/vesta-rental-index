@@ -12,9 +12,11 @@ document.addEventListener('DOMContentLoaded', function () {
   var ownerReports = {};      // keyed by owner_id
   var noteMap = {};            // OwnerReportNote per owner_id
   var propNoteMap = {};        // keyed by unit_id, textarea content (in-memory)
+  var emailBodyMap = {};       // keyed by owner_id, email_body content (in-memory)
   var expandedSections = {};   // keyed by portfolio name
   var lastSentMap = {};        // last sent_at per owner
   var dirtyUnits = {};         // modified textareas
+  var dirtyEmailBodies = {};   // modified owner-level email body textareas
   var portfolioGroups = {};    // keyed by portfolio name → {owners, units, medians}
   var unitOwnerMap = {};       // unit_id → owner_id (for draft/save)
 
@@ -54,6 +56,10 @@ document.addEventListener('DOMContentLoaded', function () {
       var notes = weekNotes.items || weekNotes;
       for (var i = 0; i < notes.length; i++) {
         noteMap[notes[i].owner_id] = notes[i];
+        // Seed email body (only if user hasn't edited it yet)
+        if (emailBodyMap[notes[i].owner_id] === undefined) {
+          emailBodyMap[notes[i].owner_id] = notes[i].email_body || '';
+        }
       }
 
       lastSentMap = {};
@@ -172,9 +178,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var expanded = expandedSections[name] ? ' expanded' : '';
     var listingCount = group.units.length;
 
-    // Find first owner for this portfolio (for preview/send)
     var ownerIds = Object.keys(group.owners);
-    var firstOwnerId = ownerIds.length ? ownerIds[0] : '';
 
     var html = '<div class="portfolio-section' + expanded + '" data-portfolio="' + esc(name) + '">';
 
@@ -203,17 +207,85 @@ document.addEventListener('DOMContentLoaded', function () {
 
     html += '</div>'; // end body
 
-    // Footer — preview/send per owner in this portfolio
-    html += '<div class="portfolio-section-footer">';
+    // Per-owner message + status + action panel
+    html += '<div class="owner-action-panels">';
     for (var o = 0; o < ownerIds.length; o++) {
-      var oid = ownerIds[o];
-      html +=
-        '<button class="btn btn-secondary btn-sm btn-preview-owner" data-owner-id="' + oid + '">Preview Email</button>' +
-        '<button class="btn btn-success btn-sm btn-send-owner" data-owner-id="' + oid + '">Send</button>';
+      var oid = parseInt(ownerIds[o], 10);
+      html += renderOwnerActionPanel(oid, group.owners[oid] || {});
     }
     html += '</div>';
 
+    // Footer — page-level preview/send removed; handled by per-owner panel above
+
     html += '</div>'; // end section
+    return html;
+  }
+
+  // ── Owner Action Panel (Vesta Message + status + buttons) ──────────────
+
+  function statusBadge(status, note) {
+    var labels = {
+      draft: 'DRAFT',
+      reviewed: 'REVIEWED',
+      sent: 'SENT',
+      delivered: 'DELIVERED',
+      bounced: 'BOUNCED',
+    };
+    var classes = {
+      draft: 'status-draft',
+      reviewed: 'status-reviewed',
+      sent: 'status-sent',
+      delivered: 'status-delivered',
+      bounced: 'status-bounced',
+    };
+    var label = labels[status] || status.toUpperCase();
+    var cls = classes[status] || '';
+    var extra = '';
+    if (status === 'delivered' && note && note.delivered_at) {
+      extra = ' \u2713';
+    }
+    if (status === 'sent' && note && note.sent_at) {
+      extra = ' (' + VestaAPI.dateStr(note.sent_at.split('T')[0]) + ')';
+    }
+    return '<span class="owner-status-badge ' + cls + '">' + label + extra + '</span>';
+  }
+
+  function renderOwnerActionPanel(ownerId, owner) {
+    var note = noteMap[ownerId];
+    var status = note ? note.status : 'draft';
+    var emailBody = emailBodyMap[ownerId] !== undefined ? emailBodyMap[ownerId] : (note ? note.email_body || '' : '');
+    var ownerName = owner.owner_name || 'Owner';
+
+    var canReview = status === 'draft';
+    var canSend = status === 'reviewed';
+
+    var html = '<div class="owner-action-panel" data-owner-id="' + ownerId + '">';
+
+    // Owner name + status badge
+    html += '<div class="oap-header">';
+    html += '<span class="oap-owner-name">' + esc(ownerName) + '</span>';
+    html += statusBadge(status, note);
+    html += '</div>';
+
+    // Vesta Message textarea
+    html += '<div class="oap-message-section">';
+    html += '<label class="oap-label">Vesta Message <span class="oap-label-hint">(appears in email)</span></label>';
+    html += '<textarea class="oap-email-body" data-owner-id="' + ownerId + '" rows="4" ' +
+      (status === 'sent' || status === 'delivered' ? 'readonly ' : '') + '>' + esc(emailBody) + '</textarea>';
+    html += '<div class="oap-char-count" data-owner-id="' + ownerId + '">' + emailBody.length + ' chars</div>';
+    html += '</div>';
+
+    // Action buttons
+    html += '<div class="oap-actions">';
+    html += '<button class="btn btn-secondary btn-sm btn-preview-owner" data-owner-id="' + ownerId + '">Preview</button>';
+    if (canReview) {
+      html += '<button class="btn btn-info btn-sm btn-mark-reviewed" data-owner-id="' + ownerId + '">Mark Reviewed</button>';
+    }
+    html += '<button class="btn btn-success btn-sm btn-send-owner" data-owner-id="' + ownerId + '"' +
+      (canSend ? '' : ' disabled') + '>Send</button>';
+    html += '</div>';
+
+    html += '</div>'; // end owner-action-panel
     return html;
   }
 
@@ -514,6 +586,19 @@ document.addEventListener('DOMContentLoaded', function () {
     for (var s = 0; s < sendBtns.length; s++) {
       sendBtns[s].addEventListener('click', onSendOwner);
     }
+
+    // Mark Reviewed per owner
+    var reviewBtns = document.querySelectorAll('.btn-mark-reviewed');
+    for (var r = 0; r < reviewBtns.length; r++) {
+      reviewBtns[r].addEventListener('click', onMarkReviewed);
+    }
+
+    // Owner email body textareas
+    var emailBodies = document.querySelectorAll('.oap-email-body');
+    for (var eb = 0; eb < emailBodies.length; eb++) {
+      emailBodies[eb].addEventListener('input', onEmailBodyInput);
+      emailBodies[eb].addEventListener('blur', onEmailBodyBlur);
+    }
   }
 
   function onToggleSection(e) {
@@ -543,6 +628,85 @@ document.addEventListener('DOMContentLoaded', function () {
     if (content) {
       content.classList.toggle('open');
     }
+  }
+
+  function onEmailBodyInput(e) {
+    var ownerId = parseInt(e.target.getAttribute('data-owner-id'), 10);
+    emailBodyMap[ownerId] = e.target.value;
+    dirtyEmailBodies[ownerId] = true;
+    // Update char count
+    var counter = document.querySelector('.oap-char-count[data-owner-id="' + ownerId + '"]');
+    if (counter) counter.textContent = e.target.value.length + ' chars';
+  }
+
+  function onEmailBodyBlur(e) {
+    var ownerId = parseInt(e.target.getAttribute('data-owner-id'), 10);
+    if (dirtyEmailBodies[ownerId]) {
+      saveEmailBody(ownerId);
+    }
+  }
+
+  function saveEmailBody(ownerId) {
+    var body = emailBodyMap[ownerId] || '';
+    return ensureOwnerNote(ownerId).then(function () {
+      var note = noteMap[ownerId];
+      if (!note || !note.id) return;
+      return VestaAPI.put('/dashboard/owner-notes/' + note.id, { email_body: body });
+    }).then(function (updated) {
+      if (!updated) return;
+      noteMap[ownerId] = updated;
+      dirtyEmailBodies[ownerId] = false;
+    }).catch(function (err) {
+      console.error('Error saving email body for owner ' + ownerId + ':', err);
+    });
+  }
+
+  function onMarkReviewed(e) {
+    var ownerId = parseInt(e.currentTarget.getAttribute('data-owner-id'), 10);
+    markReviewed(ownerId);
+  }
+
+  function markReviewed(ownerId) {
+    // Save email body first, then mark reviewed
+    saveEmailBody(ownerId).then(function () {
+      return ensureOwnerNote(ownerId);
+    }).then(function () {
+      var note = noteMap[ownerId];
+      if (!note || !note.id) return;
+      return VestaAPI.put('/dashboard/owner-notes/' + note.id, { status: 'reviewed' });
+    }).then(function (updated) {
+      if (!updated) return;
+      noteMap[ownerId] = updated;
+      updateReadyCount();
+      // Re-render just this owner's panel
+      var ownerPanel = document.querySelector('.owner-action-panel[data-owner-id="' + ownerId + '"]');
+      if (ownerPanel) {
+        var ownerObj = {};
+        for (var i = 0; i < owners.length; i++) {
+          if (owners[i].owner_id === ownerId) { ownerObj = owners[i]; break; }
+        }
+        ownerPanel.outerHTML = renderOwnerActionPanel(ownerId, ownerObj);
+        // Re-bind after DOM replacement
+        var newPanel = document.querySelector('.owner-action-panel[data-owner-id="' + ownerId + '"]');
+        if (newPanel) {
+          var rb = newPanel.querySelector('.btn-mark-reviewed');
+          if (rb) rb.addEventListener('click', onMarkReviewed);
+          var pb = newPanel.querySelector('.btn-preview-owner');
+          if (pb) pb.addEventListener('click', onPreviewOwner);
+          var sb = newPanel.querySelector('.btn-send-owner');
+          if (sb) sb.addEventListener('click', onSendOwner);
+          var ta = newPanel.querySelector('.oap-email-body');
+          if (ta) {
+            ta.addEventListener('input', onEmailBodyInput);
+            ta.addEventListener('blur', onEmailBodyBlur);
+          }
+        }
+      }
+      VestaAPI.toast('Marked as reviewed', 'success');
+    }).catch(function (err) {
+      console.error('Mark reviewed error:', err);
+      VestaAPI.toast('Error marking reviewed', 'error');
+    });
   }
 
   // ── Save Per Row ────────────────────────────────────────────────────────
@@ -688,8 +852,10 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function previewOwner(ownerId) {
-    // Save all unit notes first, ensure owner note, then preview
+    // Save all unit notes + email body first, ensure owner note, then preview
     saveAllUnitsForOwner(ownerId).then(function () {
+      return saveEmailBody(ownerId);
+    }).then(function () {
       return ensureOwnerNote(ownerId);
     }).then(function () {
       var note = noteMap[ownerId];
@@ -712,6 +878,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function sendOwner(ownerId) {
     saveAllUnitsForOwner(ownerId).then(function () {
+      return saveEmailBody(ownerId);
+    }).then(function () {
       return ensureOwnerNote(ownerId);
     }).then(function () {
       var note = noteMap[ownerId];
@@ -719,11 +887,7 @@ document.addEventListener('DOMContentLoaded', function () {
         VestaAPI.toast('Error: no note found', 'error');
         return Promise.reject(new Error('no note'));
       }
-      // Mark as reviewed then send
-      return VestaAPI.put('/dashboard/owner-notes/' + note.id, { status: 'reviewed' });
-    }).then(function (updated) {
-      noteMap[ownerId] = updated;
-      return VestaAPI.post('/dashboard/owner-notes/' + updated.id + '/send', {});
+      return VestaAPI.post('/dashboard/owner-notes/' + note.id + '/send', {});
     }).then(function (result) {
       if (result.status === 'error') {
         VestaAPI.toast('Error: ' + (result.detail || 'Send failed'), 'error');

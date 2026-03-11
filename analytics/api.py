@@ -634,8 +634,12 @@ def active_listings(request):
     #   RentEngine; no Showing/Application records exist from bulk sync)
     active_unit_ids = [s.unit_id for s in snapshots]
 
+    cutoff_30d = date.today() - timedelta(days=30)
     leads_by_unit = dict(
-        Prospect.objects.filter(unit_of_interest_id__in=active_unit_ids)
+        Prospect.objects.filter(
+            unit_of_interest_id__in=active_unit_ids,
+            source_created_at__date__gte=cutoff_30d,
+        )
         .values_list("unit_of_interest_id")
         .annotate(n=Count("id"))
         .values_list("unit_of_interest_id", "n")

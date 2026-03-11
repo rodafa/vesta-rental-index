@@ -5,6 +5,29 @@
 {% block title %}Leasing Updates{% endblock %}
 
 {% block content %}
+<style>
+  /* ── Owner action panel ─────────────────────────────────────────── */
+  .owner-action-panels { padding: .75rem 1rem 1rem; background: #f9f9fb; border-top: 1px solid #e5e7eb; }
+  .owner-action-panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: .75rem 1rem; margin-bottom: .5rem; }
+  .oap-header { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+  .oap-owner-name { font-weight: 600; font-size: .9rem; }
+  .oap-label { display: block; font-size: .8rem; font-weight: 600; color: #555; margin-bottom: .25rem; }
+  .oap-label-hint { font-weight: 400; color: #888; }
+  .oap-email-body { width: 100%; box-sizing: border-box; font-size: .85rem; padding: .4rem .5rem; border: 1px solid #d1d5db; border-radius: 4px; resize: vertical; }
+  .oap-char-count { font-size: .75rem; color: #999; text-align: right; margin-top: 2px; }
+  .oap-actions { display: flex; gap: .5rem; margin-top: .5rem; flex-wrap: wrap; align-items: center; }
+  /* Status badges */
+  .owner-status-badge { font-size: .7rem; font-weight: 700; padding: 2px 7px; border-radius: 10px; letter-spacing: .04em; }
+  .status-draft    { background: #e5e7eb; color: #555; }
+  .status-reviewed { background: #dbeafe; color: #1d4ed8; }
+  .status-sent     { background: #d1fae5; color: #065f46; }
+  .status-delivered{ background: #d1fae5; color: #065f46; }
+  .status-bounced  { background: #fee2e2; color: #991b1b; }
+  /* Info button */
+  .btn-info { background: #3b82f6; color: #fff; border: none; cursor: pointer; }
+  .btn-info:hover { background: #2563eb; }
+</style>
+
 <h1 class="page-title">Leasing Updates</h1>
 <p class="page-subtitle">Week of <span id="report-date">Loading...</span></p>
 
@@ -30,5 +53,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/owner_reports.js' %}?v=8"></script>
+<script src="{% static 'dashboard/js/owner_reports.js' %}?v=9"></script>
 {% endblock %}
