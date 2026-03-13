@@ -722,6 +722,32 @@ body.owner-view {
   border-radius: 4px;
 }
 
+/* === Pivot Table (Segment Comparison) === */
+.pivot-controls {
+  display: flex;
+  gap: .75rem;
+  align-items: flex-end;
+  margin-bottom: .75rem;
+}
+
+.pivot-table th:first-child,
+.pivot-table td:first-child {
+  text-align: left;
+}
+
+.pivot-zip {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pivot-empty {
+  color: var(--text-light) !important;
+}
+
+.pivot-cell-green { background: var(--green-bg); color: var(--green); font-weight: 600; }
+.pivot-cell-yellow { background: var(--yellow-bg); color: var(--yellow); font-weight: 600; }
+.pivot-cell-red { background: var(--red-bg); color: var(--red); font-weight: 600; }
+
 /* Showing notes block */
 .showing-notes-block {
   margin-top: .4rem;

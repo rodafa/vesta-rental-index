@@ -5,6 +5,8 @@
  * Auto-refreshes every 60 seconds.
  */
 
+var _segmentsCache = null;
+
 async function loadAll() {
   try {
     var [monthlyData, segmentsData, portfolio, monthlySegData] = await Promise.all([
@@ -19,11 +21,11 @@ async function loadAll() {
 
     renderPortfolioStats(portfolio, segmentsData);
     renderCharts(months, monthlySeg);
-    renderSegmentTable(segmentsData);
+    renderPivotTable(segmentsData);
   } catch (err) {
     console.error('Portfolio Analytics load error:', err);
     VestaAPI.render('portfolio-stats', '<div class="loading">Error loading data</div>');
-    VestaAPI.render('segment-body', '<tr><td colspan="7" class="loading">Error loading data</td></tr>');
+    VestaAPI.render('segment-pivot', '<div class="loading">Error loading data</div>');
   }
 }
 
@@ -31,6 +33,9 @@ document.addEventListener('DOMContentLoaded', function () {
   loadAll();
   setInterval(loadAll, 60000);
   document.getElementById('filter-apply').addEventListener('click', applyFilters);
+  document.getElementById('pivot-metric').addEventListener('change', function () {
+    if (_segmentsCache) renderPivotTable(_segmentsCache);
+  });
 });
 
 // -- Portfolio Stats ----------------------------------------------------------
@@ -40,7 +45,6 @@ function renderPortfolioStats(portfolio, segments) {
     ? ((portfolio.vacant_units / portfolio.total_units) * 100)
     : 0;
 
-  // Compute occupied vs vacant averages from rent-analysis segments
   var totalOccupied = 0, totalVacant = 0;
   var occRentSum = 0, occRentCount = 0;
   var vacRentSum = 0, vacRentCount = 0;
@@ -90,51 +94,42 @@ function renderPortfolioStats(portfolio, segments) {
 // -- Charts -------------------------------------------------------------------
 
 function renderCharts(months, monthlySeg) {
-  // Monthly reports (market-level): sort ascending
   var sorted = months.slice().sort(function (a, b) {
     return a.report_month < b.report_month ? -1 : a.report_month > b.report_month ? 1 : 0;
   });
   var marketLabels = sorted.map(function (m) { return formatMonth(m.report_month); });
 
-  // Chart 1: Avg List Price (from monthly-reports)
   VestaCharts.lineChart('chart-list-price', marketLabels, [
     { label: 'Avg List Price', data: sorted.map(function (m) { return Number(m.average_price) || 0; }) },
   ], 'Price ($)');
 
-  // Chart 3: Avg DOM (from monthly-reports)
   VestaCharts.lineChart('chart-dom', marketLabels, [
     { label: 'Avg DOM', data: sorted.map(function (m) { return Number(m.average_dom) || 0; }) },
   ], 'Days');
 
-  // Chart 5: Leads, Showings & Apps (from monthly-reports)
   VestaCharts.barChart('chart-leads', marketLabels, [
     { label: 'Leads', data: sorted.map(function (m) { return Number(m.total_leads) || 0; }) },
     { label: 'Showings', data: sorted.map(function (m) { return Number(m.total_showings) || 0; }) },
     { label: 'Apps', data: sorted.map(function (m) { return Number(m.total_applications) || 0; }) },
   ], 'Count');
 
-  // Aggregate monthly-segments by month for portfolio-wide trends
   var segByMonth = aggregateSegmentsByMonth(monthlySeg);
   var segLabels = segByMonth.labels;
 
-  // Chart 2: Avg Occupied Rent (from monthly-segments)
   VestaCharts.lineChart('chart-occ-rent', segLabels, [
     { label: 'Avg Occupied Rent', data: segByMonth.avgOccRent },
   ], 'Rent ($)');
 
-  // Chart 4: Leases Written (from monthly-segments)
   VestaCharts.barChart('chart-leases', segLabels, [
     { label: 'Leases Written', data: segByMonth.leasesWritten },
   ], 'Count');
 
-  // Chart 6: Avg Lease Length (from monthly-segments)
   VestaCharts.lineChart('chart-lease-len', segLabels, [
     { label: 'Avg Lease Length', data: segByMonth.avgLeaseLen },
   ], 'Months');
 }
 
 function aggregateSegmentsByMonth(monthlySeg) {
-  // Group by month, weighted-average or sum across zip/bedroom combos
   var monthMap = {};
   for (var i = 0; i < monthlySeg.length; i++) {
     var s = monthlySeg[i];
@@ -184,87 +179,91 @@ function formatMonth(reportMonth) {
   return monthNames[monthIdx] + ' ' + parts[0];
 }
 
-// -- Segment Table ------------------------------------------------------------
+// -- Pivot Table --------------------------------------------------------------
 
-function renderSegmentTable(segments) {
+function renderPivotTable(segments) {
+  _segmentsCache = segments;
+  var metric = document.getElementById('pivot-metric').value || 'vacancy_rate';
+
   if (!segments || segments.length === 0) {
-    VestaAPI.render(
-      'segment-body',
-      '<tr><td colspan="7" class="empty-state">No segment data available</td></tr>'
-    );
+    VestaAPI.render('segment-pivot', '<div class="empty-state">No segment data available</div>');
     return;
   }
 
-  // Fill in missing bedroom counts (1-5) per zip code
+  // Build zip → bedroom → segment map
   var zipMap = {};
+  var allBeds = {};
   for (var i = 0; i < segments.length; i++) {
     var s = segments[i];
-    // Parse zip and bedroom from segment_label "92840 / 3BR"
     var parts = s.segment_label.split(' / ');
     var zip = parts[0] || 'Unknown';
+    var brStr = (parts[1] || '').replace('BR', '').trim();
+    var br = parseInt(brStr, 10);
     if (!zipMap[zip]) zipMap[zip] = {};
-    zipMap[zip][s.segment_label] = s;
+    zipMap[zip][br] = s;
+    if (!isNaN(br)) allBeds[br] = true;
   }
 
-  var filledSegments = [];
   var zips = Object.keys(zipMap).sort();
+  var beds = Object.keys(allBeds).map(Number).sort(function (a, b) { return a - b; });
+
+  var metricLabel = {
+    vacancy_rate: 'Vacancy Rate',
+    avg_target_rent: 'Avg Target Rent',
+    avg_active_lease_rent: 'Avg Lease Rent',
+    unit_count: 'Total Units',
+    occupied_count: 'Occupied',
+    vacant_count: 'Vacant',
+  }[metric] || metric;
+
+  var html = '<table class="pivot-table">';
+  html += '<thead><tr><th>' + metricLabel + '</th>';
+  for (var bi = 0; bi < beds.length; bi++) {
+    html += '<th>' + beds[bi] + 'BR</th>';
+  }
+  html += '</tr></thead><tbody>';
+
   for (var z = 0; z < zips.length; z++) {
     var zip = zips[z];
-    var existing = zipMap[zip];
-    for (var br = 1; br <= 5; br++) {
-      var label = zip + ' / ' + br + 'BR';
-      if (existing[label]) {
-        filledSegments.push(existing[label]);
+    html += '<tr><td class="pivot-zip">' + zip + '</td>';
+    for (var bi2 = 0; bi2 < beds.length; bi2++) {
+      var br2 = beds[bi2];
+      var seg = zipMap[zip] && zipMap[zip][br2];
+      if (!seg || seg.unit_count === 0) {
+        html += '<td class="num pivot-empty">\u2014</td>';
       } else {
-        // Placeholder row for missing bedroom count
-        filledSegments.push({
-          segment_label: label,
-          unit_count: 0,
-          occupied_count: 0,
-          vacant_count: 0,
-          vacancy_rate: 0,
-          avg_target_rent: null,
-          avg_active_lease_rent: null,
-          property_names: [],
-        });
+        var val = seg[metric];
+        var display = formatPivotValue(metric, val, seg);
+        var cls = getPivotCellClass(metric, val);
+        html += '<td class="num' + (cls ? ' ' + cls : '') + '">' + display + '</td>';
       }
     }
-    // Also include any N/A or other non-standard segments
-    var keys = Object.keys(existing);
-    for (var k = 0; k < keys.length; k++) {
-      var alreadyAdded = false;
-      for (var br2 = 1; br2 <= 5; br2++) {
-        if (keys[k] === zip + ' / ' + br2 + 'BR') { alreadyAdded = true; break; }
-      }
-      if (!alreadyAdded) filledSegments.push(existing[keys[k]]);
-    }
+    html += '</tr>';
   }
 
-  var rows = '';
-  for (var j = 0; j < filledSegments.length; j++) {
-    var seg = filledSegments[j];
-    var propTitle = (seg.property_names && seg.property_names.length)
-      ? seg.property_names.join(', ')
-      : '';
-    var zeroClass = seg.unit_count === 0 ? ' style="color:var(--text-light)"' : '';
-    rows +=
-      '<tr title="' + escapeAttr(propTitle) + '"' + zeroClass + '>' +
-        '<td>' + (seg.segment_label || '\u2014') + '</td>' +
-        '<td class="num">' + VestaAPI.num(seg.unit_count) + '</td>' +
-        '<td class="num">' + VestaAPI.num(seg.occupied_count) + '</td>' +
-        '<td class="num">' + VestaAPI.num(seg.vacant_count) + '</td>' +
-        '<td class="num">' + VestaAPI.pct(seg.vacancy_rate) + '</td>' +
-        '<td class="num">' + VestaAPI.$(seg.avg_target_rent) + '</td>' +
-        '<td class="num">' + VestaAPI.$(seg.avg_active_lease_rent) + '</td>' +
-      '</tr>';
-  }
-
-  VestaAPI.render('segment-body', rows);
+  html += '</tbody></table>';
+  VestaAPI.render('segment-pivot', html);
 }
 
-function escapeAttr(text) {
-  if (!text) return '';
-  return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function formatPivotValue(metric, val, seg) {
+  if (metric === 'vacancy_rate') {
+    if (val == null) return '\u2014';
+    return VestaAPI.pct(val);
+  }
+  if (metric === 'avg_target_rent' || metric === 'avg_active_lease_rent') {
+    if (!val || Number(val) === 0) return '\u2014';
+    return VestaAPI.$(val);
+  }
+  if (val == null || val === 0) return '\u2014';
+  return VestaAPI.num(val);
+}
+
+function getPivotCellClass(metric, val) {
+  if (metric !== 'vacancy_rate' || val == null) return '';
+  if (val <= 0) return 'pivot-cell-green';
+  if (val < 8) return 'pivot-cell-green';
+  if (val < 20) return 'pivot-cell-yellow';
+  return 'pivot-cell-red';
 }
 
 // -- Filters ------------------------------------------------------------------
@@ -283,12 +282,10 @@ function getFilterParams() {
 async function applyFilters() {
   var query = getFilterParams();
 
-  // Show loading states
   VestaAPI.render('portfolio-stats', '<div class="loading">Loading...</div>');
-  VestaAPI.render('segment-body', '<tr><td colspan="7" class="loading">Loading segment data...</td></tr>');
+  VestaAPI.render('segment-pivot', '<div class="loading">Loading segment data...</div>');
 
   try {
-    // Re-fetch all three data sources with filter params
     var [portfolio, segments, monthlySegData] = await Promise.all([
       VestaAPI.get('/analytics/portfolio-summary' + query),
       VestaAPI.get('/analytics/rent-analysis' + query),
@@ -296,12 +293,10 @@ async function applyFilters() {
     ]);
 
     renderPortfolioStats(portfolio, segments);
-    renderSegmentTable(segments);
+    renderPivotTable(segments);
 
-    // Re-render segment-based charts with filtered monthly data
     var monthlySeg = monthlySegData.items || [];
     if (query) {
-      // Filter monthly segments client-side to match zip/bed filters
       var zip = document.getElementById('filter-zip').value.trim();
       var beds = document.getElementById('filter-beds').value;
       monthlySeg = monthlySeg.filter(function (s) {
@@ -325,9 +320,6 @@ async function applyFilters() {
   } catch (err) {
     console.error('Filter error:', err);
     VestaAPI.render('portfolio-stats', '<div class="loading">Error loading data</div>');
-    VestaAPI.render(
-      'segment-body',
-      '<tr><td colspan="7" class="loading">Error loading data</td></tr>'
-    );
+    VestaAPI.render('segment-pivot', '<div class="loading">Error loading data</div>');
   }
 }
