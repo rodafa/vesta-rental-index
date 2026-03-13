@@ -57,6 +57,9 @@ api = NinjaAPI(
     version="0.1.0",
     description="Internal rental performance index for Vesta Property Management.",
     auth=[VestaAPIKey(), SessionAuth()],
+    # Hide Swagger UI and OpenAPI schema in production
+    docs_url="/docs" if DEBUG else None,
+    openapi_url="/openapi.json" if DEBUG else None,
 )
 
 
