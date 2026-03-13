@@ -722,31 +722,93 @@ body.owner-view {
   border-radius: 4px;
 }
 
-/* === Pivot Table (Segment Comparison) === */
+/* === Pivot Grid (Segment Comparison) === */
 .pivot-controls {
   display: flex;
+  align-items: center;
   gap: .75rem;
-  align-items: flex-end;
-  margin-bottom: .75rem;
+  margin-bottom: 1rem;
 }
 
-.pivot-table th:first-child,
-.pivot-table td:first-child {
-  text-align: left;
+.pivot-metric-label {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
 }
 
-.pivot-zip {
+.pivot-metric-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: .5rem 2rem .5rem .9rem;
+  border: 1.5px solid var(--border-medium);
+  border-radius: 8px;
+  font-size: .88rem;
   font-weight: 600;
-  white-space: nowrap;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right .7rem center;
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 190px;
+}
+
+.pivot-metric-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(110,165,205,.15);
+}
+
+.pivot-grid {
+  display: grid;
+  gap: .4rem;
+  margin-bottom: 1.5rem;
+}
+
+.pivot-header-cell {
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: .2rem .4rem .4rem;
+}
+
+.pivot-zip-label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  padding-right: .5rem;
+}
+
+.pivot-cell {
+  background: #eef3f7;
+  border-radius: 8px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: background .15s;
+}
+
+.pivot-no-data {
+  background: #f3f6f9;
+  opacity: .5;
 }
 
 .pivot-empty {
-  color: var(--text-light) !important;
+  color: var(--text-light);
+  font-weight: 400;
 }
 
-.pivot-cell-green { background: var(--green-bg); color: var(--green); font-weight: 600; }
-.pivot-cell-yellow { background: var(--yellow-bg); color: var(--yellow); font-weight: 600; }
-.pivot-cell-red { background: var(--red-bg); color: var(--red); font-weight: 600; }
+.pivot-cell-green { background: var(--green-bg); color: var(--green); }
+.pivot-cell-yellow { background: var(--yellow-bg); color: var(--yellow); }
+.pivot-cell-red { background: var(--red-bg); color: var(--red); }
 
 /* Showing notes block */
 .showing-notes-block {

@@ -78,22 +78,21 @@
 
 <h2 class="section-title">Segment Comparison</h2>
 <div class="pivot-controls">
-  <div class="filter-group">
-    <label for="pivot-metric">Metric</label>
-    <select id="pivot-metric">
-      <option value="vacancy_rate">Vacancy Rate</option>
-      <option value="avg_target_rent">Avg Target Rent</option>
-      <option value="avg_active_lease_rent">Avg Lease Rent</option>
-      <option value="unit_count">Total Units</option>
-      <option value="occupied_count">Occupied</option>
-      <option value="vacant_count">Vacant</option>
-    </select>
-  </div>
+  <span class="pivot-metric-label">Show</span>
+  <select id="pivot-metric" class="pivot-metric-select">
+    <option value="">— Select a metric —</option>
+    <option value="vacancy_rate">Vacancy Rate</option>
+    <option value="avg_target_rent">Avg Target Rent</option>
+    <option value="avg_active_lease_rent">Avg Lease Rent</option>
+    <option value="unit_count">Total Units</option>
+    <option value="occupied_count">Occupied</option>
+    <option value="vacant_count">Vacant</option>
+  </select>
 </div>
-<div id="segment-pivot"><div class="loading">Loading segment data...</div></div>
+<div id="segment-pivot"></div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{% static 'dashboard/js/charts.js' %}?v=2"></script>
-<script src="{% static 'dashboard/js/portfolio_analytics.js' %}?v=3"></script>
+<script src="{% static 'dashboard/js/portfolio_analytics.js' %}?v=4"></script>
 {% endblock %}

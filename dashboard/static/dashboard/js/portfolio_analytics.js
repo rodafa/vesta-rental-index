@@ -183,7 +183,7 @@ function formatMonth(reportMonth) {
 
 function renderPivotTable(segments) {
   _segmentsCache = segments;
-  var metric = document.getElementById('pivot-metric').value || 'vacancy_rate';
+  var metric = document.getElementById('pivot-metric').value; // "" = no selection
 
   if (!segments || segments.length === 0) {
     VestaAPI.render('segment-pivot', '<div class="empty-state">No segment data available</div>');
@@ -207,45 +207,42 @@ function renderPivotTable(segments) {
   var zips = Object.keys(zipMap).sort();
   var beds = Object.keys(allBeds).map(Number).sort(function (a, b) { return a - b; });
 
-  var metricLabel = {
-    vacancy_rate: 'Vacancy Rate',
-    avg_target_rent: 'Avg Target Rent',
-    avg_active_lease_rent: 'Avg Lease Rent',
-    unit_count: 'Total Units',
-    occupied_count: 'Occupied',
-    vacant_count: 'Vacant',
-  }[metric] || metric;
+  var gridCols = 'grid-template-columns: 110px repeat(' + beds.length + ', 1fr)';
+  var html = '<div class="pivot-grid" style="' + gridCols + '">';
 
-  var html = '<table class="pivot-table">';
-  html += '<thead><tr><th>' + metricLabel + '</th>';
+  // Header row — always visible
+  html += '<div class="pivot-header-cell"></div>';
   for (var bi = 0; bi < beds.length; bi++) {
-    html += '<th>' + beds[bi] + 'BR</th>';
+    var colLabel = beds[bi] === 0 ? 'Studio' : beds[bi] + 'BR';
+    html += '<div class="pivot-header-cell">' + colLabel + '</div>';
   }
-  html += '</tr></thead><tbody>';
 
+  // Data rows
   for (var z = 0; z < zips.length; z++) {
     var zip = zips[z];
-    html += '<tr><td class="pivot-zip">' + zip + '</td>';
+    html += '<div class="pivot-zip-label">' + zip + '</div>';
     for (var bi2 = 0; bi2 < beds.length; bi2++) {
       var br2 = beds[bi2];
       var seg = zipMap[zip] && zipMap[zip][br2];
-      if (!seg || seg.unit_count === 0) {
-        html += '<td class="num pivot-empty">\u2014</td>';
+      if (!metric) {
+        // No metric chosen — show blank placeholder tiles
+        html += '<div class="pivot-cell pivot-no-data"></div>';
+      } else if (!seg || seg.unit_count === 0) {
+        html += '<div class="pivot-cell pivot-empty">\u2014</div>';
       } else {
         var val = seg[metric];
-        var display = formatPivotValue(metric, val, seg);
+        var display = formatPivotValue(metric, val);
         var cls = getPivotCellClass(metric, val);
-        html += '<td class="num' + (cls ? ' ' + cls : '') + '">' + display + '</td>';
+        html += '<div class="pivot-cell' + (cls ? ' ' + cls : '') + '">' + display + '</div>';
       }
     }
-    html += '</tr>';
   }
 
-  html += '</tbody></table>';
+  html += '</div>';
   VestaAPI.render('segment-pivot', html);
 }
 
-function formatPivotValue(metric, val, seg) {
+function formatPivotValue(metric, val) {
   if (metric === 'vacancy_rate') {
     if (val == null) return '\u2014';
     return VestaAPI.pct(val);
