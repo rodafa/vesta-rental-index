@@ -207,10 +207,16 @@ function renderPivotTable(segments) {
   var zips = Object.keys(zipMap).sort();
   var beds = Object.keys(allBeds).map(Number).sort(function (a, b) { return a - b; });
 
+  // Nothing shown until a metric is selected
+  if (!metric) {
+    VestaAPI.render('segment-pivot', '');
+    return;
+  }
+
   var gridCols = 'grid-template-columns: 110px repeat(' + beds.length + ', 1fr)';
   var html = '<div class="pivot-grid" style="' + gridCols + '">';
 
-  // Header row — always visible
+  // Header row
   html += '<div class="pivot-header-cell"></div>';
   for (var bi = 0; bi < beds.length; bi++) {
     var colLabel = beds[bi] === 0 ? 'Studio' : beds[bi] + 'BR';
@@ -224,10 +230,7 @@ function renderPivotTable(segments) {
     for (var bi2 = 0; bi2 < beds.length; bi2++) {
       var br2 = beds[bi2];
       var seg = zipMap[zip] && zipMap[zip][br2];
-      if (!metric) {
-        // No metric chosen — show blank placeholder tiles
-        html += '<div class="pivot-cell pivot-no-data"></div>';
-      } else if (!seg || seg.unit_count === 0) {
+      if (!seg || seg.unit_count === 0) {
         html += '<div class="pivot-cell pivot-empty">\u2014</div>';
       } else {
         var val = seg[metric];
