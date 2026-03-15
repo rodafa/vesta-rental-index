@@ -20,6 +20,26 @@ class Tenant(models.Model):
         return self.name
 
 
+class KnownListing(models.Model):
+    """
+    Tracks RentEngine unit listings that have already triggered alert emails.
+    Used for deduplication — a listing is considered new if no record exists
+    within the last 180 days, allowing re-alerting after long gaps.
+    """
+
+    listing_id = models.CharField(max_length=255, unique=True)
+    address = models.CharField(max_length=255)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    announcement_sent_at = models.DateTimeField(null=True, blank=True)
+    referral_sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-first_seen_at"]
+
+    def __str__(self):
+        return self.address
+
+
 class Lease(models.Model):
     """
     Lease record from RentVine. Represents a signed lease agreement

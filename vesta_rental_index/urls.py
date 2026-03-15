@@ -21,6 +21,7 @@ from dashboard.views import PasswordChangeCompleteView, owner_dashboard
 from integrations.api import router as webhooks_router
 from integrations.pipeline_api import router as pipeline_router
 from leasing.api import router as leasing_router
+from leasing.listing_alerts_api import router as listing_alerts_router
 from market.api import router as market_router
 from properties.api import router as properties_router
 from screening.api import router as screening_router
@@ -58,8 +59,8 @@ api = NinjaAPI(
     description="Internal rental performance index for Vesta Property Management.",
     auth=[VestaAPIKey(), SessionAuth()],
     # Hide Swagger UI and OpenAPI schema in production
-    docs_url="/docs" if DEBUG else None,
-    openapi_url="/openapi.json" if DEBUG else None,
+    docs_url="/docs" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
 
@@ -80,6 +81,7 @@ api.add_router("/dashboard/", dashboard_api_router)
 api.add_router("/webhooks/", webhooks_router)
 api.add_router("/screening/", screening_router)
 api.add_router("/pipeline/", pipeline_router)
+api.add_router("/listing-alerts/", listing_alerts_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
