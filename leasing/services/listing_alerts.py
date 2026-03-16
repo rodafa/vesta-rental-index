@@ -41,6 +41,17 @@ def _zillow_listing_url(addr):
 logger = logging.getLogger(__name__)
 
 SENDGRID_BASE = "https://api.sendgrid.com/v3"
+
+
+def _notify_slack(text):
+    """Post a message to the configured Slack webhook. No-op if not configured."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not webhook_url or webhook_url == "your_url":
+        return
+    try:
+        requests.post(webhook_url, json={"text": text}, timeout=10)
+    except Exception:
+        logger.warning("Slack notification failed (non-fatal)")
 CHUNK_SIZE = 1000
 SHOW_URL = "https://vestapm.com/homes-for-rent"
 

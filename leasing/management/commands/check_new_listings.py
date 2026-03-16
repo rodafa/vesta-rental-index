@@ -153,6 +153,42 @@ class Command(BaseCommand):
                 referral_sent_at=timezone.now() if ref_sent else None,
             )
 
+            # Auto-create a staff note on the unit's property detail page
+            from dashboard.models import UnitNote
+            from properties.models import Unit
+
+            try:
+                unit = Unit.objects.filter(rentengine_id=int(listing_id)).first()
+            except (ValueError, TypeError):
+                unit = None
+            if unit:
+                parts = []
+                if ann_sent:
+                    parts.append("announcement sent to MailerLite subscribers")
+                if ref_sent:
+                    parts.append("referral email sent to active tenants")
+                if parts:
+                    UnitNote.objects.create(
+                        unit=unit,
+                        author="Listing Alert System",
+                        note_text="Listing alert sent %s — %s." % (
+                            timezone.now().strftime("%b %-d %Y"),
+                            " · ".join(parts),
+                        ),
+                    )
+
+            # Slack notification
+            from leasing.services.listing_alerts import _notify_slack
+
+            slack_lines = ["*Listing Alert Sent* — %s" % address]
+            if ann_sent:
+                slack_lines.append("Announcement sent to MailerLite subscribers")
+            if ref_sent:
+                slack_lines.append("Referral email sent to active tenants")
+            if not ann_sent and not ref_sent:
+                slack_lines.append("No emails sent (check logs)")
+            _notify_slack("\n".join(slack_lines))
+
             if ann_sent:
                 announcement_count += 1
             if ref_sent:
