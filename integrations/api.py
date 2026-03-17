@@ -26,13 +26,14 @@ router = Router(tags=["Webhooks"])
 
 class RentEngineWebhookAuth(APIKeyHeader):
     """
-    Validates X-Webhook-Secret header against the configured secret.
+    Validates X-API-Key header against the configured secret.
+    RentEngine sends the API key as X-API-Key in webhook requests.
 
     If RENTENGINE.WEBHOOK_SECRET is not set (empty string), all requests
     are allowed — this supports local dev without configuring secrets.
     """
 
-    param_name = "X-Webhook-Secret"
+    param_name = "X-API-Key"
 
     def authenticate(self, request: HttpRequest, key: str | None):
         expected = settings.RENTENGINE.get("WEBHOOK_SECRET", "")

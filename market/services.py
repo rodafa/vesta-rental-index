@@ -9,6 +9,7 @@ Each service follows a consistent pattern:
 """
 
 import logging
+from calendar import monthrange
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -16,7 +17,7 @@ from decimal import Decimal
 from django.db.models import Avg, Count, F, Max, Q, Sum
 from django.db.models.functions import Coalesce
 
-from leasing.models import Lease
+from leasing.models import Application, Lease, Prospect, Showing
 from market.models import (
     DailyLeasingSummary,
     DailyMarketStats,
@@ -438,22 +439,59 @@ class MonthlyMarketReportAggregator:
             avg_30_plus=Avg("count_30_plus_dom"),
         )
 
-        # Sum leasing activity for the month using WeeklyLeasingSummary
-        # (incremental counts keyed by week_ending date, not sync date)
-        leasing_agg = WeeklyLeasingSummary.objects.filter(
-            week_ending__year=year,
-            week_ending__month=month,
-        ).aggregate(
-            total_leads=Coalesce(Sum("leads_count"), 0),
-            total_showings=Coalesce(Sum("showings_completed_count"), 0),
-            total_missed=Coalesce(Sum("showings_missed_count"), 0),
-            total_apps=Coalesce(Sum("applications_count"), 0),
-        )
+        # Query RentEngine directly for accurate monthly leasing counts.
+        # The local Prospect/Showing models are populated via webhooks and may
+        # be incomplete. RentEngine's leasing-performance endpoint accepts a
+        # date range and returns exact counts for that period.
+        leads = showings = missed = apps = 0
+        try:
+            from integrations.rentengine.client import RentEngineClient, RentEngineAPIError
+            from properties.models import Unit as _Unit
 
-        leads = leasing_agg["total_leads"]
-        showings = leasing_agg["total_showings"]
-        missed = leasing_agg["total_missed"]
-        apps = leasing_agg["total_apps"]
+            today = date.today()
+            last_day = date(year, month, monthrange(year, month)[1])
+            end_day = min(last_day, today)
+            start_str = first_day.isoformat()
+            end_str = end_day.isoformat()
+
+            client = RentEngineClient()
+            for unit in _Unit.objects.filter(rentengine_id__isnull=False):
+                try:
+                    data = client.get(
+                        f"/reporting/leasing-performance/units/{unit.rentengine_id}",
+                        params={
+                            "start": f"{start_str}T00:00:00Z",
+                            "end": f"{end_str}T23:59:59Z",
+                        },
+                    )
+                    leads += int(data.get("new_prospects") or data.get("leads") or 0)
+                    completed = int(data.get("showings_completed") or data.get("completedShowings") or 0)
+                    scheduled = int(data.get("showings_scheduled") or data.get("showingsScheduled") or 0)
+                    showings += completed
+                    missed += int(data.get("showings_missed") or data.get("missedShowings") or max(scheduled - completed, 0))
+                    apps += int(data.get("applications_submitted") or data.get("applications") or 0)
+                except Exception as exc:
+                    logger.warning("Monthly leasing stats: skipping unit %s - %s", unit.rentengine_id, exc)
+        except Exception as exc:
+            logger.warning("Monthly leasing stats: RentEngine unavailable, falling back to local DB - %s", exc)
+            leads = Prospect.objects.filter(
+                source_created_at__year=year,
+                source_created_at__month=month,
+            ).count()
+            showings = Showing.objects.filter(
+                status="completed",
+                completed_at__year=year,
+                completed_at__month=month,
+            ).count()
+            missed = Showing.objects.filter(
+                status="missed",
+                completed_at__year=year,
+                completed_at__month=month,
+            ).count()
+            apps = Application.objects.filter(
+                source_created_at__year=year,
+                source_created_at__month=month,
+            ).count()
 
         _, created = MonthlyMarketReport.objects.update_or_create(
             report_month=first_day,
