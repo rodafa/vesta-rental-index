@@ -216,6 +216,26 @@ def rebuild_weekly_data(request):
     return {"status": "started", "message": "Weekly data rebuild running in background — check server logs"}
 
 
+@router.post(
+    "/generate-reports",
+    response={200: dict},
+    summary="Generate weekly owner report drafts without running the full pipeline",
+)
+def generate_reports(request):
+    """Run generate_weekly_reports in a background thread."""
+    def _run():
+        buf = io.StringIO()
+        try:
+            call_command("generate_weekly_reports", stdout=buf)
+            logger.info("generate_weekly_reports complete: %s", buf.getvalue())
+        except Exception:
+            logger.exception("generate_weekly_reports failed")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "message": "Weekly report generation running in background"}
+
+
 @router.get(
     "/status",
     response={200: StatusOut, 404: dict},
