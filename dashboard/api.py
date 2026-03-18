@@ -56,7 +56,7 @@ def _prop_note_to_dict(note):
 
 def _render_owner_email(owner, report_data, note):
     """Render the HTML email for an owner report using the Django template."""
-    from django.db.models import Sum
+    from django.db.models import Max, Sum
     from django.db.models.functions import Coalesce
     from market.models import DailyLeasingSummary, DailyUnitSnapshot
 
@@ -116,9 +116,9 @@ def _render_owner_email(owner, report_data, note):
         for row in DailyLeasingSummary.objects.filter(
             unit_id__in=global_dom_map.keys()
         ).values("unit_id").annotate(
-            leads=Coalesce(Sum("leads_count"), 0),
-            showings=Coalesce(Sum("showings_completed_count"), 0),
-            apps=Coalesce(Sum("applications_count"), 0),
+            leads=Coalesce(Max("leads_count"), 0),
+            showings=Coalesce(Max("showings_completed_count"), 0),
+            apps=Coalesce(Max("applications_count"), 0),
         ):
             global_leasing[row["unit_id"]] = row
 

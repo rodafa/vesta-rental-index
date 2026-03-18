@@ -1116,36 +1116,14 @@ def leasing_pipeline(request):
     today = date.today()
     cutoff_30d = today - timedelta(days=30)
 
-    # Funnel (30d)
-    # Leads: count Prospect records with accurate source dates
-    prospects_30d = Prospect.objects.filter(
-        source_created_at__date__gte=cutoff_30d
-    ).count()
-    # Showings/Apps: delta = Max(in period) - Max(before period) per unit
-    current_30d = {}
-    for row in DailyLeasingSummary.objects.filter(
-        summary_date__gte=cutoff_30d,
-    ).values("unit_id").annotate(
-        show=Max("showings_completed_count"), app=Max("applications_count"),
-    ):
-        current_30d[row["unit_id"]] = row
-    prior_30d = {}
-    for row in DailyLeasingSummary.objects.filter(
-        summary_date__lt=cutoff_30d,
-    ).values("unit_id").annotate(
-        show=Max("showings_completed_count"), app=Max("applications_count"),
-    ):
-        prior_30d[row["unit_id"]] = row
-    showings_30d = 0
-    apps_30d = 0
-    for uid, cur in current_30d.items():
-        prv = prior_30d.get(uid, {})
-        showings_30d += max(cur["show"] - prv.get("show", 0), 0)
-        apps_30d += max(cur["app"] - prv.get("app", 0), 0)
+    # Funnel (30d): reuse the accurate hybrid logic from leasing_funnel
+    # (WeeklyLeasingSummary primary + DailyLeasingSummary delta fallback)
+    funnel = leasing_funnel(request, date_from=cutoff_30d)
+    prospects_30d = funnel["total_prospects"]
+    showings_30d = funnel["total_showings_completed"]
+    apps_30d = funnel["total_applications"]
     approved_30d = 0
-    leases_30d = Lease.objects.filter(
-        start_date__gte=cutoff_30d, is_renewal=False
-    ).count()
+    leases_30d = funnel["total_leases_signed"]
 
     # Screening status counts
     screening_pending = ScreeningApplication.objects.filter(status="pending").count()
