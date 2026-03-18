@@ -1154,16 +1154,25 @@ def leasing_pipeline(request):
     prospects_30d = funnel["total_prospects"]
     showings_30d = funnel["total_showings_completed"]
     apps_30d = funnel["total_applications"]
-    approved_30d = 0
+    approved_30d = Application.objects.filter(
+        primary_status=6,  # Approved
+        source_created_at__date__gte=cutoff_30d,
+    ).count()
     leases_30d = funnel["total_leases_signed"]
 
-    # Screening status counts
-    screening_pending = ScreeningApplication.objects.filter(status="pending").count()
-    screening_in_progress = ScreeningApplication.objects.filter(status="in_progress").count()
-    screening_completed = ScreeningApplication.objects.filter(status="completed").count()
+    # Screening status counts (30d)
+    screening_pending = ScreeningApplication.objects.filter(
+        status="pending", created_at__date__gte=cutoff_30d
+    ).count()
+    screening_in_progress = ScreeningApplication.objects.filter(
+        status="in_progress", created_at__date__gte=cutoff_30d
+    ).count()
+    screening_completed = ScreeningApplication.objects.filter(
+        status="completed", created_at__date__gte=cutoff_30d
+    ).count()
 
-    # Scorecard aggregates
-    scorecards = ApplicantScorecard.objects.all()
+    # Scorecard aggregates (30d)
+    scorecards = ApplicantScorecard.objects.filter(created_at__date__gte=cutoff_30d)
     scorecards_count = scorecards.count()
     avg_score_val = scorecards.aggregate(avg=Avg("total_score"))["avg"]
 
