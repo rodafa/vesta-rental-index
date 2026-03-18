@@ -26,14 +26,15 @@
       <th>Missed</th>
       <th>Apps</th>
       <th>Leads/Day</th>
+      <th>Since Drop</th>
     </tr>
   </thead>
   <tbody id="alert-body">
-    <tr><td colspan="10" class="loading">Loading active listings...</td></tr>
+    <tr><td colspan="11" class="loading">Loading active listings...</td></tr>
   </tbody>
 </table>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/daily_pulse.js' %}?v=3"></script>
+<script src="{% static 'dashboard/js/daily_pulse.js' %}?v=4"></script>
 {% endblock %}

@@ -634,16 +634,31 @@ def active_listings(request):
     #   RentEngine; no Showing/Application records exist from bulk sync)
     active_unit_ids = [s.unit_id for s in snapshots]
 
-    cutoff_30d = date.today() - timedelta(days=30)
     leads_by_unit = dict(
         Prospect.objects.filter(
             unit_of_interest_id__in=active_unit_ids,
-            source_created_at__date__gte=cutoff_30d,
         )
         .values_list("unit_of_interest_id")
         .annotate(n=Count("id"))
         .values_list("unit_of_interest_id", "n")
     )
+
+    # Latest price drop per active unit
+    last_drop_map = {}
+    for pd in (
+        PriceDrop.objects.filter(unit_id__in=active_unit_ids)
+        .order_by("unit_id", "-detected_date")
+        .distinct("unit_id")
+    ):
+        last_drop_map[pd.unit_id] = pd
+
+    # Leads since last price drop (one query per unit with a drop)
+    leads_since_drop_map = {}
+    for uid, pd in last_drop_map.items():
+        leads_since_drop_map[uid] = Prospect.objects.filter(
+            unit_of_interest_id=uid,
+            source_created_at__date__gte=pd.detected_date,
+        ).count()
 
     summary_by_unit = {}
     for row in DailyLeasingSummary.objects.filter(
@@ -665,6 +680,7 @@ def active_listings(request):
             "total_apps": s.get("total_apps", 0),
         }
 
+    today = date.today()
     results = []
     for snap in snapshots:
         unit = snap.unit
@@ -674,6 +690,16 @@ def active_listings(request):
         total_leads = agg.get("total_leads", 0)
         active_days = max(dom, 1)
         lpd = round(total_leads / active_days, 2)
+
+        pd_row = last_drop_map.get(unit.id)
+        if pd_row:
+            days_since_drop = max((today - pd_row.detected_date).days, 1)
+            leads_since = leads_since_drop_map.get(unit.id, 0)
+            lpd_since_drop = round(leads_since / days_since_drop, 2)
+        else:
+            days_since_drop = None
+            leads_since = None
+            lpd_since_drop = None
 
         results.append({
             "unit_id": unit.id,
@@ -696,6 +722,12 @@ def active_listings(request):
             "total_apps": agg.get("total_apps", 0),
             "leads_per_active_day": lpd,
             "is_flagged": lpd < 0.5,
+            "last_drop_date": pd_row.detected_date if pd_row else None,
+            "last_drop_amount": pd_row.drop_amount if pd_row else None,
+            "last_drop_pct": pd_row.drop_percent if pd_row else None,
+            "leads_since_drop": leads_since,
+            "days_since_drop": days_since_drop,
+            "leads_per_day_since_drop": lpd_since_drop,
         })
 
     results.sort(key=lambda x: x["leads_per_active_day"])

@@ -98,7 +98,7 @@ async function loadAll() {
     VestaAPI.render('headline-stats', '<div class="loading">Error loading data</div>');
     VestaAPI.render(
       'alert-body',
-      '<tr><td colspan="10" class="loading">Error loading data</td></tr>'
+      '<tr><td colspan="11" class="loading">Error loading data</td></tr>'
     );
   }
 }
@@ -112,7 +112,7 @@ function renderListingsTable(items) {
   if (!items || items.length === 0) {
     VestaAPI.render(
       'alert-body',
-      '<tr><td colspan="10" class="empty-state">No active listings</td></tr>'
+      '<tr><td colspan="11" class="empty-state">No active listings</td></tr>'
     );
     return;
   }
@@ -146,6 +146,7 @@ function renderListingsTable(items) {
           '<td class="num">' + VestaAPI.num(item.total_missed) + '</td>' +
           '<td class="num">' + VestaAPI.num(item.total_apps) + '</td>' +
           '<td class="num ' + lpdClass + '">' + item.leads_per_active_day.toFixed(2) + '</td>' +
+          '<td class="num">' + (item.leads_per_day_since_drop != null ? item.leads_per_day_since_drop.toFixed(2) + '/d (' + item.days_since_drop + 'd ago)' : '\u2014') + '</td>' +
           '</tr>'
         );
       })

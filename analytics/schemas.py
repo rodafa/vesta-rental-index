@@ -208,6 +208,12 @@ class ActiveListingSchema(Schema):
     total_apps: int
     leads_per_active_day: float
     is_flagged: bool
+    last_drop_date: Optional[date] = None
+    last_drop_amount: Optional[Decimal] = None
+    last_drop_pct: Optional[Decimal] = None
+    leads_since_drop: Optional[int] = None
+    days_since_drop: Optional[int] = None
+    leads_per_day_since_drop: Optional[float] = None
 
 
 class ActiveListingDetailSchema(Schema):
