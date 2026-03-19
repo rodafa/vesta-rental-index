@@ -1,8 +1,8 @@
 name: Check New Listings
 
 on:
-  schedule:
-    - cron: '0 15 * * 1-5'  # 10am ET (UTC-5), Mon-Fri
+  # schedule:
+  #   - cron: '0 15 * * 1-5'  # 10am ET (UTC-5), Mon-Fri — PAUSED
   workflow_dispatch:
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
         run: |
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "X-API-Key: ${{ secrets.VESTA_API_KEY }}" \
-            "https://dashboard.vestapm.com/api/listing-alerts/check?limit=2")
+            "https://dashboard.vestapm.com/api/listing-alerts/check?digest=true")
 
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -1)
