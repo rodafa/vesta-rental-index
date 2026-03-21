@@ -12,4 +12,6 @@ dependencies = [
     "dj-database-url>=2.3,<3.0",
     "django-anymail[sendgrid]>=12.0,<13.0",
     "openpyxl>=3.1.5",
+    "slack-sdk>=3.0,<4.0",
+    "anthropic>=0.40,<1.0",
 ]
