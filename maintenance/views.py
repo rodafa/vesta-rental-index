@@ -53,6 +53,8 @@ def slack_events(request):
         logger.info("Handling url_verification challenge")
         return JsonResponse({"challenge": payload.get("challenge")})
 
+    logger.warning("Slack-Signature header: %s", request.headers.get("X-Slack-Signature", "MISSING"))
+    logger.warning("Slack-Timestamp header: %s", request.headers.get("X-Slack-Request-Timestamp", "MISSING"))
     logger.info("Verifying Slack signature...")
     sig_valid = verify_slack_signature(request)
     logger.info("Signature valid: %s", sig_valid)
