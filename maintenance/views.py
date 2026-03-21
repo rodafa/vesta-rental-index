@@ -38,7 +38,7 @@ def _process_mention(user_text, channel, thread_ts):
 @csrf_exempt
 @require_POST
 def slack_events(request):
-    logger.info("Incoming request: %s", request.body[:200])
+    logger.warning("Incoming request: %s", request.body[:200])
 
     try:
         payload = json.loads(request.body)
