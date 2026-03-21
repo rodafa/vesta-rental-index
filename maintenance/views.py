@@ -38,27 +38,16 @@ def _process_mention(user_text, channel, thread_ts):
 @csrf_exempt
 @require_POST
 def slack_events(request):
-    logger.warning("Incoming request: %s", request.body[:200])
-
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
-        logger.warning("Failed to parse JSON body")
         return JsonResponse({"error": "Invalid JSON"}, status=400)
-
-    logger.info("Payload type: %s", payload.get("type"))
 
     # Slack URL verification handshake — handled before sig check (safe: one-time setup only)
     if payload.get("type") == "url_verification":
-        logger.info("Handling url_verification challenge")
         return JsonResponse({"challenge": payload.get("challenge")})
 
-    logger.warning("Slack-Signature header: %s", request.headers.get("X-Slack-Signature", "MISSING"))
-    logger.warning("Slack-Timestamp header: %s", request.headers.get("X-Slack-Request-Timestamp", "MISSING"))
-    logger.info("Verifying Slack signature...")
-    sig_valid = verify_slack_signature(request)
-    logger.info("Signature valid: %s", sig_valid)
-    if not sig_valid:
+    if not verify_slack_signature(request):
         return JsonResponse({"error": "Invalid signature"}, status=403)
 
     # Handle app_mention events

@@ -15,21 +15,16 @@ def verify_slack_signature(request):
     """
     signing_secret = getattr(settings, "SLACK_SIGNING_SECRET", "")
     if not signing_secret:
-        logger.warning("SLACK_SIGNING_SECRET is not set")
         return False
-
-    logger.warning("Signing secret length: %d, first 4 chars: %s", len(signing_secret), signing_secret[:4])
 
     timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
     slack_signature = request.headers.get("X-Slack-Signature", "")
 
     if not timestamp or not slack_signature:
-        logger.warning("Missing headers: timestamp=%r, signature=%r", timestamp, slack_signature)
         return False
 
     try:
         if abs(time.time() - int(timestamp)) > 300:
-            logger.warning("Timestamp too old: %s", timestamp)
             return False
     except ValueError:
         return False
@@ -41,9 +36,5 @@ def verify_slack_signature(request):
         sig_basestring.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-
-    logger.warning("Computed: %s", computed)
-    logger.warning("Received: %s", slack_signature)
-    logger.warning("Match: %s", hmac.compare_digest(computed, slack_signature))
 
     return hmac.compare_digest(computed, slack_signature)
