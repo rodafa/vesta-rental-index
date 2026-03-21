@@ -13,4 +13,4 @@ def verify_slack_signature(request):
         return False
 
     verifier = SignatureVerifier(signing_secret)
-    return verifier.is_valid_request(request.body, request.headers)
+    return verifier.is_valid_request(request.body.decode("utf-8"), request.headers)
