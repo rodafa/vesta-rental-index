@@ -208,3 +208,10 @@ VESTA_LOGO_URL = os.environ.get(
     "VESTA_LOGO_URL",
     "https://vestapm.com/wp-content/uploads/2026/02/cropped-Full-Logo-All-White-Green-Flame.png",
 )
+
+# Slack Bot
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
+
+# Anthropic
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")

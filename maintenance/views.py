@@ -1,3 +1,72 @@
-from django.shortcuts import render
+import json
+import logging
+import re
+import threading
 
-# Create your views here.
+from django.conf import settings
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+
+from .ai_service import handle_mention
+from .slack_bot import verify_slack_signature
+
+logger = logging.getLogger(__name__)
+
+
+def _process_mention(user_text, channel, thread_ts):
+    """Runs in a background thread — calls Claude then posts reply to Slack."""
+    try:
+        response_text = handle_mention(user_text, thread_ts, channel)
+    except Exception:
+        logger.exception("Error calling Claude for app_mention")
+        response_text = "Sorry, I ran into an error. Please try again."
+
+    try:
+        client = WebClient(token=settings.SLACK_BOT_TOKEN)
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=response_text,
+        )
+    except SlackApiError:
+        logger.exception("Error posting Claude response to Slack")
+
+
+@csrf_exempt
+@require_POST
+def slack_events(request):
+    if not verify_slack_signature(request):
+        return JsonResponse({"error": "Invalid signature"}, status=403)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    # Slack URL verification handshake
+    if payload.get("type") == "url_verification":
+        return JsonResponse({"challenge": payload.get("challenge")})
+
+    # Handle app_mention events
+    if payload.get("type") == "event_callback":
+        event = payload.get("event", {})
+        if event.get("type") == "app_mention":
+            raw_text = event.get("text", "")
+            channel = event.get("channel", "")
+            thread_ts = event.get("thread_ts") or event.get("ts", "")
+
+            # Strip the bot mention (<@UXXXXXXXX>) from the start of the message
+            user_text = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
+
+            logger.info("app_mention in %s: %r", channel, user_text)
+
+            threading.Thread(
+                target=_process_mention,
+                args=(user_text, channel, thread_ts),
+                daemon=True,
+            ).start()
+
+    return JsonResponse({"ok": True})
