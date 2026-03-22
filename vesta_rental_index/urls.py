@@ -135,6 +135,7 @@ urlpatterns = [
     ),
     path("api/", api.urls),
     path("maintenance/", include("maintenance.urls")),
+    path("", include("onboarding.urls")),
     path("dashboard/", include("dashboard.urls")),
     path("owner/<slug:portfolio_slug>/", owner_dashboard, name="owner_dashboard"),
     path("", RedirectView.as_view(url="/dashboard/", permanent=False)),

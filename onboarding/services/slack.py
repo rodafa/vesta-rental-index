@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import logging
+import time
 
 from django.conf import settings
 from slack_sdk import WebClient
@@ -7,11 +10,40 @@ from slack_sdk.errors import SlackApiError
 logger = logging.getLogger(__name__)
 
 
+def verify_minerva_signature(request):
+    """Verify incoming request is from Slack using MINERVA_SIGNING_SECRET."""
+    signing_secret = getattr(settings, "MINERVA_SIGNING_SECRET", "")
+    if not signing_secret:
+        return False
+
+    timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+    slack_signature = request.headers.get("X-Slack-Signature", "")
+
+    if not timestamp or not slack_signature:
+        return False
+
+    try:
+        if abs(time.time() - int(timestamp)) > 300:
+            return False
+    except ValueError:
+        return False
+
+    body = request.body.decode("utf-8")
+    sig_basestring = f"v0:{timestamp}:{body}"
+    computed = "v0=" + hmac.new(
+        signing_secret.encode("utf-8"),
+        sig_basestring.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    return hmac.compare_digest(computed, slack_signature)
+
+
 def post_slack_summary(onboard):
     """Post a summary card to Slack when a new owner onboarding form is submitted."""
     token = getattr(settings, "MINERVA_BOT_TOKEN", "")
     if not token:
-        logger.warning("SLACK_BOT_TOKEN not configured — skipping Slack notification")
+        logger.warning("MINERVA_BOT_TOKEN not configured — skipping Slack notification")
         return
 
     channel = getattr(settings, "SLACK_ONBOARDING_CHANNEL", "C09NX81G805")
