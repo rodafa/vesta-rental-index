@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "accounting",
     "integrations",
     "dashboard",
+    "onboarding",
 ]
 
 MIDDLEWARE = [
