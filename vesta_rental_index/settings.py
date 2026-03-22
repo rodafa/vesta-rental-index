@@ -213,6 +213,8 @@ VESTA_LOGO_URL = os.environ.get(
 # Slack Bot
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
+MINERVA_BOT_TOKEN = os.environ.get("MINERVA_BOT_TOKEN", "")
+MINERVA_SIGNING_SECRET = os.environ.get("MINERVA_SIGNING_SECRET", "")
 
 # Logging
 LOGGING = {
