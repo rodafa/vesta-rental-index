@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def post_slack_summary(onboard):
     """Post a summary card to Slack when a new owner onboarding form is submitted."""
-    token = getattr(settings, "SLACK_BOT_TOKEN", "")
+    token = getattr(settings, "MINERVA_BOT_TOKEN", "")
     if not token:
         logger.warning("SLACK_BOT_TOKEN not configured — skipping Slack notification")
         return
