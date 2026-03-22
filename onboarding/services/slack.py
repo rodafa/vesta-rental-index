@@ -14,7 +14,7 @@ def post_slack_summary(onboard):
         logger.warning("SLACK_BOT_TOKEN not configured — skipping Slack notification")
         return
 
-    channel = getattr(settings, "SLACK_ONBOARDING_CHANNEL", "#onboarding")
+    channel = getattr(settings, "SLACK_ONBOARDING_CHANNEL", "C09NX81G805")
     submitted = onboard.submitted_at.strftime("%Y-%m-%d %H:%M UTC")
     text = (
         "\U0001f3e0 *New Owner Onboarding \u2014 {address}*\n"
