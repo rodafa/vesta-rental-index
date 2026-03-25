@@ -47,7 +47,7 @@ services:
       PROPERTY_MELD_CLIENT_ID: ${PROPERTY_MELD_CLIENT_ID:-}
       PROPERTY_MELD_CLIENT_SECRET: ${PROPERTY_MELD_CLIENT_SECRET:-}
       PROPERTY_MELD_MANAGEMENT_ID: ${PROPERTY_MELD_MANAGEMENT_ID:-}
-      PROPERTY_MELD_SUMMARY_CHANNEL: ${PROPERTY_MELD_SUMMARY_CHANNEL:-}
+      PROPERTY_MELD_SUMMARY_CHANNEL: ${PROPERTY_MELD_SUMMARY_CHANNEL:-maintenance-gpt}
     depends_on:
       - db
 
@@ -65,7 +65,9 @@ services:
         crontab /app/cron/crontab
         echo "Scheduler started — cron jobs loaded"
         cron -f
-    environment: *app-env
+    environment:
+      <<: *app-env
+      TZ: America/New_York
     depends_on:
       - web
 
