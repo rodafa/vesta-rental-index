@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Inspection, Vendor, VendorTrade, WorkOrder, WorkOrderStatus
+from .models import Inspection, Meld, Vendor, VendorTrade, WorkOrder, WorkOrderStatus
 
 
 @admin.register(Vendor)
@@ -35,3 +35,26 @@ class WorkOrderAdmin(admin.ModelAdmin):
 class InspectionAdmin(admin.ModelAdmin):
     list_display = ("unit", "inspection_type", "inspection_status", "scheduled_date", "inspection_date")
     list_filter = ("inspection_type", "inspection_status")
+
+
+@admin.register(Meld)
+class MeldAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "brief_description",
+        "status",
+        "priority",
+        "assigned_vendor_name",
+        "coordinator_name",
+        "scheduled_date",
+        "has_invoice",
+        "owner_approval_status",
+    )
+    search_fields = (
+        "property_meld_id",
+        "brief_description",
+        "assigned_vendor_name",
+        "coordinator_name",
+        "property_address",
+    )
+    list_filter = ("status", "priority", "owner_approval_status", "has_invoice")

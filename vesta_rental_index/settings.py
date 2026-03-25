@@ -235,6 +235,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "integrations.property_meld": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 
@@ -242,6 +247,10 @@ LOGGING = {
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # Property Meld
-PROPERTY_MELD_BASE_URL = "https://api.propertymeld.com/api/v2"
-PROPERTY_MELD_CLIENT_ID = os.environ.get("PROPERTY_MELD_CLIENT_ID", "")
-PROPERTY_MELD_CLIENT_SECRET = os.environ.get("PROPERTY_MELD_CLIENT_SECRET", "")
+PROPERTY_MELD = {
+    "BASE_URL": os.environ.get("PROPERTY_MELD_BASE_URL", "https://api.propertymeld.com/api/v2"),
+    "CLIENT_ID": os.environ.get("PROPERTY_MELD_CLIENT_ID", ""),
+    "CLIENT_SECRET": os.environ.get("PROPERTY_MELD_CLIENT_SECRET", ""),
+    "MANAGEMENT_ID": os.environ.get("PROPERTY_MELD_MANAGEMENT_ID", ""),
+    "DAILY_SUMMARY_CHANNEL": os.environ.get("PROPERTY_MELD_SUMMARY_CHANNEL", ""),
+}

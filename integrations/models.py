@@ -13,6 +13,7 @@ class WebhookEvent(models.Model):
         ("rentengine", "RentEngine"),
         ("rentvine", "RentVine"),
         ("boompay", "BoomPay/BoomScreen"),
+        ("property_meld", "Property Meld"),
     ]
     source = models.CharField(
         max_length=20, choices=SOURCE_CHOICES, db_index=True
@@ -54,6 +55,7 @@ class APISyncLog(models.Model):
         ("rentengine", "RentEngine"),
         ("rentvine", "RentVine"),
         ("boompay", "BoomPay/BoomScreen"),
+        ("property_meld", "Property Meld"),
     ]
     source = models.CharField(
         max_length=20, choices=SOURCE_CHOICES, db_index=True

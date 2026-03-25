@@ -233,3 +233,73 @@ class Inspection(models.Model):
 
     def __str__(self):
         return f"{self.get_inspection_type_display()} - {self.unit}"
+
+
+class Meld(models.Model):
+    """
+    Maintenance meld from Property Meld. Tracks work orders from creation
+    through vendor assignment, scheduling, and completion.
+
+    No FK to Property/Unit — PM entities don't map 1:1 to RentVine records.
+    Cross-references stored as text fields for flexibility.
+    """
+
+    property_meld_id = models.CharField(max_length=255, unique=True, db_index=True)
+
+    brief_description = models.TextField(blank=True)
+    category = models.CharField(max_length=255, blank=True)
+
+    PRIORITY_CHOICES = [
+        ("LOW", "Low"),
+        ("MEDIUM", "Medium"),
+        ("HIGH", "High"),
+        ("EMERGENCY", "Emergency"),
+    ]
+    priority = models.CharField(max_length=20, blank=True, db_index=True)
+    status = models.CharField(max_length=100, blank=True, db_index=True)
+
+    # Parties — stored as text since PM vendors != RentVine vendors
+    assigned_vendor_name = models.CharField(max_length=255, blank=True)
+    coordinator_name = models.CharField(max_length=255, blank=True)
+
+    # Property/unit references (text — no FK to avoid sync dependency)
+    property_address = models.CharField(max_length=500, blank=True)
+    property_meld_property_id = models.CharField(max_length=255, blank=True)
+    unit_ref = models.CharField(max_length=255, blank=True)
+
+    resident_presence_required = models.BooleanField(default=False)
+    scheduled_date = models.DateField(null=True, blank=True, db_index=True)
+    completed_date = models.DateField(null=True, blank=True, db_index=True)
+
+    OWNER_APPROVAL_CHOICES = [
+        ("Not Requested", "Not Requested"),
+        ("Requested", "Requested"),
+        ("Approved", "Approved"),
+        ("Not Approved", "Not Approved"),
+    ]
+    owner_approval_status = models.CharField(
+        max_length=30,
+        choices=OWNER_APPROVAL_CHOICES,
+        default="Not Requested",
+        db_index=True,
+    )
+
+    has_invoice = models.BooleanField(default=False)
+    tags = models.JSONField(default=list, blank=True)
+
+    raw_data = models.JSONField(default=dict, blank=True)
+    source_created_at = models.DateTimeField(null=True, blank=True)
+    source_modified_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "priority"]),
+            models.Index(fields=["owner_approval_status", "source_modified_at"]),
+            models.Index(fields=["scheduled_date", "status"]),
+            models.Index(fields=["completed_date", "has_invoice"]),
+        ]
+
+    def __str__(self):
+        return f"Meld {self.property_meld_id} — {self.brief_description[:60]}"
