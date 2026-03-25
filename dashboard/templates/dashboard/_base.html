@@ -18,6 +18,7 @@
     <a href="{% url 'dashboard:renewal_pipeline' %}" class="nav-link {% block nav_renewals %}{% endblock %}">Renewal Pipeline</a>
     <a href="{% url 'dashboard:owner_reports' %}" class="nav-link {% block nav_owners %}{% endblock %}">Owner Updates</a>
     <a href="{% url 'dashboard:leasing_pipeline' %}" class="nav-link {% block nav_leasing %}{% endblock %}">Application Pipeline</a>
+    <a href="{% url 'dashboard:maintenance_emails' %}" class="nav-link {% block nav_maintenance_emails %}{% endblock %}">Maintenance Emails</a>
     <div class="sidebar-user">
       <span class="sidebar-username">{{ user.get_full_name|default:user.username }}</span>
       <a href="{% url 'logout' %}" class="nav-link sidebar-logout">Logout</a>

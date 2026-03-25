@@ -8,7 +8,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from ninja import Router, Schema
 
-from .models import OwnerReportNote, PropertyWeeklyNote, UnitNote
+from .models import MeldWeeklyDraft, OwnerReportNote, PropertyWeeklyNote, UnitNote
 
 router = Router(tags=["Dashboard"])
 logger = logging.getLogger(__name__)
@@ -482,3 +482,308 @@ def delete_unit_note(request, note_id: int):
     note = get_object_or_404(UnitNote, pk=note_id)
     note.delete()
     return {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# Meld Weekly Drafts
+# ---------------------------------------------------------------------------
+
+
+def _current_tuesday() -> date:
+    """Return the most recent Tuesday (today if today is Tuesday)."""
+    today = date.today()
+    days_since_tuesday = (today.weekday() - 1) % 7  # Mon=0,Tue=1,...
+    return today - timedelta(days=days_since_tuesday)
+
+
+def _meld_draft_to_dict(draft):
+    return {
+        "id": draft.id,
+        "owner_id": draft.owner_id,
+        "owner_name": draft.owner.name,
+        "owner_email": draft.owner.email or "",
+        "week_start": draft.week_start.isoformat(),
+        "email_subject": draft.email_subject,
+        "email_body": draft.email_body,
+        "status": draft.status,
+        "sent_at": draft.sent_at.isoformat() if draft.sent_at else None,
+        "meld_count": draft.meld_count,
+        "properties_included": draft.properties_included,
+        "updated_at": draft.updated_at.isoformat(),
+    }
+
+
+def _address_to_owner(property_address: str):
+    """Fuzzy-match Meld.property_address (free text) → Property → Owner."""
+    from properties.models import Property
+
+    street = property_address.split(",")[0].strip()
+    if not street:
+        return None, []
+
+    props = Property.objects.filter(
+        address_line_1__iexact=street
+    ).select_related("portfolio").prefetch_related("portfolio__owners")
+    if not props.exists():
+        props = Property.objects.filter(
+            address_line_1__icontains=street
+        ).select_related("portfolio").prefetch_related("portfolio__owners")
+
+    for prop in props:
+        if prop.portfolio:
+            owners = list(
+                prop.portfolio.owners.filter(is_active=True).exclude(email="")
+            )
+            if owners:
+                return prop, owners
+    return None, []
+
+
+COMPLETED_STATUSES = {"COMPLETED"}
+OPEN_STATUSES = {
+    "PENDING_ASSIGNMENT",
+    "PENDING_VENDOR",
+    "PENDING_COMPLETION",
+    "PENDING_ESTIMATES",
+    "PENDING_MORE_MANAGEMENT_AVAILABILITY",
+    "PENDING_MORE_VENDOR_AVAILABILITY",
+}
+APPROVAL_STATUSES = {"PENDING_ESTIMATES"}
+
+MELD_SYSTEM_PROMPT = """You are drafting a weekly maintenance update email from Vesta Property Management to a property owner.
+
+Tone: Warm, direct, and professional. Short sentences. No corporate language. Sound like a trusted property manager giving a quick update, not a ticket system generating a report.
+
+Rules:
+- If a section is empty, skip it entirely — do not mention it
+- Do not use bullet points — write in short natural paragraphs
+- Do not include dollar amounts or invoices
+- If something is in progress, give a one-line status and expected next step
+- If something needs owner approval, make that the last paragraph and be clear about what you need from them
+- Sign off as: The Vesta Team
+- Keep the whole email under 150 words"""
+
+
+def _format_meld_for_prompt(m: dict) -> str:
+    desc = m.get("brief_description", "") or ""
+    cat = m.get("work_category", "") or ""
+    parts = [desc.strip()]
+    if cat:
+        parts.append(f"({cat})")
+    return " ".join(p for p in parts if p)
+
+
+def _generate_ai_draft(owner_name: str, addresses: list, completed: list, in_progress: list, needs_approval: list) -> tuple:
+    """Call Anthropic API and return (subject, body)."""
+    import anthropic
+    from django.conf import settings
+
+    first_name = owner_name.split()[0] if owner_name else "there"
+    addr_list = ", ".join(addresses) if addresses else "your properties"
+
+    if len(addresses) == 1:
+        subject = f"Weekly Property Update — {addresses[0]}"
+    else:
+        subject = "Weekly Property Update — Your Properties"
+
+    lines = [f"Hi {first_name},\n\nHere's your weekly maintenance update for {addr_list}.\n"]
+
+    if completed:
+        lines.append("Completed this week:\n" + "\n".join(f"- {_format_meld_for_prompt(m)}" for m in completed))
+    if in_progress:
+        lines.append("In progress:\n" + "\n".join(f"- {_format_meld_for_prompt(m)}" for m in in_progress))
+    if needs_approval:
+        lines.append("Needs your attention:\n" + "\n".join(f"- {_format_meld_for_prompt(m)}" for m in needs_approval))
+
+    user_content = "\n\n".join(lines)
+
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            system=MELD_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        body = message.content[0].text.strip()
+    except Exception:
+        logger.exception("Failed to generate AI meld draft for %s", owner_name)
+        # Fallback: plain text summary
+        body = user_content
+
+    return subject, body
+
+
+class MeldDraftUpdateSchema(Schema):
+    email_body: Optional[str] = None
+    email_subject: Optional[str] = None
+
+
+class MeldGenerateSchema(Schema):
+    week_start: Optional[date] = None
+
+
+@router.get("/meld-drafts")
+def list_meld_drafts(request, week_start: Optional[date] = None):
+    if week_start is None:
+        week_start = _current_tuesday()
+    drafts = MeldWeeklyDraft.objects.filter(
+        week_start=week_start
+    ).select_related("owner")
+    return [_meld_draft_to_dict(d) for d in drafts]
+
+
+@router.post("/meld-drafts/generate")
+def generate_meld_drafts(request, data: MeldGenerateSchema):
+    """Fetch all melds from PM API, group by owner, generate AI drafts."""
+    from integrations.property_meld.client import PropertyMeldClient
+
+    week_start = data.week_start or _current_tuesday()
+    week_end = week_start + timedelta(days=7)
+
+    # Fetch all melds fresh from PM API
+    try:
+        client = PropertyMeldClient()
+        all_melds = client.get_all("/meld/")
+    except Exception:
+        logger.exception("Failed to fetch melds from Property Meld API")
+        return {"error": "Failed to fetch melds from Property Meld API", "drafts": []}
+
+    # Filter to the week window
+    from datetime import datetime
+
+    def _parse_date(val):
+        if not val:
+            return None
+        if isinstance(val, date):
+            return val
+        try:
+            return datetime.fromisoformat(str(val).replace("Z", "+00:00")).date()
+        except (ValueError, TypeError):
+            return None
+
+    week_melds = []
+    for m in all_melds:
+        mod_date = _parse_date(m.get("updated"))
+        comp_date = _parse_date(m.get("completed_date"))
+        if (mod_date and week_start <= mod_date < week_end) or \
+           (comp_date and week_start <= comp_date < week_end):
+            week_melds.append(m)
+
+    # Group melds by property_address → owner
+    owner_data = {}  # owner_id → {"owner": Owner, "addresses": set, "melds": []}
+    for m in week_melds:
+        addr = (m.get("prop_address") or {}).get("full_address") or ""
+        if not addr:
+            continue
+        _prop, owners = _address_to_owner(addr)
+        if not owners:
+            continue
+        # Use the first active owner with email
+        owner = owners[0]
+        oid = owner.id
+        if oid not in owner_data:
+            owner_data[oid] = {"owner": owner, "addresses": set(), "melds": []}
+        owner_data[oid]["addresses"].add(addr.split(",")[0].strip())
+        owner_data[oid]["melds"].append(m)
+
+    results = []
+    for oid, info in owner_data.items():
+        owner = info["owner"]
+        melds = info["melds"]
+        addresses = sorted(info["addresses"])
+
+        completed = [m for m in melds if m.get("status") in COMPLETED_STATUSES]
+        needs_approval = [m for m in melds if m.get("status") in APPROVAL_STATUSES]
+        in_progress = [m for m in melds if m.get("status") in OPEN_STATUSES and m.get("status") not in APPROVAL_STATUSES]
+
+        subject, body = _generate_ai_draft(owner.name, addresses, completed, in_progress, needs_approval)
+
+        draft, created = MeldWeeklyDraft.objects.select_related("owner").get_or_create(
+            owner=owner,
+            week_start=week_start,
+            defaults={
+                "email_subject": subject,
+                "email_body": body,
+                "meld_count": len(melds),
+                "properties_included": addresses,
+            },
+        )
+        if not created and draft.status != "sent":
+            draft.email_subject = subject
+            draft.email_body = body
+            draft.meld_count = len(melds)
+            draft.properties_included = addresses
+            draft.save(update_fields=["email_subject", "email_body", "meld_count", "properties_included", "updated_at"])
+
+        results.append(_meld_draft_to_dict(draft))
+
+    return {"drafts": results, "week_start": week_start.isoformat(), "melds_matched": len(week_melds)}
+
+
+@router.put("/meld-drafts/{draft_id}")
+def update_meld_draft(request, draft_id: int, data: MeldDraftUpdateSchema):
+    draft = get_object_or_404(MeldWeeklyDraft.objects.select_related("owner"), pk=draft_id)
+    if data.email_body is not None:
+        draft.email_body = data.email_body
+    if data.email_subject is not None:
+        draft.email_subject = data.email_subject
+    draft.save()
+    return _meld_draft_to_dict(draft)
+
+
+@router.post("/meld-drafts/{draft_id}/send")
+def send_meld_draft(request, draft_id: int):
+    """Send maintenance update email via SendGrid."""
+    from django.core.mail import EmailMessage
+
+    draft = get_object_or_404(MeldWeeklyDraft.objects.select_related("owner"), pk=draft_id)
+
+    if draft.status == "sent":
+        return _meld_draft_to_dict(draft)
+
+    owner = draft.owner
+    recipient = owner.email
+    if not recipient:
+        return {"error": "Owner has no email address"}
+
+    from django.template.loader import render_to_string
+    html_body = render_to_string("emails/maintenance_update.html", {
+        "owner_name": owner.name.split()[0] if owner.name else "Owner",
+        "email_body": draft.email_body,
+        "week_start": draft.week_start,
+        "logo_url": settings.VESTA_LOGO_URL,
+    })
+
+    subject = draft.email_subject or f"Weekly Property Update — {draft.week_start.strftime('%b %d, %Y')}"
+
+    try:
+        email = EmailMessage(
+            subject=subject,
+            body=html_body,
+            to=[recipient],
+            bcc=["rodrigo@vestapm.com"],
+        )
+        email.content_subtype = "html"
+
+        if hasattr(settings, "ANYMAIL"):
+            email.esp_extra = {
+                "tracking_settings": {"open_tracking": {"enable": True}},
+            }
+
+        email.send()
+        logger.info("Maintenance email sent to %s (%s)", owner.name, recipient)
+
+        msg_id = ""
+        if hasattr(email, "anymail_status"):
+            msg_id = getattr(email.anymail_status, "message_id", "") or ""
+
+    except Exception:
+        logger.exception("Failed to send maintenance email to %s", recipient)
+        return {"error": "Email delivery failed"}
+
+    draft.status = "sent"
+    draft.sent_at = timezone.now()
+    draft.sendgrid_message_id = msg_id
+    draft.save(update_fields=["status", "sent_at", "sendgrid_message_id"])
+    return _meld_draft_to_dict(draft)

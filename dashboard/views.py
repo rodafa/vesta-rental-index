@@ -47,6 +47,11 @@ def leasing_pipeline(request):
     return render(request, "dashboard/leasing_pipeline.html")
 
 
+@login_required
+def maintenance_emails(request):
+    return render(request, "dashboard/maintenance_emails.html")
+
+
 class PasswordChangeCompleteView(View):
     """Clear the must_change_password flag and redirect to dashboard."""
 

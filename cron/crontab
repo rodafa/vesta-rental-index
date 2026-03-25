@@ -5,4 +5,7 @@
 # Monday night: full pipeline + weekly owner reports for Tuesday review
 0 22 * * 1 /app/cron/run_command.sh run_pipeline --include-reports
 
+# Daily maintenance pulse to Slack (7am EST = 12:00 UTC)
+0 12 * * * /app/cron/run_command.sh property_meld_daily_summary
+
 # trailing newline required for cron

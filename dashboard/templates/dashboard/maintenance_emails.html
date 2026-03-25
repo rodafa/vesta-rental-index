@@ -1,0 +1,75 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_maintenance_emails %}active{% endblock %}
+{% block title %}Maintenance Emails{% endblock %}
+
+{% block content %}
+<style>
+  .me-layout { display: flex; gap: 0; height: calc(100vh - 120px); min-height: 400px; }
+
+  /* ── Left panel ── */
+  .me-left { width: 280px; min-width: 240px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }
+  .me-left-header { padding: .75rem 1rem; border-bottom: 1px solid #e5e7eb; background: #f9f9fb; }
+  .me-owner-list { flex: 1; overflow-y: auto; }
+  .me-owner-row { padding: .65rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+  .me-owner-row:hover { background: #f5f7fa; }
+  .me-owner-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; }
+  .me-owner-name { font-size: .875rem; font-weight: 600; color: #1f2937; }
+  .me-owner-meta { font-size: .75rem; color: #6b7280; margin-top: 2px; }
+
+  /* ── Right panel ── */
+  .me-right { flex: 1; display: flex; flex-direction: column; padding: 1.25rem 1.5rem; overflow-y: auto; }
+  .me-right-empty { color: #9ca3af; font-size: .9rem; margin: auto; text-align: center; }
+
+  .me-subject-row { margin-bottom: .75rem; }
+  .me-subject-input { width: 100%; box-sizing: border-box; font-size: .9rem; padding: .4rem .6rem; border: 1px solid #d1d5db; border-radius: 4px; }
+  .me-subject-input:focus { outline: none; border-color: #3b82f6; }
+
+  .me-body-label { font-size: .8rem; font-weight: 600; color: #555; margin-bottom: .3rem; display: block; }
+  .me-body-textarea { width: 100%; box-sizing: border-box; font-size: .875rem; padding: .5rem .6rem; border: 1px solid #d1d5db; border-radius: 4px; resize: vertical; min-height: 220px; line-height: 1.55; }
+  .me-body-textarea:focus { outline: none; border-color: #3b82f6; }
+  .me-body-textarea[readonly] { background: #f9fafb; color: #6b7280; }
+
+  .me-actions { margin-top: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .me-save-status { font-size: .78rem; color: #16a34a; }
+
+  /* Status badges */
+  .me-badge { font-size: .7rem; font-weight: 700; padding: 2px 7px; border-radius: 10px; letter-spacing: .04em; }
+  .me-badge-draft { background: #e5e7eb; color: #555; }
+  .me-badge-sent  { background: #d1fae5; color: #065f46; }
+
+  /* Top bar */
+  .me-topbar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .me-week-label { font-size: .875rem; color: #6b7280; }
+  .me-spinner { display: none; font-size: .8rem; color: #6b7280; }
+  .me-spinner.visible { display: inline; }
+</style>
+
+<h1 class="page-title">Maintenance Emails</h1>
+
+<div class="me-topbar">
+  <button class="btn btn-primary" id="me-generate-btn">Generate Drafts</button>
+  <span class="me-week-label" id="me-week-label">Week: loading...</span>
+  <span class="me-spinner" id="me-spinner">Generating AI drafts — this may take 15–20s...</span>
+</div>
+
+<div class="me-layout">
+  <!-- Left: owner list -->
+  <div class="me-left">
+    <div class="me-left-header" style="font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">Owners</div>
+    <div class="me-owner-list" id="me-owner-list">
+      <div style="padding:1rem;color:#9ca3af;font-size:.85rem;">No drafts yet — click Generate.</div>
+    </div>
+  </div>
+
+  <!-- Right: draft editor -->
+  <div class="me-right" id="me-right-panel">
+    <div class="me-right-empty">Select an owner to view or edit their draft.</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/maintenance_emails.js' %}?v=1"></script>
+{% endblock %}
