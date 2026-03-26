@@ -67,6 +67,7 @@ def _safe_datetime(value):
     try:
         for fmt in (
             "%Y-%m-%dT%H:%M:%S.%fZ",
+            "%Y-%m-%dT%H:%M:%S.%f",  # Z stripped by [:26] slice
             "%Y-%m-%dT%H:%M:%SZ",
             "%Y-%m-%dT%H:%M:%S",
             "%Y-%m-%d %H:%M:%S",
