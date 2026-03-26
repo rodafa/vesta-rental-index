@@ -14,6 +14,7 @@ PIPELINE = [
     ("BoomPay sync", "sync_boompay_all", [], {}),
     ("Market aggregation", "aggregate_market_data", [], {"all": True}),
     ("Owner-portfolio links", "link_owner_portfolios", [], {}),
+    ("Property Meld sync", "sync_property_meld_melds", [], {}),
 ]
 
 
