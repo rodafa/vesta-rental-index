@@ -5,6 +5,10 @@
 # Monday night: full pipeline + weekly owner reports for Tuesday review
 0 22 * * 1 /app/cron/run_command.sh run_pipeline --include-reports
 
+# Property Meld sync — 6:30am prep run, then every 2h 7am–5pm (America/New_York)
+30 6 * * * /app/cron/run_command.sh sync_property_meld_melds
+0 7,9,11,13,15,17 * * * /app/cron/run_command.sh sync_property_meld_melds
+
 # Daily maintenance pulse to Slack (7am America/New_York — TZ set on scheduler container)
 0 7 * * * /app/cron/run_command.sh property_meld_daily_summary
 
