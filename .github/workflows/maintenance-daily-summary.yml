@@ -1,0 +1,31 @@
+name: Daily Maintenance Summary
+
+on:
+  schedule:
+    # 11:00 UTC = 7:00 AM EDT (Mar–Nov) / 6:00 AM EST (Nov–Mar)
+    - cron: "0 11 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  trigger-summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger maintenance daily summary
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "X-API-Key: ${{ secrets.VESTA_API_KEY }}" \
+            https://dashboard.vestapm.com/api/maintenance/daily-summary/trigger)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+
+          echo "HTTP $HTTP_CODE: $BODY"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Daily summary triggered successfully"
+            exit 0
+          fi
+
+          echo "Failed to trigger daily summary"
+          exit 1

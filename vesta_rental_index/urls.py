@@ -16,6 +16,7 @@ from ninja import NinjaAPI
 from ninja.security import APIKeyCookie, APIKeyHeader
 
 from analytics.api import router as analytics_router
+from maintenance.api import router as maintenance_router
 from dashboard.api import router as dashboard_api_router
 from dashboard.views import PasswordChangeCompleteView, owner_dashboard
 from integrations.api import router as webhooks_router
@@ -83,6 +84,7 @@ api.add_router("/webhooks/", webhooks_router)
 api.add_router("/screening/", screening_router)
 api.add_router("/pipeline/", pipeline_router)
 api.add_router("/listing-alerts/", listing_alerts_router)
+api.add_router("/maintenance/", maintenance_router)
 api.add_router("/onboard/", onboarding_router)
 
 urlpatterns = [
