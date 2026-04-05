@@ -135,9 +135,15 @@ def portfolio_summary(
         "active_leases": lease_counts["active"],
         "pending_leases": lease_counts["pending"],
         "closed_leases": lease_counts["closed"],
-        "total_prospects": Prospect.objects.count(),
-        "total_showings": Showing.objects.count(),
-        "total_applications": Application.objects.count(),
+        **DailyLeasingSummary.objects.values("unit_id").annotate(
+            l=Max("leads_count"),
+            s=Max("showings_completed_count"),
+            a=Max("applications_count"),
+        ).aggregate(
+            total_prospects=Coalesce(Sum("l"), 0),
+            total_showings=Coalesce(Sum("s"), 0),
+            total_applications=Coalesce(Sum("a"), 0),
+        ),
     }
 
 
@@ -522,13 +528,14 @@ def rent_analysis(
 
 
 @router.get("/property-performance", response=list[PropertyPerformanceSchema])
-@paginate(LimitOffsetPagination)
 def property_performance(
     request,
     portfolio_id: Optional[int] = None,
     city: Optional[str] = None,
     state: Optional[str] = None,
     is_active: Optional[bool] = None,
+    limit: int = 100,
+    offset: int = 0,
 ):
     qs = Property.objects.select_related("portfolio").annotate(
         unit_count_ann=Count("units", distinct=True),
@@ -550,9 +557,6 @@ def property_performance(
             filter=Q(leases__primary_lease_status=2),
             distinct=True,
         ),
-        prospect_count_ann=Count("units__prospects", distinct=True),
-        showing_count_ann=Count("units__showings", distinct=True),
-        application_count_ann=Count("units__applications", distinct=True),
     )
 
     if portfolio_id:
@@ -564,7 +568,34 @@ def property_performance(
     if is_active is not None:
         qs = qs.filter(is_active=is_active)
 
-    return qs
+    props = list(qs[offset : offset + limit])
+    if not props:
+        return []
+
+    property_ids = [p.id for p in props]
+
+    # Batch DLS per unit → group by property (sum of per-unit max cumulative values)
+    prop_leads = defaultdict(int)
+    prop_showings = defaultdict(int)
+    prop_apps = defaultdict(int)
+    for row in DailyLeasingSummary.objects.filter(
+        unit__property_id__in=property_ids
+    ).values("unit_id", "unit__property_id").annotate(
+        l=Max("leads_count"),
+        s=Max("showings_completed_count"),
+        a=Max("applications_count"),
+    ):
+        pid = row["unit__property_id"]
+        prop_leads[pid] += row["l"] or 0
+        prop_showings[pid] += row["s"] or 0
+        prop_apps[pid] += row["a"] or 0
+
+    for prop in props:
+        prop.prospect_count_ann = prop_leads.get(prop.id, 0)
+        prop.showing_count_ann = prop_showings.get(prop.id, 0)
+        prop.application_count_ann = prop_apps.get(prop.id, 0)
+
+    return props
 
 
 # ---------------------------------------------------------------------------
@@ -1365,123 +1396,75 @@ def owner_report_detail(
     unit_ids = [u.id for u in listed_units]
 
     # ── Batch queries ────────────────────────────────────────────────────
-    # Leads: count Prospect records using source_created_at (accurate dates).
-    # Showings/Apps: prefer WeeklyLeasingSummary (incremental, from imports
-    #   or corrected aggregator). Fall back to DailyLeasingSummary cumulative
-    #   delta for units without weekly data.
-
-    def _count_leads(unit_ids, date_gte=None, date_lte=None):
-        """Count Prospect records per unit using source_created_at."""
-        qs = Prospect.objects.filter(unit_of_interest_id__in=unit_ids)
-        if date_gte:
-            qs = qs.filter(source_created_at__date__gte=date_gte)
-        if date_lte:
-            qs = qs.filter(source_created_at__date__lte=date_lte)
-        return dict(
-            qs.values_list("unit_of_interest_id")
-            .annotate(n=Count("id"))
-            .values_list("unit_of_interest_id", "n")
-        )
-
-    def _weekly_leasing(unit_ids, date_gte, date_lte):
-        """Get incremental showings/apps from WeeklyLeasingSummary for the period."""
-        qs = WeeklyLeasingSummary.objects.filter(
-            unit_id__in=unit_ids,
-            week_ending__gte=date_gte,
-            week_ending__lte=date_lte,
-        )
-        result = {}
-        for row in qs.values("unit_id").annotate(
-            showings=Coalesce(Sum("showings_completed_count"), 0),
-            missed=Coalesce(Sum("showings_missed_count"), 0),
-            apps=Coalesce(Sum("applications_count"), 0),
-        ):
-            result[row["unit_id"]] = row
-        return result
+    # All leasing counts come from DailyLeasingSummary (cumulative delta).
 
     def _dls_delta(unit_ids, date_gte, date_lte):
-        """Fallback: DailyLeasingSummary cumulative delta for a period."""
+        """DailyLeasingSummary cumulative delta for a period, per unit."""
         cur_qs = DailyLeasingSummary.objects.filter(
             unit_id__in=unit_ids, summary_date__gte=date_gte, summary_date__lte=date_lte,
         )
         current = {}
         for row in cur_qs.values("unit_id").annotate(
+            leads=Coalesce(Max("leads_count"), 0),
             showings=Coalesce(Max("showings_completed_count"), 0),
             missed=Coalesce(Max("showings_missed_count"), 0),
             apps=Coalesce(Max("applications_count"), 0),
         ):
             current[row["unit_id"]] = row
 
-        prv_qs = DailyLeasingSummary.objects.filter(
-            unit_id__in=unit_ids, summary_date__lt=date_gte,
-        )
         prior = {}
-        for row in prv_qs.values("unit_id").annotate(
+        for row in DailyLeasingSummary.objects.filter(
+            unit_id__in=unit_ids, summary_date__lt=date_gte,
+        ).values("unit_id").annotate(
+            leads=Coalesce(Max("leads_count"), 0),
             showings=Coalesce(Max("showings_completed_count"), 0),
             missed=Coalesce(Max("showings_missed_count"), 0),
             apps=Coalesce(Max("applications_count"), 0),
         ):
             prior[row["unit_id"]] = row
 
+        # For units with no prior data, use min-in-window as baseline
+        min_in_window = {}
+        for row in cur_qs.values("unit_id").annotate(
+            leads=Coalesce(Min("leads_count"), 0),
+            showings=Coalesce(Min("showings_completed_count"), 0),
+            missed=Coalesce(Min("showings_missed_count"), 0),
+            apps=Coalesce(Min("applications_count"), 0),
+        ):
+            min_in_window[row["unit_id"]] = row
+
         result = {}
         for uid, cur in current.items():
-            prv = prior.get(uid, {})
+            prv = prior.get(uid) or min_in_window.get(uid, {})
             result[uid] = {
                 "unit_id": uid,
+                "leads": max(cur["leads"] - prv.get("leads", 0), 0),
                 "showings": max(cur["showings"] - prv.get("showings", 0), 0),
                 "missed": max(cur["missed"] - prv.get("missed", 0), 0),
                 "apps": max(cur["apps"] - prv.get("apps", 0), 0),
             }
         return result
 
-    def _leasing_for_period(unit_ids, date_gte, date_lte):
-        """Get showings/apps per unit: WeeklyLeasingSummary first, DLS delta fallback."""
-        wls = _weekly_leasing(unit_ids, date_gte, date_lte)
-        # Units not covered by weekly data
-        uncovered = [uid for uid in unit_ids if uid not in wls]
-        dls = _dls_delta(uncovered, date_gte, date_lte) if uncovered else {}
-        merged = {}
-        merged.update(wls)
-        merged.update(dls)
-        return merged
-
-    def _alltime_leasing(unit_ids):
-        """All-time showings/apps: sum all WeeklyLeasingSummary + DLS fallback."""
-        wls = {}
-        for row in WeeklyLeasingSummary.objects.filter(unit_id__in=unit_ids).values("unit_id").annotate(
-            showings=Coalesce(Sum("showings_completed_count"), 0),
-            missed=Coalesce(Sum("showings_missed_count"), 0),
-            apps=Coalesce(Sum("applications_count"), 0),
+    def _dls_alltime(unit_ids):
+        """All-time leasing counts: sum of per-unit max cumulative values."""
+        result = {}
+        for row in DailyLeasingSummary.objects.filter(unit_id__in=unit_ids).values("unit_id").annotate(
+            leads=Coalesce(Max("leads_count"), 0),
+            showings=Coalesce(Max("showings_completed_count"), 0),
+            missed=Coalesce(Max("showings_missed_count"), 0),
+            apps=Coalesce(Max("applications_count"), 0),
         ):
-            wls[row["unit_id"]] = row
+            result[row["unit_id"]] = row
+        return result
 
-        # Fallback for units without weekly data
-        uncovered = [uid for uid in unit_ids if uid not in wls]
-        dls = {}
-        if uncovered:
-            for row in DailyLeasingSummary.objects.filter(unit_id__in=uncovered).values("unit_id").annotate(
-                showings=Coalesce(Max("showings_completed_count"), 0),
-                missed=Coalesce(Max("showings_missed_count"), 0),
-                apps=Coalesce(Max("applications_count"), 0),
-            ):
-                dls[row["unit_id"]] = row
-
-        merged = {}
-        merged.update(wls)
-        merged.update(dls)
-        return merged
-
-    # This week — leads from Prospect, showings/apps from WeeklyLeasingSummary/DLS
-    wk_leads = _count_leads(unit_ids, week_start, week_end)
-    wk_leasing = _leasing_for_period(unit_ids, week_start, week_end)
+    # This week — all counts from DLS delta
+    wk_leasing = _dls_delta(unit_ids, week_start, week_end)
 
     # Previous week
-    pv_leads = _count_leads(unit_ids, prev_start, prev_end)
-    pv_leasing = _leasing_for_period(unit_ids, prev_start, prev_end)
+    pv_leasing = _dls_delta(unit_ids, prev_start, prev_end)
 
     # All-time
-    at_leads = _count_leads(unit_ids)
-    at_leasing = _alltime_leasing(unit_ids)
+    at_leasing = _dls_alltime(unit_ids)
 
     # Build maps
     weekly_map = {}
@@ -1493,19 +1476,19 @@ def owner_report_detail(
         at_l = at_leasing.get(uid, {})
 
         weekly_map[uid] = {
-            "leads": wk_leads.get(uid, 0),
+            "leads": wk_l.get("leads", 0),
             "showings": wk_l.get("showings", 0),
             "missed": wk_l.get("missed", 0),
             "apps": wk_l.get("apps", 0),
         }
         prev_map[uid] = {
-            "leads": pv_leads.get(uid, 0),
+            "leads": pv_l.get("leads", 0),
             "showings": pv_l.get("showings", 0),
             "missed": pv_l.get("missed", 0),
             "apps": pv_l.get("apps", 0),
         }
         alltime_map[uid] = {
-            "leads": at_leads.get(uid, 0),
+            "leads": at_l.get("leads", 0),
             "showings": at_l.get("showings", 0),
             "missed": at_l.get("missed", 0),
             "apps": at_l.get("apps", 0),
