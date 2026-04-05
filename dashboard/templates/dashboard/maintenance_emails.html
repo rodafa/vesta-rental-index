@@ -3,10 +3,11 @@
 
 {% block nav_maintenance_emails %}active{% endblock %}
 {% block title %}Maintenance Emails{% endblock %}
+{% block topbar_title %}Maintenance Emails{% endblock %}
 
 {% block content %}
 <style>
-  .me-layout { display: flex; gap: 0; height: calc(100vh - 120px); min-height: 400px; }
+  .me-layout { display: flex; gap: 0; height: calc(100vh - var(--topbar-height) - 72px); min-height: 400px; }
 
   /* ── Left panel ── */
   .me-left { width: 280px; min-width: 240px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }

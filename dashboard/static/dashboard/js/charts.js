@@ -3,16 +3,16 @@
  */
 const VestaCharts = (() => {
   // Shared defaults
-  Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  Chart.defaults.font.size = 12;
-  Chart.defaults.color = '#666';
+  Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = '#64748B';
   Chart.defaults.plugins.legend.position = 'bottom';
   Chart.defaults.plugins.legend.labels.boxWidth = 12;
   Chart.defaults.plugins.legend.labels.padding = 16;
 
   const COLORS = [
-    '#6EA5CD', '#e67e22', '#2ecc71', '#e74c3c', '#9b59b6',
-    '#1abc9c', '#f39c12', '#1E3D58', '#e91e63', '#00bcd4',
+    '#3B82F6', '#e67e22', '#2ecc71', '#e74c3c', '#9b59b6',
+    '#1abc9c', '#f39c12', '#0F172A', '#e91e63', '#00bcd4',
   ];
 
   function lineChart(canvasId, labels, datasets, yLabel) {

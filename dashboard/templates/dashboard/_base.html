@@ -5,31 +5,78 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Dashboard{% endblock %} — Vesta</title>
-  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{% static 'dashboard/css/dashboard.css' %}?v=9">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   {% block head_extra %}{% endblock %}
 </head>
 <body data-username="{{ user.get_full_name|default:user.username }}">
   <nav class="sidebar">
     <div class="sidebar-brand">Vesta</div>
-    <a href="{% url 'dashboard:daily_pulse' %}" class="nav-link {% block nav_pulse %}{% endblock %}">Daily Pulse</a>
-    <a href="{% url 'dashboard:portfolio_analytics' %}" class="nav-link {% block nav_portfolio %}{% endblock %}">Portfolio Analytics</a>
-    <a href="{% url 'dashboard:revenue_intelligence' %}" class="nav-link {% block nav_revenue %}{% endblock %}">Revenue Intelligence</a>
-    <a href="{% url 'dashboard:renewal_pipeline' %}" class="nav-link {% block nav_renewals %}{% endblock %}">Renewal Pipeline</a>
-    <a href="{% url 'dashboard:owner_reports' %}" class="nav-link {% block nav_owners %}{% endblock %}">Owner Updates</a>
-    <a href="{% url 'dashboard:leasing_pipeline' %}" class="nav-link {% block nav_leasing %}{% endblock %}">Application Pipeline</a>
-    <a href="{% url 'dashboard:maintenance_emails' %}" class="nav-link {% block nav_maintenance_emails %}{% endblock %}">Maintenance Emails</a>
+    <div class="sidebar-nav">
+      <a href="{% url 'dashboard:daily_pulse' %}" class="nav-link {% block nav_pulse %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Daily Pulse
+      </a>
+      <a href="{% url 'dashboard:portfolio_analytics' %}" class="nav-link {% block nav_portfolio %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Portfolio Analytics
+      </a>
+      <a href="{% url 'dashboard:revenue_intelligence' %}" class="nav-link {% block nav_revenue %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Revenue Intelligence
+      </a>
+      <a href="{% url 'dashboard:renewal_pipeline' %}" class="nav-link {% block nav_renewals %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Renewal Pipeline
+      </a>
+      <a href="{% url 'dashboard:owner_reports' %}" class="nav-link {% block nav_owners %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Owner Updates
+      </a>
+      <a href="{% url 'dashboard:leasing_pipeline' %}" class="nav-link {% block nav_leasing %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        Application Pipeline
+      </a>
+      <a href="{% url 'dashboard:maintenance_emails' %}" class="nav-link {% block nav_maintenance_emails %}{% endblock %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Maintenance Emails
+      </a>
+    </div>
     <div class="sidebar-user">
-      <span class="sidebar-username">{{ user.get_full_name|default:user.username }}</span>
-      <a href="{% url 'logout' %}" class="nav-link sidebar-logout">Logout</a>
+      <div class="sidebar-avatar" id="sidebar-avatar"></div>
+      <div class="sidebar-user-info">
+        <span class="sidebar-username">{{ user.get_full_name|default:user.username }}</span>
+        <a href="{% url 'logout' %}" class="nav-link sidebar-logout">Logout</a>
+      </div>
     </div>
   </nav>
+
+  <header class="topbar">
+    <div class="topbar-title">{% block topbar_title %}Dashboard{% endblock %}</div>
+    <div class="topbar-right">
+      <span class="topbar-date" id="topbar-date"></span>
+    </div>
+  </header>
 
   <main class="content">
     {% block content %}{% endblock %}
   </main>
 
-  <script src="{% static 'dashboard/js/api.js' %}?v=3"></script>
+  <script src="{% static 'dashboard/js/api.js' %}?v=4"></script>
   {% block scripts %}{% endblock %}
+  <script>
+  (function() {
+    var el = document.getElementById('topbar-date');
+    if (el) el.textContent = new Date().toLocaleDateString('en-US', {weekday:'short',month:'short',day:'numeric',year:'numeric'});
+    var av = document.getElementById('sidebar-avatar');
+    if (av) {
+      var name = document.body.getAttribute('data-username') || '?';
+      av.textContent = name.charAt(0);
+    }
+  })();
+  </script>
 </body>
 </html>
