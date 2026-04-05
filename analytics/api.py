@@ -181,11 +181,9 @@ def leasing_funnel(
         app_f &= Q(unit__property__portfolio_id=portfolio_id)
         lease_f &= Q(property__portfolio_id=portfolio_id)
 
-    total_prospects = Prospect.objects.filter(prospect_f).count()
-
-    # Showings/Applications: prefer WeeklyLeasingSummary (incremental, from
-    # Google Sheet imports or corrected aggregator). Fall back to
-    # DailyLeasingSummary cumulative delta for units without weekly data.
+    # Leads/Showings/Applications: prefer WeeklyLeasingSummary (incremental).
+    # Fall back to DailyLeasingSummary cumulative delta for units without weekly data.
+    # DailyLeasingSummary stores CUMULATIVE totals since listing start — use delta.
 
     # Build WeeklyLeasingSummary filter
     wls_f = Q()
@@ -201,13 +199,13 @@ def leasing_funnel(
         if date_to:
             wls_qs = wls_qs.filter(week_ending__lte=date_to)
 
-        # Sum incremental weekly counts
+        # Sum incremental weekly counts (WLS is already incremental, not cumulative)
         wls_agg = wls_qs.aggregate(
+            lead=Coalesce(Sum("leads_count"), 0),
             show=Coalesce(Sum("showings_completed_count"), 0),
             miss=Coalesce(Sum("showings_missed_count"), 0),
             app=Coalesce(Sum("applications_count"), 0),
         )
-        # Units covered by WeeklyLeasingSummary
         wls_unit_ids = set(wls_qs.values_list("unit_id", flat=True))
 
         # Fallback: DailyLeasingSummary delta for units NOT in WeeklyLeasingSummary
@@ -218,33 +216,55 @@ def leasing_funnel(
         current_qs = _dls_qs.filter(summary_date__gte=date_from)
         if date_to:
             current_qs = current_qs.filter(summary_date__lte=date_to)
+
+        # Max = latest cumulative value within the window
         current = {}
         for row in current_qs.values("unit_id").annotate(
-            show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
+            lead=Max("leads_count"),
+            show=Max("showings_completed_count"),
+            miss=Max("showings_missed_count"),
             app=Max("applications_count"),
         ):
             current[row["unit_id"]] = row
 
+        # Prior = latest cumulative value before the window
         prior = {}
         for row in _dls_qs.filter(summary_date__lt=date_from).values("unit_id").annotate(
-            show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
+            lead=Max("leads_count"),
+            show=Max("showings_completed_count"),
+            miss=Max("showings_missed_count"),
             app=Max("applications_count"),
         ):
             prior[row["unit_id"]] = row
 
-        dls_show = dls_miss = dls_app = 0
+        # For units with no prior record (pipeline started mid-window or listing
+        # started within window), use the min value within the window as baseline.
+        # This prevents historical cumulative totals from appearing as new activity.
+        min_in_window = {}
+        for row in current_qs.values("unit_id").annotate(
+            lead=Min("leads_count"),
+            show=Min("showings_completed_count"),
+            miss=Min("showings_missed_count"),
+            app=Min("applications_count"),
+        ):
+            min_in_window[row["unit_id"]] = row
+
+        dls_lead = dls_show = dls_miss = dls_app = 0
         for uid, cur in current.items():
-            prv = prior.get(uid, {})
+            prv = prior.get(uid) or min_in_window.get(uid, {})
+            dls_lead += max(cur["lead"] - prv.get("lead", 0), 0)
             dls_show += max(cur["show"] - prv.get("show", 0), 0)
             dls_miss += max(cur["miss"] - prv.get("miss", 0), 0)
             dls_app += max(cur["app"] - prv.get("app", 0), 0)
 
+        total_prospects = wls_agg["lead"] + dls_lead
         total_showings_completed = wls_agg["show"] + dls_show
         total_showings_missed = wls_agg["miss"] + dls_miss
         total_applications = wls_agg["app"] + dls_app
     else:
         # No date filter — sum all WeeklyLeasingSummary + DailyLeasingSummary fallback
         wls_agg = WeeklyLeasingSummary.objects.filter(wls_f).aggregate(
+            lead=Coalesce(Sum("leads_count"), 0),
             show=Coalesce(Sum("showings_completed_count"), 0),
             miss=Coalesce(Sum("showings_missed_count"), 0),
             app=Coalesce(Sum("applications_count"), 0),
@@ -259,13 +279,18 @@ def leasing_funnel(
 
         _agg = (
             _dls_qs.values("unit_id").annotate(
-                show=Max("showings_completed_count"), miss=Max("showings_missed_count"),
+                lead=Max("leads_count"),
+                show=Max("showings_completed_count"),
+                miss=Max("showings_missed_count"),
                 app=Max("applications_count"),
             ).aggregate(
-                total_show=Coalesce(Sum("show"), 0), total_miss=Coalesce(Sum("miss"), 0),
+                total_lead=Coalesce(Sum("lead"), 0),
+                total_show=Coalesce(Sum("show"), 0),
+                total_miss=Coalesce(Sum("miss"), 0),
                 total_app=Coalesce(Sum("app"), 0),
             )
         )
+        total_prospects = wls_agg["lead"] + _agg["total_lead"]
         total_showings_completed = wls_agg["show"] + _agg["total_show"]
         total_showings_missed = wls_agg["miss"] + _agg["total_miss"]
         total_applications = wls_agg["app"] + _agg["total_app"]
