@@ -33,11 +33,6 @@ def owner_reports(request):
 
 
 @login_required
-def revenue_intelligence(request):
-    return render(request, "dashboard/revenue_intelligence.html")
-
-
-@login_required
 def renewal_pipeline(request):
     return render(request, "dashboard/renewal_pipeline.html")
 
