@@ -653,20 +653,20 @@ def active_listings(request):
         snapshot_date=latest_date, status="active"
     ).select_related("unit", "unit__property", "unit__property__portfolio")
 
-    # Batch-fetch leasing aggregates:
-    # - Leads from Prospect records (have accurate source_created_at dates)
-    # - Showings/Apps from DailyLeasingSummary Max (cumulative snapshots from
-    #   RentEngine; no Showing/Application records exist from bulk sync)
+    # Batch-fetch leasing aggregates from DailyLeasingSummary.
+    # DLS is cumulative since listing start — Max() gives the latest total.
     active_unit_ids = [s.unit_id for s in snapshots]
 
-    leads_by_unit = dict(
-        Prospect.objects.filter(
-            unit_of_interest_id__in=active_unit_ids,
-        )
-        .values_list("unit_of_interest_id")
-        .annotate(n=Count("id"))
-        .values_list("unit_of_interest_id", "n")
-    )
+    summary_by_unit = {}
+    for row in DailyLeasingSummary.objects.filter(
+        unit_id__in=active_unit_ids
+    ).values("unit_id").annotate(
+        total_leads=Coalesce(Max("leads_count"), 0),
+        total_showings=Coalesce(Max("showings_completed_count"), 0),
+        total_missed=Coalesce(Max("showings_missed_count"), 0),
+        total_apps=Coalesce(Max("applications_count"), 0),
+    ):
+        summary_by_unit[row["unit_id"]] = row
 
     # Latest price drop per active unit
     last_drop_map = {}
@@ -677,29 +677,23 @@ def active_listings(request):
     ):
         last_drop_map[pd.unit_id] = pd
 
-    # Leads since last price drop (one query per unit with a drop)
+    # Leads since last price drop: delta between today's DLS leads_count
+    # and the DLS leads_count recorded just before the drop date.
     leads_since_drop_map = {}
     for uid, pd in last_drop_map.items():
-        leads_since_drop_map[uid] = Prospect.objects.filter(
-            unit_of_interest_id=uid,
-            source_created_at__date__gte=pd.detected_date,
-        ).count()
-
-    summary_by_unit = {}
-    for row in DailyLeasingSummary.objects.filter(
-        unit_id__in=active_unit_ids
-    ).values("unit_id").annotate(
-        total_showings=Coalesce(Max("showings_completed_count"), 0),
-        total_missed=Coalesce(Max("showings_missed_count"), 0),
-        total_apps=Coalesce(Max("applications_count"), 0),
-    ):
-        summary_by_unit[row["unit_id"]] = row
+        current_leads = summary_by_unit.get(uid, {}).get("total_leads", 0)
+        prior = (
+            DailyLeasingSummary.objects
+            .filter(unit_id=uid, summary_date__lt=pd.detected_date)
+            .aggregate(n=Coalesce(Max("leads_count"), 0))
+        )["n"]
+        leads_since_drop_map[uid] = max(current_leads - prior, 0)
 
     leasing_map = {}
     for uid in active_unit_ids:
         s = summary_by_unit.get(uid, {})
         leasing_map[uid] = {
-            "total_leads": leads_by_unit.get(uid, 0),
+            "total_leads": s.get("total_leads", 0),
             "total_showings": s.get("total_showings", 0),
             "total_missed": s.get("total_missed", 0),
             "total_apps": s.get("total_apps", 0),
