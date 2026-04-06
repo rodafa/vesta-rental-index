@@ -6,6 +6,7 @@ var _clusteringChart = null;
 var _leaseData = [];
 var _sortCol = null;
 var _sortDir = 1;
+var _selectedMonths = {}; // keyed by "YYYY-MM", value true when selected
 
 async function loadAll() {
   try {
@@ -13,6 +14,7 @@ async function loadAll() {
     renderStats(data);
     renderClusteringChart(data.clustering, data.total_active_leases);
     _leaseData = data.leases;
+    _buildMonthChips();
     _applyFilters();
   } catch (err) {
     console.error('Renewal Pipeline load error:', err);
@@ -130,6 +132,69 @@ function renderClusteringChart(clustering, totalActive) {
 }
 
 // ---------------------------------------------------------------------------
+// Month chips
+// ---------------------------------------------------------------------------
+
+function _buildMonthChips() {
+  var container = document.getElementById('month-chips');
+  if (!container) return;
+
+  // Collect unique months in order from the data
+  var seen = {};
+  var months = []; // [{key: "2026-06", label: "Jun 2026"}, ...]
+  for (var i = 0; i < _leaseData.length; i++) {
+    var end = _leaseData[i].lease_end; // "YYYY-MM-DD"
+    if (!end) continue;
+    var key = end.slice(0, 7); // "YYYY-MM"
+    if (!seen[key]) {
+      seen[key] = true;
+      var parts = key.split('-');
+      var y = parseInt(parts[0]);
+      var m = parseInt(parts[1]);
+      var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      months.push({ key: key, label: monthNames[m - 1] + ' ' + y });
+    }
+  }
+
+  // Preserve any existing selections that are still valid
+  var newSelected = {};
+  for (var k in _selectedMonths) {
+    if (_selectedMonths[k] && seen[k]) newSelected[k] = true;
+  }
+  _selectedMonths = newSelected;
+
+  container.innerHTML = months.map(function(mo) {
+    var active = _selectedMonths[mo.key] ? true : false;
+    return (
+      '<button onclick="_toggleMonth(\'' + mo.key + '\')" id="chip-' + mo.key + '" ' +
+      'style="padding:.25rem .6rem;border-radius:20px;font-size:.78rem;cursor:pointer;border:1px solid var(--border-color,#e2e8f0);' +
+      (active ? 'background:var(--blue-accent,#3b82f6);color:#fff;border-color:var(--blue-accent,#3b82f6);font-weight:600;' : 'background:var(--surface,#fff);color:var(--text-muted);') +
+      '">' + mo.label + '</button>'
+    );
+  }).join('');
+}
+
+function _toggleMonth(key) {
+  if (_selectedMonths[key]) {
+    delete _selectedMonths[key];
+  } else {
+    _selectedMonths[key] = true;
+  }
+
+  // Update chip appearance in-place
+  var chip = document.getElementById('chip-' + key);
+  if (chip) {
+    var active = _selectedMonths[key] ? true : false;
+    chip.style.background = active ? 'var(--blue-accent,#3b82f6)' : 'var(--surface,#fff)';
+    chip.style.color = active ? '#fff' : 'var(--text-muted)';
+    chip.style.borderColor = active ? 'var(--blue-accent,#3b82f6)' : 'var(--border-color,#e2e8f0)';
+    chip.style.fontWeight = active ? '600' : '';
+  }
+
+  _applyFilters();
+}
+
+// ---------------------------------------------------------------------------
 // Filtering
 // ---------------------------------------------------------------------------
 
@@ -147,7 +212,13 @@ function _getFilters() {
 
 function _applyFilters() {
   var f = _getFilters();
+  var hasMonthFilter = Object.keys(_selectedMonths).length > 0;
+
   var filtered = _leaseData.filter(function(item) {
+    if (hasMonthFilter) {
+      var key = (item.lease_end || '').slice(0, 7);
+      if (!_selectedMonths[key]) return false;
+    }
     if (f.city && item.city.toLowerCase().indexOf(f.city.toLowerCase()) === -1) return false;
     if (f.zip && (item.postal_code || '').indexOf(f.zip) === -1) return false;
     if (f.beds) {
@@ -187,6 +258,8 @@ function _clearFilters() {
     var el = document.getElementById(ids[i]);
     if (el) el.value = '';
   }
+  _selectedMonths = {};
+  _buildMonthChips();
   _applyFilters();
 }
 

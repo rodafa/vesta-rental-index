@@ -63,6 +63,10 @@
   <div style="margin-left:auto;align-self:flex-end">
     <span id="filter-count" style="font-size:.8rem;color:var(--text-muted)"></span>
   </div>
+  <div style="width:100%;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;padding-top:.5rem;border-top:1px solid var(--border-color,#e2e8f0);margin-top:.25rem">
+    <span style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap">Expiry Month</span>
+    <div id="month-chips" style="display:flex;flex-wrap:wrap;gap:.35rem"></div>
+  </div>
 </div>
 
 <table id="renewal-table">
@@ -91,5 +95,5 @@
 
 {% block scripts %}
 <script src="{% static 'dashboard/js/charts.js' %}?v=3"></script>
-<script src="{% static 'dashboard/js/renewal_pipeline.js' %}?v=3"></script>
+<script src="{% static 'dashboard/js/renewal_pipeline.js' %}?v=4"></script>
 {% endblock %}
