@@ -6,7 +6,9 @@ var _clusteringChart = null;
 var _leaseData = [];
 var _sortCol = null;
 var _sortDir = 1;
-var _selectedMonths = {}; // keyed by "YYYY-MM", value true when selected
+var _selectedMonths = {};
+var _currentPage = 1;
+var PAGE_SIZE = 25;
 
 async function loadAll() {
   try {
@@ -78,9 +80,7 @@ function renderClusteringChart(clustering, totalActive) {
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { display: false },
-      },
+      plugins: { legend: { display: false } },
       scales: {
         y: {
           beginAtZero: true,
@@ -90,8 +90,7 @@ function renderClusteringChart(clustering, totalActive) {
       onClick: function(event, elements) {
         if (!elements || elements.length === 0) return;
         var idx = elements[0].index;
-        var monthKey = clustering[idx].month;
-        window.location.href = '/dashboard/renewals/month/' + monthKey + '/';
+        window.location.href = '/dashboard/renewals/month/' + clustering[idx].month + '/';
       },
     },
     plugins: [{
@@ -139,24 +138,21 @@ function _buildMonthChips() {
   var container = document.getElementById('month-chips');
   if (!container) return;
 
-  // Collect unique months in order from the data
   var seen = {};
-  var months = []; // [{key: "2026-06", label: "Jun 2026"}, ...]
+  var months = [];
   for (var i = 0; i < _leaseData.length; i++) {
-    var end = _leaseData[i].lease_end; // "YYYY-MM-DD"
+    var end = _leaseData[i].lease_end;
     if (!end) continue;
-    var key = end.slice(0, 7); // "YYYY-MM"
+    var key = end.slice(0, 7);
     if (!seen[key]) {
       seen[key] = true;
       var parts = key.split('-');
-      var y = parseInt(parts[0]);
-      var m = parseInt(parts[1]);
+      var mo = parseInt(parts[1]);
       var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      months.push({ key: key, label: monthNames[m - 1] + ' ' + y });
+      months.push({ key: key, label: monthNames[mo - 1] + ' ' + parts[0] });
     }
   }
 
-  // Preserve any existing selections that are still valid
   var newSelected = {};
   for (var k in _selectedMonths) {
     if (_selectedMonths[k] && seen[k]) newSelected[k] = true;
@@ -164,7 +160,7 @@ function _buildMonthChips() {
   _selectedMonths = newSelected;
 
   container.innerHTML = months.map(function(mo) {
-    var active = _selectedMonths[mo.key] ? true : false;
+    var active = !!_selectedMonths[mo.key];
     return (
       '<button onclick="_toggleMonth(\'' + mo.key + '\')" id="chip-' + mo.key + '" ' +
       'style="padding:.25rem .6rem;border-radius:20px;font-size:.78rem;cursor:pointer;border:1px solid var(--border-color,#e2e8f0);' +
@@ -180,17 +176,15 @@ function _toggleMonth(key) {
   } else {
     _selectedMonths[key] = true;
   }
-
-  // Update chip appearance in-place
   var chip = document.getElementById('chip-' + key);
   if (chip) {
-    var active = _selectedMonths[key] ? true : false;
+    var active = !!_selectedMonths[key];
     chip.style.background = active ? 'var(--blue-accent,#3b82f6)' : 'var(--surface,#fff)';
     chip.style.color = active ? '#fff' : 'var(--text-muted)';
     chip.style.borderColor = active ? 'var(--blue-accent,#3b82f6)' : 'var(--border-color,#e2e8f0)';
     chip.style.fontWeight = active ? '600' : '';
   }
-
+  _currentPage = 1;
   _applyFilters();
 }
 
@@ -211,14 +205,16 @@ function _getFilters() {
 }
 
 function _applyFilters() {
+  _currentPage = 1;
+  _renderFiltered();
+}
+
+function _renderFiltered() {
   var f = _getFilters();
   var hasMonthFilter = Object.keys(_selectedMonths).length > 0;
 
   var filtered = _leaseData.filter(function(item) {
-    if (hasMonthFilter) {
-      var key = (item.lease_end || '').slice(0, 7);
-      if (!_selectedMonths[key]) return false;
-    }
+    if (hasMonthFilter && !_selectedMonths[(item.lease_end || '').slice(0, 7)]) return false;
     if (f.city && item.city.toLowerCase().indexOf(f.city.toLowerCase()) === -1) return false;
     if (f.zip && (item.postal_code || '').indexOf(f.zip) === -1) return false;
     if (f.beds) {
@@ -233,13 +229,8 @@ function _applyFilters() {
     return true;
   });
 
-  var countEl = document.getElementById('filter-count');
-  if (countEl) {
-    countEl.textContent = filtered.length + ' of ' + _leaseData.length + ' leases';
-  }
-
   if (_sortCol) {
-    filtered = filtered.sort(function(a, b) {
+    filtered = filtered.slice().sort(function(a, b) {
       var av = a[_sortCol], bv = b[_sortCol];
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -249,7 +240,20 @@ function _applyFilters() {
     });
   }
 
-  renderRenewalTable(filtered);
+  var total = filtered.length;
+  var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (_currentPage > totalPages) _currentPage = totalPages;
+
+  var start = (_currentPage - 1) * PAGE_SIZE;
+  var page = filtered.slice(start, start + PAGE_SIZE);
+
+  var countEl = document.getElementById('filter-count');
+  if (countEl) {
+    countEl.textContent = total + ' of ' + _leaseData.length + ' leases';
+  }
+
+  renderRenewalTable(page);
+  renderPagination('renewal-pagination', total, _currentPage, totalPages);
 }
 
 function _clearFilters() {
@@ -260,7 +264,8 @@ function _clearFilters() {
   }
   _selectedMonths = {};
   _buildMonthChips();
-  _applyFilters();
+  _currentPage = 1;
+  _renderFiltered();
 }
 
 // ---------------------------------------------------------------------------
@@ -274,7 +279,46 @@ function _sortLeases(col) {
     _sortCol = col;
     _sortDir = 1;
   }
-  _applyFilters();
+  _currentPage = 1;
+  _renderFiltered();
+}
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+function renderPagination(containerId, total, current, totalPages) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+
+  if (totalPages <= 1) {
+    el.innerHTML = '';
+    return;
+  }
+
+  var start = (current - 1) * PAGE_SIZE + 1;
+  var end = Math.min(current * PAGE_SIZE, total);
+
+  var btnStyle = 'padding:.3rem .65rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;background:var(--surface,#fff);cursor:pointer;font-size:.82rem;';
+  var disabledStyle = btnStyle + 'opacity:.4;cursor:default;';
+
+  el.innerHTML =
+    '<span>Showing ' + start + '–' + end + ' of ' + total + ' leases</span>' +
+    '<div style="display:flex;gap:.35rem;align-items:center">' +
+      '<button onclick="_goPage(1)" style="' + (current === 1 ? disabledStyle : btnStyle) + '" ' + (current === 1 ? 'disabled' : '') + '>&laquo;</button>' +
+      '<button onclick="_goPage(' + (current - 1) + ')" style="' + (current === 1 ? disabledStyle : btnStyle) + '" ' + (current === 1 ? 'disabled' : '') + '>&lsaquo; Prev</button>' +
+      '<span style="font-size:.82rem;padding:0 .4rem">Page ' + current + ' of ' + totalPages + '</span>' +
+      '<button onclick="_goPage(' + (current + 1) + ')" style="' + (current === totalPages ? disabledStyle : btnStyle) + '" ' + (current === totalPages ? 'disabled' : '') + '>Next &rsaquo;</button>' +
+      '<button onclick="_goPage(' + totalPages + ')" style="' + (current === totalPages ? disabledStyle : btnStyle) + '" ' + (current === totalPages ? 'disabled' : '') + '>&raquo;</button>' +
+    '</div>';
+}
+
+function _goPage(p) {
+  _currentPage = p;
+  _renderFiltered();
+  // Scroll table into view smoothly
+  var tbl = document.getElementById('renewal-table');
+  if (tbl) tbl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ---------------------------------------------------------------------------
@@ -282,16 +326,16 @@ function _sortLeases(col) {
 // ---------------------------------------------------------------------------
 
 function renderRenewalTable(items) {
-  if (!items || items.length === 0) {
-    VestaAPI.render('renewal-body', '<tr><td colspan="13" class="empty-state">No expiring leases match your filters</td></tr>');
-    return;
-  }
-
   var allCols = ['address', 'city', 'postal_code', 'bedrooms', 'bathrooms', 'square_feet', 'tenant_names', 'lease_end', 'days_until_expiry', 'current_rent', 'target_rent', 'gap_pct'];
   for (var i = 0; i < allCols.length; i++) {
     var el = document.getElementById('rth-' + allCols[i]);
     if (!el) continue;
     el.textContent = (_sortCol === allCols[i]) ? (_sortDir === 1 ? ' \u25b2' : ' \u25bc') : '';
+  }
+
+  if (!items || items.length === 0) {
+    VestaAPI.render('renewal-body', '<tr><td colspan="13" class="empty-state">No expiring leases match your filters</td></tr>');
+    return;
   }
 
   VestaAPI.render(

@@ -85,10 +85,11 @@
     <tr><td colspan="13" class="loading">Loading leases...</td></tr>
   </tbody>
 </table>
+<div id="detail-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0;font-size:.85rem;color:var(--text-muted)"></div>
 
 <script>var MONTH = "{{ month }}";</script>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/renewal_month_detail.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/renewal_month_detail.js' %}?v=3"></script>
 {% endblock %}

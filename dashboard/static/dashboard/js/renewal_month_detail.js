@@ -5,6 +5,8 @@
 var SORT_COL = null;
 var SORT_DIR = 1;
 var _data = [];
+var _currentPage = 1;
+var PAGE_SIZE = 25;
 
 function loadAll() {
   VestaAPI.get('/analytics/renewal-leases?month=' + MONTH)
@@ -21,6 +23,7 @@ function loadAll() {
       }
 
       renderStats(items);
+      _currentPage = 1;
       applyFilters();
     })
     .catch(function(err) {
@@ -72,6 +75,11 @@ function _getFilters() {
 }
 
 function applyFilters() {
+  _currentPage = 1;
+  _renderFiltered();
+}
+
+function _renderFiltered() {
   var f = _getFilters();
   var filtered = _data.filter(function(item) {
     if (f.city && item.city.toLowerCase().indexOf(f.city.toLowerCase()) === -1) return false;
@@ -88,11 +96,6 @@ function applyFilters() {
     return true;
   });
 
-  var countEl = document.getElementById('filter-count');
-  if (countEl) {
-    countEl.textContent = filtered.length + ' of ' + _data.length + ' leases';
-  }
-
   if (SORT_COL) {
     filtered = filtered.slice().sort(function(a, b) {
       var av = a[SORT_COL], bv = b[SORT_COL];
@@ -104,7 +107,20 @@ function applyFilters() {
     });
   }
 
-  renderTable(filtered);
+  var total = filtered.length;
+  var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (_currentPage > totalPages) _currentPage = totalPages;
+
+  var start = (_currentPage - 1) * PAGE_SIZE;
+  var page = filtered.slice(start, start + PAGE_SIZE);
+
+  var countEl = document.getElementById('filter-count');
+  if (countEl) {
+    countEl.textContent = total + ' of ' + _data.length + ' leases';
+  }
+
+  renderTable(page);
+  renderPagination('detail-pagination', total, _currentPage, totalPages);
 }
 
 function clearFilters() {
@@ -113,7 +129,8 @@ function clearFilters() {
     var el = document.getElementById(ids[i]);
     if (el) el.value = '';
   }
-  applyFilters();
+  _currentPage = 1;
+  _renderFiltered();
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +151,45 @@ function sortBy(col) {
     if (el) el.textContent = (cols[i] === SORT_COL) ? (SORT_DIR === 1 ? ' \u25b2' : ' \u25bc') : '';
   }
 
-  applyFilters();
+  _currentPage = 1;
+  _renderFiltered();
+}
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+function renderPagination(containerId, total, current, totalPages) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+
+  if (totalPages <= 1) {
+    el.innerHTML = '';
+    return;
+  }
+
+  var start = (current - 1) * PAGE_SIZE + 1;
+  var end = Math.min(current * PAGE_SIZE, total);
+
+  var btnStyle = 'padding:.3rem .65rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;background:var(--surface,#fff);cursor:pointer;font-size:.82rem;';
+  var disabledStyle = btnStyle + 'opacity:.4;cursor:default;';
+
+  el.innerHTML =
+    '<span>Showing ' + start + '\u2013' + end + ' of ' + total + ' leases</span>' +
+    '<div style="display:flex;gap:.35rem;align-items:center">' +
+      '<button onclick="_goPage(1)" style="' + (current === 1 ? disabledStyle : btnStyle) + '" ' + (current === 1 ? 'disabled' : '') + '>&laquo;</button>' +
+      '<button onclick="_goPage(' + (current - 1) + ')" style="' + (current === 1 ? disabledStyle : btnStyle) + '" ' + (current === 1 ? 'disabled' : '') + '>&lsaquo; Prev</button>' +
+      '<span style="font-size:.82rem;padding:0 .4rem">Page ' + current + ' of ' + totalPages + '</span>' +
+      '<button onclick="_goPage(' + (current + 1) + ')" style="' + (current === totalPages ? disabledStyle : btnStyle) + '" ' + (current === totalPages ? 'disabled' : '') + '>Next &rsaquo;</button>' +
+      '<button onclick="_goPage(' + totalPages + ')" style="' + (current === totalPages ? disabledStyle : btnStyle) + '" ' + (current === totalPages ? 'disabled' : '') + '>&raquo;</button>' +
+    '</div>';
+}
+
+function _goPage(p) {
+  _currentPage = p;
+  _renderFiltered();
+  var tbl = document.getElementById('detail-table');
+  if (tbl) tbl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ---------------------------------------------------------------------------
