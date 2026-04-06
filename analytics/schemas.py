@@ -315,6 +315,7 @@ class RenewalPipelineLeaseSchema(Schema):
     unit_id: int
     address: str
     city: str
+    postal_code: str
     bedrooms: Optional[int] = None
     bathrooms: Optional[float] = None
     square_feet: Optional[int] = None

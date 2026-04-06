@@ -18,11 +18,57 @@
 </div>
 
 <h2 class="section-title">Expiring Leases</h2>
+
+<div class="filter-bar" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end;margin-bottom:1rem;padding:.75rem 1rem;background:var(--surface-raised,#f8f9fa);border:1px solid var(--border-color,#e2e8f0);border-radius:6px;">
+  <div style="display:flex;flex-direction:column;gap:.2rem">
+    <label style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase">City</label>
+    <input id="f-city" type="text" placeholder="e.g. Asheville" oninput="applyFilters()" style="width:130px;padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+  </div>
+  <div style="display:flex;flex-direction:column;gap:.2rem">
+    <label style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase">Zip</label>
+    <input id="f-zip" type="text" placeholder="e.g. 28801" oninput="applyFilters()" style="width:90px;padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+  </div>
+  <div style="display:flex;flex-direction:column;gap:.2rem">
+    <label style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase">Beds</label>
+    <select id="f-beds" onchange="applyFilters()" style="padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+      <option value="">All</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4+</option>
+    </select>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:.2rem">
+    <label style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase">Rent</label>
+    <div style="display:flex;align-items:center;gap:.25rem">
+      <input id="f-rent-min" type="number" placeholder="Min" oninput="applyFilters()" style="width:75px;padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+      <span style="color:var(--text-muted);font-size:.8rem">–</span>
+      <input id="f-rent-max" type="number" placeholder="Max" oninput="applyFilters()" style="width:75px;padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:.2rem">
+    <label style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase">Sq Ft</label>
+    <div style="display:flex;align-items:center;gap:.25rem">
+      <input id="f-sqft-min" type="number" placeholder="Min" oninput="applyFilters()" style="width:75px;padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+      <span style="color:var(--text-muted);font-size:.8rem">–</span>
+      <input id="f-sqft-max" type="number" placeholder="Max" oninput="applyFilters()" style="width:75px;padding:.35rem .5rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem">
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:.2rem">
+    <label style="font-size:.72rem;color:var(--text-muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase">&nbsp;</label>
+    <button onclick="clearFilters()" style="padding:.35rem .75rem;border:1px solid var(--border-color,#e2e8f0);border-radius:4px;font-size:.85rem;background:var(--surface,#fff);cursor:pointer;color:var(--text-muted)">&#10005; Clear</button>
+  </div>
+  <div style="margin-left:auto;align-self:flex-end">
+    <span id="filter-count" style="font-size:.8rem;color:var(--text-muted)"></span>
+  </div>
+</div>
+
 <table id="detail-table">
   <thead>
     <tr>
       <th onclick="sortBy('address')" style="cursor:pointer">Address <span id="sort-address"></span></th>
       <th onclick="sortBy('city')" style="cursor:pointer">City <span id="sort-city"></span></th>
+      <th onclick="sortBy('postal_code')" style="cursor:pointer">Zip <span id="sort-postal_code"></span></th>
       <th onclick="sortBy('bedrooms')" style="cursor:pointer">Beds <span id="sort-bedrooms"></span></th>
       <th onclick="sortBy('bathrooms')" style="cursor:pointer">Baths <span id="sort-bathrooms"></span></th>
       <th onclick="sortBy('square_feet')" style="cursor:pointer">Sq Ft <span id="sort-square_feet"></span></th>
@@ -36,7 +82,7 @@
     </tr>
   </thead>
   <tbody id="detail-body">
-    <tr><td colspan="12" class="loading">Loading leases...</td></tr>
+    <tr><td colspan="13" class="loading">Loading leases...</td></tr>
   </tbody>
 </table>
 
@@ -44,5 +90,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/renewal_month_detail.js' %}?v=1"></script>
+<script src="{% static 'dashboard/js/renewal_month_detail.js' %}?v=2"></script>
 {% endblock %}

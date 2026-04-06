@@ -13,7 +13,7 @@ async function loadAll() {
     renderStats(data);
     renderClusteringChart(data.clustering, data.total_active_leases);
     _leaseData = data.leases;
-    renderRenewalTable(_leaseData);
+    _applyFilters();
   } catch (err) {
     console.error('Renewal Pipeline load error:', err);
     VestaAPI.render('renewal-stats', '<div class="loading">Error loading data</div>');
@@ -56,7 +56,6 @@ function renderClusteringChart(clustering, totalActive) {
     return c.is_concentrated ? '#dc3545cc' : '#6EA5CDcc';
   });
 
-  // Concentrated months for callout
   var concentrated = clustering.filter(function (c) { return c.is_concentrated; });
 
   var ctx = document.getElementById('clustering-chart');
@@ -116,10 +115,8 @@ function renderClusteringChart(clustering, totalActive) {
     }],
   });
 
-  // Make chart cursor pointer to hint it's clickable
   ctx.style.cursor = 'pointer';
 
-  // Callout text
   var calloutEl = document.getElementById('clustering-callout');
   if (calloutEl) {
     if (concentrated.length > 0) {
@@ -132,6 +129,71 @@ function renderClusteringChart(clustering, totalActive) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Filtering
+// ---------------------------------------------------------------------------
+
+function _getFilters() {
+  return {
+    city: (document.getElementById('f-city') || {}).value || '',
+    zip: (document.getElementById('f-zip') || {}).value || '',
+    beds: (document.getElementById('f-beds') || {}).value || '',
+    rentMin: parseFloat((document.getElementById('f-rent-min') || {}).value) || null,
+    rentMax: parseFloat((document.getElementById('f-rent-max') || {}).value) || null,
+    sqftMin: parseInt((document.getElementById('f-sqft-min') || {}).value) || null,
+    sqftMax: parseInt((document.getElementById('f-sqft-max') || {}).value) || null,
+  };
+}
+
+function _applyFilters() {
+  var f = _getFilters();
+  var filtered = _leaseData.filter(function(item) {
+    if (f.city && item.city.toLowerCase().indexOf(f.city.toLowerCase()) === -1) return false;
+    if (f.zip && (item.postal_code || '').indexOf(f.zip) === -1) return false;
+    if (f.beds) {
+      var beds = item.bedrooms;
+      if (f.beds === '4') { if (beds == null || beds < 4) return false; }
+      else { if (beds == null || beds !== parseInt(f.beds)) return false; }
+    }
+    if (f.rentMin != null && (item.current_rent == null || parseFloat(item.current_rent) < f.rentMin)) return false;
+    if (f.rentMax != null && (item.current_rent == null || parseFloat(item.current_rent) > f.rentMax)) return false;
+    if (f.sqftMin != null && (item.square_feet == null || item.square_feet < f.sqftMin)) return false;
+    if (f.sqftMax != null && (item.square_feet == null || item.square_feet > f.sqftMax)) return false;
+    return true;
+  });
+
+  var countEl = document.getElementById('filter-count');
+  if (countEl) {
+    countEl.textContent = filtered.length + ' of ' + _leaseData.length + ' leases';
+  }
+
+  if (_sortCol) {
+    filtered = filtered.sort(function(a, b) {
+      var av = a[_sortCol], bv = b[_sortCol];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string') return av.localeCompare(bv) * _sortDir;
+      return (av - bv) * _sortDir;
+    });
+  }
+
+  renderRenewalTable(filtered);
+}
+
+function _clearFilters() {
+  var ids = ['f-city', 'f-zip', 'f-beds', 'f-rent-min', 'f-rent-max', 'f-sqft-min', 'f-sqft-max'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.value = '';
+  }
+  _applyFilters();
+}
+
+// ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
 function _sortLeases(col) {
   if (_sortCol === col) {
     _sortDir *= -1;
@@ -139,27 +201,20 @@ function _sortLeases(col) {
     _sortCol = col;
     _sortDir = 1;
   }
-
-  var sorted = _leaseData.slice().sort(function(a, b) {
-    var av = a[col], bv = b[col];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    if (typeof av === 'string') return av.localeCompare(bv) * _sortDir;
-    return (av - bv) * _sortDir;
-  });
-
-  renderRenewalTable(sorted);
+  _applyFilters();
 }
+
+// ---------------------------------------------------------------------------
+// Table rendering
+// ---------------------------------------------------------------------------
 
 function renderRenewalTable(items) {
   if (!items || items.length === 0) {
-    VestaAPI.render('renewal-body', '<tr><td colspan="12" class="empty-state">No expiring leases found</td></tr>');
+    VestaAPI.render('renewal-body', '<tr><td colspan="13" class="empty-state">No expiring leases match your filters</td></tr>');
     return;
   }
 
-  // Update sort indicators in header
-  var allCols = ['address', 'city', 'bedrooms', 'bathrooms', 'square_feet', 'tenant_names', 'lease_end', 'days_until_expiry', 'current_rent', 'target_rent', 'gap_pct'];
+  var allCols = ['address', 'city', 'postal_code', 'bedrooms', 'bathrooms', 'square_feet', 'tenant_names', 'lease_end', 'days_until_expiry', 'current_rent', 'target_rent', 'gap_pct'];
   for (var i = 0; i < allCols.length; i++) {
     var el = document.getElementById('rth-' + allCols[i]);
     if (!el) continue;
@@ -182,6 +237,7 @@ function renderRenewalTable(items) {
         '<tr class="' + rowClass + '">' +
           '<td>' + (item.address || '\u2014') + '</td>' +
           '<td>' + (item.city || '\u2014') + '</td>' +
+          '<td>' + (item.postal_code || '\u2014') + '</td>' +
           '<td class="num">' + (item.bedrooms != null ? item.bedrooms : '\u2014') + '</td>' +
           '<td class="num">' + bathStr + '</td>' +
           '<td class="num">' + sqftStr + '</td>' +
