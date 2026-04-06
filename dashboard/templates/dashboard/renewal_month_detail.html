@@ -1,0 +1,48 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_renewals %}active{% endblock %}
+{% block title %}Renewal Detail — {{ month }}{% endblock %}
+{% block topbar_title %}Renewal Detail{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem">
+  <a href="{% url 'dashboard:renewal_pipeline' %}" style="font-size:.85rem;color:var(--text-muted);text-decoration:none;">&larr; Back to Renewal Pipeline</a>
+</div>
+
+<h1 class="page-title" id="month-heading">Lease Expirations</h1>
+<p class="page-subtitle">Leases expiring in <strong>{{ month }}</strong></p>
+
+<div id="detail-stats" class="stats-grid" style="margin-bottom:1.5rem">
+  <div class="loading">Loading...</div>
+</div>
+
+<h2 class="section-title">Expiring Leases</h2>
+<table id="detail-table">
+  <thead>
+    <tr>
+      <th onclick="sortBy('address')" style="cursor:pointer">Address <span id="sort-address"></span></th>
+      <th onclick="sortBy('city')" style="cursor:pointer">City <span id="sort-city"></span></th>
+      <th onclick="sortBy('bedrooms')" style="cursor:pointer">Beds <span id="sort-bedrooms"></span></th>
+      <th onclick="sortBy('bathrooms')" style="cursor:pointer">Baths <span id="sort-bathrooms"></span></th>
+      <th onclick="sortBy('square_feet')" style="cursor:pointer">Sq Ft <span id="sort-square_feet"></span></th>
+      <th onclick="sortBy('current_rent')" style="cursor:pointer">Current Rent <span id="sort-current_rent"></span></th>
+      <th onclick="sortBy('target_rent')" style="cursor:pointer">Target Rent <span id="sort-target_rent"></span></th>
+      <th onclick="sortBy('gap_pct')" style="cursor:pointer">Gap % <span id="sort-gap_pct"></span></th>
+      <th onclick="sortBy('tenant_names')" style="cursor:pointer">Tenant(s) <span id="sort-tenant_names"></span></th>
+      <th onclick="sortBy('lease_end')" style="cursor:pointer">Lease End <span id="sort-lease_end"></span></th>
+      <th onclick="sortBy('days_until_expiry')" style="cursor:pointer">Days Left <span id="sort-days_until_expiry"></span></th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody id="detail-body">
+    <tr><td colspan="12" class="loading">Loading leases...</td></tr>
+  </tbody>
+</table>
+
+<script>var MONTH = "{{ month }}";</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/renewal_month_detail.js' %}?v=1"></script>
+{% endblock %}

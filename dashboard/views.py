@@ -38,6 +38,11 @@ def renewal_pipeline(request):
 
 
 @login_required
+def renewal_month_detail(request, month):
+    return render(request, "dashboard/renewal_month_detail.html", {"month": month})
+
+
+@login_required
 def leasing_pipeline(request):
     return render(request, "dashboard/leasing_pipeline.html")
 

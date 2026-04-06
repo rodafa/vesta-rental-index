@@ -3,13 +3,17 @@
  * Auto-refreshes every 60 seconds.
  */
 var _clusteringChart = null;
+var _leaseData = [];
+var _sortCol = null;
+var _sortDir = 1;
 
 async function loadAll() {
   try {
     var data = await VestaAPI.get('/analytics/renewal-pipeline?months_ahead=6');
     renderStats(data);
     renderClusteringChart(data.clustering, data.total_active_leases);
-    renderRenewalTable(data.leases);
+    _leaseData = data.leases;
+    renderRenewalTable(_leaseData);
   } catch (err) {
     console.error('Renewal Pipeline load error:', err);
     VestaAPI.render('renewal-stats', '<div class="loading">Error loading data</div>');
@@ -82,6 +86,12 @@ function renderClusteringChart(clustering, totalActive) {
           title: { display: true, text: 'Leases Expiring', font: { size: 11 } },
         },
       },
+      onClick: function(event, elements) {
+        if (!elements || elements.length === 0) return;
+        var idx = elements[0].index;
+        var monthKey = clustering[idx].month;
+        window.location.href = '/dashboard/renewals/month/' + monthKey + '/';
+      },
     },
     plugins: [{
       id: 'thresholdLine',
@@ -106,23 +116,54 @@ function renderClusteringChart(clustering, totalActive) {
     }],
   });
 
+  // Make chart cursor pointer to hint it's clickable
+  ctx.style.cursor = 'pointer';
+
   // Callout text
   var calloutEl = document.getElementById('clustering-callout');
   if (calloutEl) {
     if (concentrated.length > 0) {
       var names = concentrated.map(function (c) { return c.month_label; }).join(', ');
-      calloutEl.textContent = 'Concentration risk: ' + names + ' exceed' + (concentrated.length === 1 ? 's' : '') + ' 15% of active leases.';
+      calloutEl.textContent = 'Concentration risk: ' + names + ' exceed' + (concentrated.length === 1 ? 's' : '') + ' 15% of active leases. Click a bar to view details.';
       calloutEl.style.color = 'var(--red-accent)';
     } else {
-      calloutEl.textContent = 'No concentration risk detected. Expirations are well-distributed.';
+      calloutEl.textContent = 'No concentration risk detected. Expirations are well-distributed. Click a bar to view details.';
     }
   }
 }
 
+function _sortLeases(col) {
+  if (_sortCol === col) {
+    _sortDir *= -1;
+  } else {
+    _sortCol = col;
+    _sortDir = 1;
+  }
+
+  var sorted = _leaseData.slice().sort(function(a, b) {
+    var av = a[col], bv = b[col];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'string') return av.localeCompare(bv) * _sortDir;
+    return (av - bv) * _sortDir;
+  });
+
+  renderRenewalTable(sorted);
+}
+
 function renderRenewalTable(items) {
   if (!items || items.length === 0) {
-    VestaAPI.render('renewal-body', '<tr><td colspan="10" class="empty-state">No expiring leases found</td></tr>');
+    VestaAPI.render('renewal-body', '<tr><td colspan="12" class="empty-state">No expiring leases found</td></tr>');
     return;
+  }
+
+  // Update sort indicators in header
+  var allCols = ['address', 'city', 'bedrooms', 'bathrooms', 'square_feet', 'tenant_names', 'lease_end', 'days_until_expiry', 'current_rent', 'target_rent', 'gap_pct'];
+  for (var i = 0; i < allCols.length; i++) {
+    var el = document.getElementById('rth-' + allCols[i]);
+    if (!el) continue;
+    el.textContent = (_sortCol === allCols[i]) ? (_sortDir === 1 ? ' \u25b2' : ' \u25bc') : '';
   }
 
   VestaAPI.render(
@@ -134,12 +175,16 @@ function renderRenewalTable(items) {
         : '<span class="badge badge-green">On Target</span>';
       var gapStr = item.gap_pct != null ? VestaAPI.pct(item.gap_pct) : '\u2014';
       var daysClass = item.days_until_expiry <= 30 ? 'flag-value' : '';
+      var bathStr = item.bathrooms != null ? item.bathrooms : '\u2014';
+      var sqftStr = item.square_feet != null ? item.square_feet.toLocaleString() : '\u2014';
 
       return (
         '<tr class="' + rowClass + '">' +
           '<td>' + (item.address || '\u2014') + '</td>' +
           '<td>' + (item.city || '\u2014') + '</td>' +
           '<td class="num">' + (item.bedrooms != null ? item.bedrooms : '\u2014') + '</td>' +
+          '<td class="num">' + bathStr + '</td>' +
+          '<td class="num">' + sqftStr + '</td>' +
           '<td>' + (item.tenant_names || '\u2014') + '</td>' +
           '<td>' + VestaAPI.dateStr(item.lease_end) + '</td>' +
           '<td class="num ' + daysClass + '">' + item.days_until_expiry + 'd</td>' +

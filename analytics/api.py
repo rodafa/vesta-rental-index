@@ -1159,12 +1159,20 @@ def renewal_pipeline(request, months_ahead: int = 6):
         tenant_names = ", ".join(t.name for t in lease.tenants.all())
         days_left = (lease.end_date - today).days
 
+        full_baths = unit.full_bathrooms if unit else None
+        half_baths = unit.half_bathrooms if unit else None
+        bathrooms = None
+        if full_baths is not None:
+            bathrooms = float(full_baths) + (0.5 if half_baths else 0.0)
+
         lease_list.append({
             "lease_id": lease.id,
             "unit_id": unit.id if unit else 0,
             "address": _unit_address(unit) if unit else "",
             "city": (unit.city if unit else "") or (unit.property.city if unit and unit.property else ""),
             "bedrooms": unit.bedrooms if unit else None,
+            "bathrooms": bathrooms,
+            "square_feet": unit.square_feet if unit else None,
             "tenant_names": tenant_names,
             "lease_end": lease.end_date,
             "days_until_expiry": days_left,
@@ -1183,6 +1191,66 @@ def renewal_pipeline(request, months_ahead: int = 6):
         "clustering": clustering,
         "leases": lease_list,
     }
+
+
+@router.get("/renewal-leases", response=list[RenewalPipelineLeaseSchema])
+def renewal_leases(request, month: str):
+    """Flat list of active leases expiring in a given month (YYYY-MM)."""
+    try:
+        year, mon = int(month[:4]), int(month[5:7])
+    except (ValueError, IndexError):
+        return []
+
+    today = date.today()
+    leases = (
+        Lease.objects.filter(
+            primary_lease_status=2,
+            end_date__year=year,
+            end_date__month=mon,
+        )
+        .select_related("unit", "unit__property")
+        .prefetch_related("tenants")
+        .order_by("end_date")
+    )
+
+    result = []
+    for lease in leases:
+        unit = lease.unit
+        target = unit.target_rental_rate if unit else None
+        rent = lease.rent_amount
+        gap_pct = None
+        is_below = False
+        if target and rent and target > 0:
+            gap_pct = round(float((target - rent) / target * 100), 1)
+            is_below = gap_pct >= 10
+
+        tenant_names = ", ".join(t.name for t in lease.tenants.all())
+        days_left = (lease.end_date - today).days
+
+        full_baths = unit.full_bathrooms if unit else None
+        half_baths = unit.half_bathrooms if unit else None
+        bathrooms = None
+        if full_baths is not None:
+            bathrooms = float(full_baths) + (0.5 if half_baths else 0.0)
+
+        result.append({
+            "lease_id": lease.id,
+            "unit_id": unit.id if unit else 0,
+            "address": _unit_address(unit) if unit else "",
+            "city": (unit.city if unit else "") or (unit.property.city if unit and unit.property else ""),
+            "bedrooms": unit.bedrooms if unit else None,
+            "bathrooms": bathrooms,
+            "square_feet": unit.square_feet if unit else None,
+            "tenant_names": tenant_names,
+            "lease_end": lease.end_date,
+            "days_until_expiry": days_left,
+            "current_rent": rent,
+            "target_rent": target,
+            "gap_pct": gap_pct,
+            "is_below_market": is_below,
+        })
+
+    return result
 
 
 # ---------------------------------------------------------------------------

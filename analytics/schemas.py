@@ -316,6 +316,8 @@ class RenewalPipelineLeaseSchema(Schema):
     address: str
     city: str
     bedrooms: Optional[int] = None
+    bathrooms: Optional[float] = None
+    square_feet: Optional[int] = None
     tenant_names: str
     lease_end: date
     days_until_expiry: int

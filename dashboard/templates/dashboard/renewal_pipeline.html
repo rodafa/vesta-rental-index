@@ -23,25 +23,27 @@
 <table id="renewal-table">
   <thead>
     <tr>
-      <th>Address</th>
-      <th>City</th>
-      <th>Beds</th>
-      <th>Tenant(s)</th>
-      <th>Lease End</th>
-      <th>Days Left</th>
-      <th>Current Rent</th>
-      <th>Target Rent</th>
-      <th>Gap %</th>
+      <th onclick="_sortLeases('address')" style="cursor:pointer">Address<span id="rth-address"></span></th>
+      <th onclick="_sortLeases('city')" style="cursor:pointer">City<span id="rth-city"></span></th>
+      <th onclick="_sortLeases('bedrooms')" style="cursor:pointer">Beds<span id="rth-bedrooms"></span></th>
+      <th onclick="_sortLeases('bathrooms')" style="cursor:pointer">Baths<span id="rth-bathrooms"></span></th>
+      <th onclick="_sortLeases('square_feet')" style="cursor:pointer">Sq Ft<span id="rth-square_feet"></span></th>
+      <th onclick="_sortLeases('tenant_names')" style="cursor:pointer">Tenant(s)<span id="rth-tenant_names"></span></th>
+      <th onclick="_sortLeases('lease_end')" style="cursor:pointer">Lease End<span id="rth-lease_end"></span></th>
+      <th onclick="_sortLeases('days_until_expiry')" style="cursor:pointer">Days Left<span id="rth-days_until_expiry"></span></th>
+      <th onclick="_sortLeases('current_rent')" style="cursor:pointer">Current Rent<span id="rth-current_rent"></span></th>
+      <th onclick="_sortLeases('target_rent')" style="cursor:pointer">Target Rent<span id="rth-target_rent"></span></th>
+      <th onclick="_sortLeases('gap_pct')" style="cursor:pointer">Gap %<span id="rth-gap_pct"></span></th>
       <th>Status</th>
     </tr>
   </thead>
   <tbody id="renewal-body">
-    <tr><td colspan="10" class="loading">Loading renewal data...</td></tr>
+    <tr><td colspan="12" class="loading">Loading renewal data...</td></tr>
   </tbody>
 </table>
 {% endblock %}
 
 {% block scripts %}
 <script src="{% static 'dashboard/js/charts.js' %}?v=3"></script>
-<script src="{% static 'dashboard/js/renewal_pipeline.js' %}?v=1"></script>
+<script src="{% static 'dashboard/js/renewal_pipeline.js' %}?v=2"></script>
 {% endblock %}
