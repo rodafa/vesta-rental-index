@@ -655,43 +655,34 @@ def list_meld_drafts(request, week_start: Optional[date] = None):
 
 @router.post("/meld-drafts/generate")
 def generate_meld_drafts(request, data: MeldGenerateSchema):
-    """Fetch all melds from PM API, group by owner, generate AI drafts."""
-    from integrations.property_meld.client import PropertyMeldClient
+    """Query synced Meld records, group by owner, generate AI drafts.
+
+    Uses the local Meld model (synced hourly) instead of hitting the PM API
+    live — avoids the 60-90s full fetch and gunicorn/proxy timeout issues.
+    """
+    from maintenance.models import Meld as MeldModel
+    from django.db.models import Q
 
     week_start = data.week_start or _current_tuesday()
     week_end = week_start + timedelta(days=7)
 
-    # Fetch all melds fresh from PM API
-    try:
-        client = PropertyMeldClient()
-        all_melds = client.get_all("/meld/")
-    except Exception:
-        logger.exception("Failed to fetch melds from Property Meld API")
-        return {"error": "Failed to fetch melds from Property Meld API", "drafts": []}
+    # All open melds + melds completed this week
+    qs = MeldModel.objects.filter(
+        Q(status__in=OPEN_STATUSES) |
+        Q(status__in=COMPLETED_STATUSES, completed_date__gte=week_start, completed_date__lt=week_end)
+    ).values("status", "completed_date", "property_address", "brief_description", "category")
 
-    from datetime import datetime
-
-    def _parse_date(val):
-        if not val:
-            return None
-        if isinstance(val, date):
-            return val
-        try:
-            return datetime.fromisoformat(str(val).replace("Z", "+00:00")).date()
-        except (ValueError, TypeError):
-            return None
-
-    # Include all currently open melds + melds completed this week.
-    # (Don't filter by "modified this week" — open melds with no recent
-    # activity still need to appear in the owner's update.)
-    week_melds = []
-    for m in all_melds:
-        status = m.get("status") or ""
-        comp_date = _parse_date(m.get("completed_date"))
-        is_open = status in OPEN_STATUSES
-        completed_this_week = comp_date and week_start <= comp_date < week_end
-        if is_open or completed_this_week:
-            week_melds.append(m)
+    # Convert to the dict shape the rest of this function expects
+    week_melds = [
+        {
+            "status": m["status"],
+            "completed_date": m["completed_date"],
+            "prop_address": {"full_address": m["property_address"]},
+            "brief_description": m["brief_description"],
+            "work_category": m["category"],
+        }
+        for m in qs
+    ]
 
     # Group melds by property_address → owner
     owner_data = {}  # owner_id → {"owner": Owner, "addresses": set, "melds": []}
