@@ -559,6 +559,8 @@ def _address_to_owner(property_address: str):
     return None, []
 
 
+LAWN_CARE_CATEGORIES = {"LANDSCAPING"}
+
 COMPLETED_STATUSES = {"COMPLETED"}
 OPEN_STATUSES = {
     "PENDING_ASSIGNMENT",
@@ -638,8 +640,17 @@ def _ai_intro(owner_name: str, addresses: list, n_completed: int, n_in_progress:
         return f"Here\u2019s your weekly maintenance update for {addr_list}."
 
 
+def _is_lawn_care(m: dict) -> bool:
+    return (m.get("work_category") or "").upper() in LAWN_CARE_CATEGORIES
+
+
 def _generate_ai_draft(owner_name: str, addresses: list, completed: list, in_progress: list, needs_approval: list) -> tuple:
-    """Return (subject, plain-text body) with programmatic bullet list + AI intro."""
+    """Return (subject, plain-text body) with programmatic bullet list + AI intro.
+
+    Lawn care melds are collapsed into a single summary note rather than
+    individual bullet points. If every meld is lawn care, callers should
+    skip draft creation entirely (checked before calling this function).
+    """
     first_name = owner_name.split()[0] if owner_name else "there"
 
     if len(addresses) == 1:
@@ -647,24 +658,33 @@ def _generate_ai_draft(owner_name: str, addresses: list, completed: list, in_pro
     else:
         subject = "Weekly Property Update \u2014 Your Properties"
 
-    intro = _ai_intro(owner_name, addresses, len(completed), len(in_progress), len(needs_approval))
+    # Separate lawn care from substantive work orders
+    na_real   = [m for m in needs_approval if not _is_lawn_care(m)]
+    ip_real   = [m for m in in_progress   if not _is_lawn_care(m)]
+    comp_real = [m for m in completed     if not _is_lawn_care(m)]
+    has_lawn  = any(_is_lawn_care(m) for m in needs_approval + in_progress + completed)
+
+    intro = _ai_intro(owner_name, addresses, len(comp_real), len(ip_real), len(na_real))
 
     lines = [f"Hi {first_name},", "", intro, ""]
 
-    if needs_approval:
+    if na_real:
         lines += ["Needs Your Attention:", ""]
-        lines += [_format_meld_bullet(m) for m in needs_approval]
+        lines += [_format_meld_bullet(m) for m in na_real]
         lines.append("")
 
-    if in_progress:
+    if ip_real:
         lines += ["In Progress:", ""]
-        lines += [_format_meld_bullet(m) for m in in_progress]
+        lines += [_format_meld_bullet(m) for m in ip_real]
         lines.append("")
 
-    if completed:
+    if comp_real:
         lines += ["Completed This Week:", ""]
-        lines += [_format_meld_bullet(m) for m in completed]
+        lines += [_format_meld_bullet(m) for m in comp_real]
         lines.append("")
+
+    if has_lawn:
+        lines += ["Your lawn care service is active. Check Property Meld for additional details.", ""]
 
     lines.append("The Vesta Team")
 
@@ -750,6 +770,12 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
         completed = [m for m in melds if m.get("status") in COMPLETED_STATUSES]
         needs_approval = [m for m in melds if m.get("status") in APPROVAL_STATUSES]
         in_progress = [m for m in melds if m.get("status") in OPEN_STATUSES and m.get("status") not in APPROVAL_STATUSES]
+
+        # Skip owners whose only melds are lawn care
+        all_melds = completed + needs_approval + in_progress
+        if all_melds and all(_is_lawn_care(m) for m in all_melds):
+            logger.info("Skipping draft for %s — only lawn care melds", owner.name)
+            continue
 
         subject, body = _generate_ai_draft(owner.name, addresses, completed, in_progress, needs_approval)
 
