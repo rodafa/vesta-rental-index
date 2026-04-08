@@ -662,7 +662,6 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
         logger.exception("Failed to fetch melds from Property Meld API")
         return {"error": "Failed to fetch melds from Property Meld API", "drafts": []}
 
-    # Filter to the week window
     from datetime import datetime
 
     def _parse_date(val):
@@ -675,12 +674,16 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
         except (ValueError, TypeError):
             return None
 
+    # Include all currently open melds + melds completed this week.
+    # (Don't filter by "modified this week" — open melds with no recent
+    # activity still need to appear in the owner's update.)
     week_melds = []
     for m in all_melds:
-        mod_date = _parse_date(m.get("updated"))
+        status = m.get("status") or ""
         comp_date = _parse_date(m.get("completed_date"))
-        if (mod_date and week_start <= mod_date < week_end) or \
-           (comp_date and week_start <= comp_date < week_end):
+        is_open = status in OPEN_STATUSES
+        completed_this_week = comp_date and week_start <= comp_date < week_end
+        if is_open or completed_this_week:
             week_melds.append(m)
 
     # Group melds by property_address → owner
