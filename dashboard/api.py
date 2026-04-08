@@ -640,8 +640,13 @@ def _ai_intro(owner_name: str, addresses: list, n_completed: int, n_in_progress:
         return f"Here\u2019s your weekly maintenance update for {addr_list}."
 
 
+_LAWN_KEYWORDS = ("lawn", "mowing", "mow")
+
+
 def _is_lawn_care(m: dict) -> bool:
-    return (m.get("work_category") or "").upper() in LAWN_CARE_CATEGORIES
+    cat = (m.get("work_category") or "").upper()
+    desc = (m.get("brief_description") or "").lower()
+    return cat in LAWN_CARE_CATEGORIES or any(kw in desc for kw in _LAWN_KEYWORDS)
 
 
 def _generate_ai_draft(owner_name: str, addresses: list, completed: list, in_progress: list, needs_approval: list) -> tuple:
