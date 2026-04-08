@@ -513,11 +513,24 @@ def _meld_draft_to_dict(draft):
     }
 
 
+def _extract_street(full_address: str) -> str:
+    """Extract street address from Property Meld full_address format.
+
+    PM format: 'Property Name - 123 Main St, City, ST ZIP'
+    Falls back to splitting on comma if no ' - ' separator found.
+    """
+    if " - " in full_address:
+        rest = full_address.split(" - ", 1)[1]
+    else:
+        rest = full_address
+    return rest.split(",")[0].strip()
+
+
 def _address_to_owner(property_address: str):
     """Fuzzy-match Meld.property_address (free text) → Property → Owner."""
     from properties.models import Property
 
-    street = property_address.split(",")[0].strip()
+    street = _extract_street(property_address)
     if not street:
         return None, []
 
@@ -684,7 +697,7 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
         oid = owner.id
         if oid not in owner_data:
             owner_data[oid] = {"owner": owner, "addresses": set(), "melds": []}
-        owner_data[oid]["addresses"].add(addr.split(",")[0].strip())
+        owner_data[oid]["addresses"].add(_extract_street(addr))
         owner_data[oid]["melds"].append(m)
 
     results = []
