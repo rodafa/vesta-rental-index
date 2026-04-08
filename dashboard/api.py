@@ -542,13 +542,20 @@ def _address_to_owner(property_address: str):
             address_line_1__icontains=street
         ).select_related("portfolio").prefetch_related("portfolio__owners")
 
+    if not props.exists():
+        logger.debug("meld address no property match: %r", street)
+        return None, []
+
     for prop in props:
-        if prop.portfolio:
-            owners = list(
-                prop.portfolio.owners.filter(is_active=True).exclude(email="")
-            )
-            if owners:
-                return prop, owners
+        if not prop.portfolio:
+            logger.debug("meld address property has no portfolio: %r (property_id=%s)", street, prop.id)
+            continue
+        owners = list(
+            prop.portfolio.owners.filter(is_active=True).exclude(email="")
+        )
+        if owners:
+            return prop, owners
+        logger.debug("meld address portfolio has no active owners with email: %r (portfolio_id=%s)", street, prop.portfolio_id)
     return None, []
 
 
@@ -688,12 +695,14 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
 
     # Group melds by property_address → owner
     owner_data = {}  # owner_id → {"owner": Owner, "addresses": set, "melds": []}
+    unmatched_streets = set()
     for m in week_melds:
         addr = (m.get("prop_address") or {}).get("full_address") or ""
         if not addr:
             continue
         _prop, owners = _address_to_owner(addr)
         if not owners:
+            unmatched_streets.add(_extract_street(addr))
             continue
         # Use the first active owner with email
         owner = owners[0]
@@ -734,7 +743,19 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
 
         results.append(_meld_draft_to_dict(draft))
 
-    return {"drafts": results, "week_start": week_start.isoformat(), "melds_matched": len(week_melds)}
+    if unmatched_streets:
+        logger.warning(
+            "Meld draft generation: %d unique streets had no owner match: %s",
+            len(unmatched_streets),
+            sorted(unmatched_streets),
+        )
+
+    return {
+        "drafts": results,
+        "week_start": week_start.isoformat(),
+        "melds_matched": len(week_melds),
+        "unmatched_streets": sorted(unmatched_streets),
+    }
 
 
 @router.put("/meld-drafts/{draft_id}")
