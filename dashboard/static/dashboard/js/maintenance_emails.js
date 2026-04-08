@@ -71,32 +71,101 @@ document.addEventListener('DOMContentLoaded', function () {
   loadAll();
   setInterval(loadAll, 60000);
 
+  // ── Progress bar ─────────────────────────────────────────────────────────
+
+  var _progressTimer = null;
+  var _progressStart = 0;
+
+  // Stages: [seconds_from_start, progress_pct, label]
+  var STAGES = [
+    [0,   4,  'Connecting to Property Meld API\u2026'],
+    [3,   12, 'Fetching open melds\u2026'],
+    [8,   28, 'Fetching melds (this can take 30\u201360s)\u2026'],
+    [30,  50, 'Still fetching\u2026 almost there'],
+    [55,  68, 'Matching properties to owners\u2026'],
+    [65,  80, 'Generating AI drafts\u2026'],
+    [80,  90, 'Drafting remaining emails\u2026'],
+    [95,  95, 'Finalizing\u2026'],
+  ];
+
+  function _startProgress() {
+    var bar    = document.getElementById('me-progress');
+    var fill   = document.getElementById('me-progress-fill');
+    var label  = document.getElementById('me-progress-label');
+    var timer  = document.getElementById('me-progress-time');
+    if (!bar) return;
+
+    _progressStart = Date.now();
+    bar.classList.add('visible');
+    label.className = 'me-progress-label';
+    fill.style.width = '4%';
+    label.textContent = STAGES[0][2];
+    timer.textContent = '0s';
+
+    _progressTimer = setInterval(function () {
+      var elapsed = Math.floor((Date.now() - _progressStart) / 1000);
+      timer.textContent = elapsed + 's';
+
+      // Find the highest stage whose time threshold has been passed
+      var pct = STAGES[0][1];
+      var msg = STAGES[0][2];
+      for (var i = 0; i < STAGES.length; i++) {
+        if (elapsed >= STAGES[i][0]) {
+          pct = STAGES[i][1];
+          msg = STAGES[i][2];
+        }
+      }
+      fill.style.width = pct + '%';
+      label.textContent = msg;
+    }, 1000);
+  }
+
+  function _stopProgress(success, message) {
+    if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null; }
+    var fill  = document.getElementById('me-progress-fill');
+    var label = document.getElementById('me-progress-label');
+    var timer = document.getElementById('me-progress-time');
+    var bar   = document.getElementById('me-progress');
+    if (!bar) return;
+
+    var elapsed = Math.floor((Date.now() - _progressStart) / 1000);
+    fill.style.width = success ? '100%' : '100%';
+    fill.style.background = success ? '#16a34a' : '#dc2626';
+    label.className = 'me-progress-label ' + (success ? 'me-progress-done' : 'me-progress-error');
+    label.textContent = message;
+    timer.textContent = elapsed + 's';
+
+    // Fade out after 4s
+    setTimeout(function () {
+      bar.classList.remove('visible');
+      fill.style.width = '0%';
+      fill.style.background = '#3b82f6';
+    }, 4000);
+  }
+
   // ── Generate ────────────────────────────────────────────────────────────
 
   document.getElementById('me-generate-btn').addEventListener('click', function () {
-    var spinner = document.getElementById('me-spinner');
     var btn = document.getElementById('me-generate-btn');
-    if (spinner) spinner.classList.add('visible');
     btn.disabled = true;
+    _startProgress();
 
     VestaAPI.post('/dashboard/meld-drafts/generate', { week_start: weekStart }).then(function (result) {
-      if (spinner) spinner.classList.remove('visible');
       btn.disabled = false;
       var newDrafts = (result.drafts || []);
       if (!newDrafts.length) {
-        VestaAPI.toast('No matched melds for this week', 'error');
+        _stopProgress(false, 'No melds matched to owners — check property sync');
         return;
       }
       drafts = newDrafts;
       _activeDraftId = null;
       renderOwnerList();
       renderRightPanel();
-      VestaAPI.toast('Generated ' + newDrafts.length + ' draft' + (newDrafts.length !== 1 ? 's' : ''), 'success');
+      _stopProgress(true, 'Generated ' + newDrafts.length + ' draft' + (newDrafts.length !== 1 ? 's' : '') + ' successfully');
     }).catch(function (err) {
-      if (spinner) spinner.classList.remove('visible');
       btn.disabled = false;
       console.error('Generate error:', err);
-      VestaAPI.toast('Error generating drafts', 'error');
+      _stopProgress(false, 'Error generating drafts — see console for details');
     });
   });
 

@@ -41,10 +41,18 @@
   .me-badge-sent  { background: #d1fae5; color: #065f46; }
 
   /* Top bar */
-  .me-topbar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .me-topbar { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; flex-wrap: wrap; }
   .me-week-label { font-size: .875rem; color: #6b7280; }
-  .me-spinner { display: none; font-size: .8rem; color: #6b7280; }
-  .me-spinner.visible { display: inline; }
+
+  /* Progress bar */
+  .me-progress { display: none; align-items: center; gap: .75rem; margin-bottom: .75rem; padding: .6rem .9rem; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; }
+  .me-progress.visible { display: flex; }
+  .me-progress-track { width: 220px; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+  .me-progress-fill { height: 100%; background: #3b82f6; border-radius: 3px; width: 0%; transition: width 1s ease; }
+  .me-progress-label { font-size: .82rem; color: #374151; flex: 1; }
+  .me-progress-time { font-size: .78rem; color: #9ca3af; white-space: nowrap; }
+  .me-progress-done { color: #16a34a; font-weight: 600; }
+  .me-progress-error { color: #dc2626; font-weight: 600; }
 </style>
 
 <h1 class="page-title">Maintenance Emails</h1>
@@ -52,7 +60,11 @@
 <div class="me-topbar">
   <button class="btn btn-primary" id="me-generate-btn">Generate Drafts</button>
   <span class="me-week-label" id="me-week-label">Week: loading...</span>
-  <span class="me-spinner" id="me-spinner">Generating AI drafts — this may take 15–20s...</span>
+</div>
+<div class="me-progress" id="me-progress">
+  <div class="me-progress-track"><div class="me-progress-fill" id="me-progress-fill"></div></div>
+  <span class="me-progress-label" id="me-progress-label">Starting...</span>
+  <span class="me-progress-time" id="me-progress-time"></span>
 </div>
 
 <div class="me-layout">
@@ -72,5 +84,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/maintenance_emails.js' %}?v=1"></script>
+<script src="{% static 'dashboard/js/maintenance_emails.js' %}?v=2"></script>
 {% endblock %}
