@@ -570,68 +570,105 @@ OPEN_STATUSES = {
 }
 APPROVAL_STATUSES = {"PENDING_ESTIMATES"}
 
-MELD_SYSTEM_PROMPT = """You are drafting a weekly maintenance update email from Vesta Property Management to a property owner.
-
-Tone: Warm, direct, and professional. Short sentences. No corporate language. Sound like a trusted property manager giving a quick update, not a ticket system generating a report.
-
-Rules:
-- If a section is empty, skip it entirely — do not mention it
-- Do not use bullet points — write in short natural paragraphs
-- Do not include dollar amounts or invoices
-- If something is in progress, give a one-line status and expected next step
-- If something needs owner approval, make that the last paragraph and be clear about what you need from them
-- Sign off as: The Vesta Team
-- Keep the whole email under 150 words"""
+PM_MELD_WEB_URL = "https://app.propertymeld.com/manager/maintenance/meld/{meld_id}/"
 
 
-def _format_meld_for_prompt(m: dict) -> str:
-    desc = m.get("brief_description", "") or ""
-    cat = m.get("work_category", "") or ""
-    parts = [desc.strip()]
+def _format_meld_bullet(m: dict) -> str:
+    """Format a single meld as a plain-text bullet: '• Meld #ID — description (category)'."""
+    meld_id = m.get("property_meld_id") or ""
+    desc = (m.get("brief_description") or "").strip()
+    cat = (m.get("work_category") or "").strip()
+    line = "\u2022 "
+    if meld_id:
+        line += f"Meld #{meld_id}"
+    if desc:
+        line += f" \u2014 {desc}" if meld_id else desc
     if cat:
-        parts.append(f"({cat})")
-    return " ".join(p for p in parts if p)
+        line += f" ({cat})"
+    return line
 
 
-def _generate_ai_draft(owner_name: str, addresses: list, completed: list, in_progress: list, needs_approval: list) -> tuple:
-    """Call Anthropic API and return (subject, body)."""
+def _linkify_body(text: str) -> str:
+    """Convert plain-text email body to HTML for sending.
+
+    - Escapes HTML, then converts 'Meld #ID' patterns to clickable links
+    - Converts newlines to <br>
+    """
+    import html as _html
+    import re
+
+    safe = _html.escape(text)
+
+    def replace_meld(m):
+        meld_id = m.group(1)
+        url = PM_MELD_WEB_URL.format(meld_id=meld_id)
+        return f'<a href="{url}" style="color:#1E3D58;font-weight:600;">Meld #{meld_id}</a>'
+
+    safe = re.sub(r"Meld #(\w+)", replace_meld, safe)
+    safe = safe.replace("\n", "<br>\n")
+    return safe
+
+
+def _ai_intro(owner_name: str, addresses: list, n_completed: int, n_in_progress: int, n_needs_approval: int) -> str:
+    """Return a single warm intro sentence via Haiku; fallback to plain text."""
     import anthropic
     from django.conf import settings
 
     first_name = owner_name.split()[0] if owner_name else "there"
     addr_list = ", ".join(addresses) if addresses else "your properties"
+    total = n_completed + n_in_progress + n_needs_approval
 
-    if len(addresses) == 1:
-        subject = f"Weekly Property Update — {addresses[0]}"
-    else:
-        subject = "Weekly Property Update — Your Properties"
-
-    lines = [f"Hi {first_name},\n\nHere's your weekly maintenance update for {addr_list}.\n"]
-
-    if completed:
-        lines.append("Completed this week:\n" + "\n".join(f"- {_format_meld_for_prompt(m)}" for m in completed))
-    if in_progress:
-        lines.append("In progress:\n" + "\n".join(f"- {_format_meld_for_prompt(m)}" for m in in_progress))
-    if needs_approval:
-        lines.append("Needs your attention:\n" + "\n".join(f"- {_format_meld_for_prompt(m)}" for m in needs_approval))
-
-    user_content = "\n\n".join(lines)
-
+    prompt = (
+        f"Write one warm, professional opening sentence for a weekly property maintenance update "
+        f"to {first_name} covering {addr_list}. There are {total} work orders total "
+        f"({n_in_progress} in progress, {n_completed} completed, {n_needs_approval} need approval). "
+        f"Just one sentence — no greeting, no bullet points, no sign-off."
+    )
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = client.messages.create(
+        msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=400,
-            system=MELD_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
+            max_tokens=80,
+            system="Write exactly one warm, direct sentence summarising a property maintenance update. No greeting. No sign-off. No bullets.",
+            messages=[{"role": "user", "content": prompt}],
         )
-        body = message.content[0].text.strip()
+        return msg.content[0].text.strip()
     except Exception:
-        logger.exception("Failed to generate AI meld draft for %s", owner_name)
-        # Fallback: plain text summary
-        body = user_content
+        logger.exception("Failed to generate AI intro for %s", owner_name)
+        return f"Here\u2019s your weekly maintenance update for {addr_list}."
 
-    return subject, body
+
+def _generate_ai_draft(owner_name: str, addresses: list, completed: list, in_progress: list, needs_approval: list) -> tuple:
+    """Return (subject, plain-text body) with programmatic bullet list + AI intro."""
+    first_name = owner_name.split()[0] if owner_name else "there"
+
+    if len(addresses) == 1:
+        subject = f"Weekly Property Update \u2014 {addresses[0]}"
+    else:
+        subject = "Weekly Property Update \u2014 Your Properties"
+
+    intro = _ai_intro(owner_name, addresses, len(completed), len(in_progress), len(needs_approval))
+
+    lines = [f"Hi {first_name},", "", intro, ""]
+
+    if needs_approval:
+        lines += ["Needs Your Attention:", ""]
+        lines += [_format_meld_bullet(m) for m in needs_approval]
+        lines.append("")
+
+    if in_progress:
+        lines += ["In Progress:", ""]
+        lines += [_format_meld_bullet(m) for m in in_progress]
+        lines.append("")
+
+    if completed:
+        lines += ["Completed This Week:", ""]
+        lines += [_format_meld_bullet(m) for m in completed]
+        lines.append("")
+
+    lines.append("The Vesta Team")
+
+    return subject, "\n".join(lines)
 
 
 class MeldDraftUpdateSchema(Schema):
@@ -670,7 +707,7 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
     qs = MeldModel.objects.filter(
         Q(status__in=OPEN_STATUSES) |
         Q(status__in=COMPLETED_STATUSES, completed_date__gte=week_start, completed_date__lt=week_end)
-    ).values("status", "completed_date", "property_address", "brief_description", "category")
+    ).values("status", "completed_date", "property_address", "brief_description", "category", "property_meld_id")
 
     # Convert to the dict shape the rest of this function expects
     week_melds = [
@@ -680,12 +717,13 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
             "prop_address": {"full_address": m["property_address"]},
             "brief_description": m["brief_description"],
             "work_category": m["category"],
+            "property_meld_id": m["property_meld_id"],
         }
         for m in qs
     ]
 
-    # Group melds by property_address → owner
-    owner_data = {}  # owner_id → {"owner": Owner, "addresses": set, "melds": []}
+    # Group melds by owner email (deduplicate owners across multiple portfolios)
+    owner_data = {}   # owner_email → {"owner": Owner, "addresses": set, "melds": []}
     unmatched_streets = set()
     for m in week_melds:
         addr = (m.get("prop_address") or {}).get("full_address") or ""
@@ -695,16 +733,16 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
         if not owners:
             unmatched_streets.add(_extract_street(addr))
             continue
-        # Use the first active owner with email
+        # Key by email so the same owner across multiple portfolios gets one draft
         owner = owners[0]
-        oid = owner.id
-        if oid not in owner_data:
-            owner_data[oid] = {"owner": owner, "addresses": set(), "melds": []}
-        owner_data[oid]["addresses"].add(_extract_street(addr))
-        owner_data[oid]["melds"].append(m)
+        key = owner.email
+        if key not in owner_data:
+            owner_data[key] = {"owner": owner, "addresses": set(), "melds": []}
+        owner_data[key]["addresses"].add(_extract_street(addr))
+        owner_data[key]["melds"].append(m)
 
     results = []
-    for oid, info in owner_data.items():
+    for _key, info in owner_data.items():
         owner = info["owner"]
         melds = info["melds"]
         addresses = sorted(info["addresses"])
@@ -778,7 +816,7 @@ def send_meld_draft(request, draft_id: int):
     from django.template.loader import render_to_string
     html_body = render_to_string("emails/maintenance_update.html", {
         "owner_name": owner.name.split()[0] if owner.name else "Owner",
-        "email_body": draft.email_body,
+        "email_body": _linkify_body(draft.email_body),
         "week_start": draft.week_start,
         "logo_url": settings.VESTA_LOGO_URL,
     })
