@@ -858,8 +858,10 @@ def send_meld_draft(request, draft_id: int):
         email = EmailMessage(
             subject=subject,
             body=html_body,
+            from_email="Vesta Property Management <maintenance@vestapm.com>",
             to=[recipient],
-            bcc=["rodrigo@vestapm.com"],
+            cc=["support@vestapm.com"],
+            reply_to=["maintenance@vestapm.com", "support@vestapm.com"],
         )
         email.content_subtype = "html"
 
