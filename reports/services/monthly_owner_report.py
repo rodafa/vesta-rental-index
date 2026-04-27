@@ -81,6 +81,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
         "pipeline": None,
     }
 
+    active_lease = None
     try:
         active_lease = rv_source.get_active_lease(property_obj)
         if active_lease:
@@ -119,8 +120,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
         logger.warning("Failed to fetch financials for property %s", property_obj.pk, exc_info=True)
 
     try:
-        active_lease_obj = rv_source.get_active_lease(property_obj)
-        data["tenant_notes"] = rv_source.get_tenant_notes(active_lease_obj)
+        data["tenant_notes"] = rv_source.get_tenant_notes(active_lease)
     except Exception:
         logger.warning("Failed to fetch tenant notes for property %s", property_obj.pk, exc_info=True)
 

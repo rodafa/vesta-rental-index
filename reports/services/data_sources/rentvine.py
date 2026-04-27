@@ -89,14 +89,10 @@ def get_financial_summary(property_obj, month_start, month_end) -> dict:
 def get_tenant_notes(lease, since_days: int = 45) -> list:
     """
     Fetch recent tenant notes from the live RentVine API.
-    Uses /contacts/{tenant_contact_id}/notes for the primary tenant.
+    Uses /leases/{rentvine_id}/notes for the lease record.
     Returns a list of {note_text, created_at} dicts, or [] on any error.
     """
     if lease is None:
-        return []
-
-    tenant = lease.tenants.order_by("id").first()
-    if tenant is None:
         return []
 
     try:
@@ -104,7 +100,7 @@ def get_tenant_notes(lease, since_days: int = 45) -> list:
 
         client = RentvineClient()
         cutoff = timezone.now() - timedelta(days=since_days)
-        data = client.get(f"contacts/{tenant.rentvine_contact_id}/notes")
+        data = client.get(f"leases/{lease.rentvine_id}/notes")
 
         # API may return list or {"data": [...]}
         if isinstance(data, list):
