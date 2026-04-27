@@ -36,6 +36,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // Wire up page-level buttons
   document.getElementById('save-all-btn').addEventListener('click', saveAllDrafts);
   document.getElementById('send-all-btn').addEventListener('click', sendAllReviewed);
+  document.getElementById('generate-ai-drafts-btn').addEventListener('click', onGenerateAIDrafts);
   document.getElementById('close-preview-btn').addEventListener('click', closePreview);
 
   // ── Load ────────────────────────────────────────────────────────────────
@@ -976,6 +977,33 @@ document.addEventListener('DOMContentLoaded', function () {
     if (dom >= 60) return 'dom-danger';
     if (dom >= 30) return 'dom-warn';
     return 'dom-ok';
+  }
+
+  // ── Generate AI Drafts ─────────────────────────────────────────────────
+
+  function onGenerateAIDrafts() {
+    var btn = document.getElementById('generate-ai-drafts-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+    }
+    VestaAPI.post('/dashboard/property-notes/draft', { week_date: weekDate })
+      .then(function (result) {
+        VestaAPI.toast('AI drafts generated: ' + result.drafted + ' units', 'success');
+        // Clear in-memory note cache so fresh AI notes load on next render
+        propNoteMap = {};
+        loadAll();
+      })
+      .catch(function (err) {
+        console.error('Generate AI drafts error:', err);
+        VestaAPI.toast('Error generating AI drafts', 'error');
+      })
+      .then(function () {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Generate AI Drafts';
+        }
+      });
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────

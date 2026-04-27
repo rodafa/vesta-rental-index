@@ -1,0 +1,63 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_owner_notes %}active{% endblock %}
+{% block title %}Owner Notes{% endblock %}
+{% block topbar_title %}Owner Notes{% endblock %}
+
+{% block content %}
+<style>
+  .me-layout { display: flex; gap: 0; height: calc(100vh - var(--topbar-height) - 72px); min-height: 400px; }
+
+  /* ── Left panel ── */
+  .me-left { width: 280px; min-width: 240px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }
+  .me-left-header { padding: .75rem 1rem; border-bottom: 1px solid #e5e7eb; background: #f9f9fb; }
+  .me-owner-list { flex: 1; overflow-y: auto; }
+  .me-owner-row { padding: .65rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+  .me-owner-row:hover { background: #f5f7fa; }
+  .me-owner-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; }
+  .me-owner-name { font-size: .875rem; font-weight: 600; color: #1f2937; }
+  .me-owner-meta { font-size: .75rem; color: #6b7280; margin-top: 2px; }
+
+  /* ── Right panel ── */
+  .me-right { flex: 1; display: flex; flex-direction: column; padding: 1.25rem 1.5rem; overflow-y: auto; }
+  .me-right-empty { color: #9ca3af; font-size: .9rem; margin: auto; text-align: center; }
+
+  .me-body-label { font-size: .8rem; font-weight: 600; color: #555; margin-bottom: .3rem; display: block; }
+  .me-body-textarea { width: 100%; box-sizing: border-box; font-size: .875rem; padding: .5rem .6rem; border: 1px solid #d1d5db; border-radius: 4px; resize: vertical; min-height: 300px; line-height: 1.55; }
+  .me-body-textarea:focus { outline: none; border-color: #3b82f6; }
+
+  .me-actions { margin-top: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .me-save-status { font-size: .78rem; color: #16a34a; }
+
+  /* Top bar */
+  .me-topbar { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; flex-wrap: wrap; }
+</style>
+
+<h1 class="page-title">Owner Notes</h1>
+
+<div class="me-topbar">
+  <select class="btn btn-secondary" id="on-month-select" style="padding:.35rem .6rem;font-size:.875rem;">
+    <option value="">Loading months...</option>
+  </select>
+</div>
+
+<div class="me-layout">
+  <!-- Left: owner list -->
+  <div class="me-left">
+    <div class="me-left-header" style="font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">Owners</div>
+    <div class="me-owner-list" id="on-owner-list">
+      <div style="padding:1rem;color:#9ca3af;font-size:.85rem;">Select a month to load notes.</div>
+    </div>
+  </div>
+
+  <!-- Right: note editor -->
+  <div class="me-right" id="on-right-panel">
+    <div class="me-right-empty">Select an owner to view or edit their note.</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'dashboard/js/owner_notes.js' %}?v=1"></script>
+{% endblock %}

@@ -40,7 +40,7 @@ class Command(BaseCommand):
             "--property-id",
             type=int,
             default=None,
-            help="Local Django PK of a single Property to process.",
+            help="Run only the portfolio containing this property PK.",
         )
         parser.add_argument(
             "--month",

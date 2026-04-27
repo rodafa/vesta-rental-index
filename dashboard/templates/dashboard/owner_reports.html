@@ -39,6 +39,7 @@
 <div id="page-actions" style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
   <button class="btn btn-secondary" id="save-all-btn">Save All Drafts</button>
   <button class="btn btn-success" id="send-all-btn">Send All Reviewed</button>
+  <button class="btn btn-info" id="generate-ai-drafts-btn">Generate AI Drafts</button>
   <span id="ready-count" style="font-size:.85rem;color:var(--text-muted);"></span>
 </div>
 
@@ -54,5 +55,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/owner_reports.js' %}?v=9"></script>
+<script src="{% static 'dashboard/js/owner_reports.js' %}?v=10"></script>
 {% endblock %}

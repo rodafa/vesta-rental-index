@@ -4,7 +4,7 @@ Core logic for generating monthly AI-drafted owner notes.
 Entry point: run_monthly_report(month, owner_id, property_id, dry_run)
 """
 import logging
-from datetime import date
+from datetime import date, timedelta
 from calendar import monthrange
 
 import anthropic
@@ -28,10 +28,13 @@ SYSTEM_PROMPT = (
     "- No section labels or titles.\n"
     "- Include only relevant and actionable information.\n"
     "- When more detail exists than belongs, close with a pointer to PropertyMeld or the RentVine portal.\n"
-    "- Write as 'We' / 'our' (Vesta's voice). Be transparent about problems and what's being done.\n\n"
-    "CORRECT FORMAT: \"Your tenant at 123 Main Street is current on rent for the month. We received "
-    "$1,400, of which $400 is still processing. There is one open work order for an HVAC filter "
-    "replacement assigned to the vendor on the 14th. Please check PropertyMeld for real-time status.\"\n\n"
+    "- Write as 'We' / 'our' (Vesta's voice). Be transparent about problems and what's being done.\n"
+    "- Open with the reporting period (e.g., 'For the period March 1 through March 31, 2026, ...').\n"
+    "- When covering a portfolio with multiple properties, address each property naturally in the flow.\n\n"
+    "CORRECT FORMAT: \"For the period March 1 through March 31, 2026, your tenant at 123 Main Street "
+    "is current on rent. We received $1,400, of which $400 is still processing. There is one open "
+    "work order for an HVAC filter replacement assigned to the vendor on the 14th. Please check "
+    "PropertyMeld for real-time status.\"\n\n"
     "INCORRECT FORMAT: \"Rent Status:\\n- Received: $1,400\\nMaintenance:\\n• HVAC filter — open\""
 )
 
@@ -45,7 +48,7 @@ def _validate_settings():
         )
     ls = getattr(settings, "LEADSIMPLE", {})
     if not ls.get("API_KEY"):
-        logger.warning("LEADSIMPLE_API_KEY not configured — pipeline context will be empty.")
+        logger.debug("LEADSIMPLE_API_KEY not configured — pipeline context will be empty.")
     if not getattr(settings, "ANTHROPIC_API_KEY", ""):
         raise ImproperlyConfigured("ANTHROPIC_API_KEY is required.")
 
@@ -53,11 +56,6 @@ def _validate_settings():
 def _month_bounds(month: date):
     """Return (month_start, month_end) where month_end is the first day of the next month."""
     month_start = month.replace(day=1)
-    last_day = monthrange(month.year, month.month)[1]
-    month_end = month.replace(day=last_day + 1) if last_day < 31 else date(
-        month.year + (month.month == 12), (month.month % 12) + 1, 1
-    )
-    # Cleaner: next month first day
     if month.month == 12:
         month_end = date(month.year + 1, 1, 1)
     else:
@@ -68,11 +66,7 @@ def _month_bounds(month: date):
 def collect_property_data(property_obj, owner, month_start, month_end, all_deals: list) -> dict:
     """Call all three data sources; each section is wrapped in its own try/except."""
     data = {
-        "owner_id": str(owner.rentvine_contact_id),
-        "owner_name": owner.name,
-        "property_id": property_obj.pk,
-        "property_address": property_obj.address_line_1,
-        "report_month": month_start.isoformat(),
+        "address": property_obj.address_line_1,
         "active_lease": None,
         "upcoming_lease": None,
         "financials": None,
@@ -137,103 +131,142 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
     return data
 
 
+def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: list) -> dict:
+    """
+    Collect data for every active property in the portfolio and return a single
+    payload dict that will be turned into one portfolio-level AI note.
+    """
+    properties = list(portfolio.properties.filter(is_active=True))
+    month_end_display = (month_end - timedelta(days=1)).isoformat()  # "2026-03-31"
+
+    prop_data = []
+    for prop in properties:
+        prop_data.append(collect_property_data(prop, owner, month_start, month_end, all_deals))
+
+    return {
+        "owner_id": str(owner.rentvine_contact_id),
+        "owner_name": owner.name,
+        "portfolio_name": portfolio.name,
+        "month_start": month_start.isoformat(),
+        "month_end_display": month_end_display,
+        "properties": prop_data,
+    }
+
+
 def has_sufficient_data(payload: dict) -> bool:
-    """Return False only if there is truly nothing to write about."""
-    return bool(
-        payload.get("active_lease")
-        or payload.get("upcoming_lease")
-        or (payload.get("financials") or {}).get("has_data")
-        or payload.get("melds")
+    """Return False only if there is truly nothing to write about across all properties."""
+    return any(
+        prop.get("active_lease")
+        or prop.get("upcoming_lease")
+        or (prop.get("financials") or {}).get("has_data")
+        or prop.get("melds")
         or any(
-            payload.get("pipeline", {}).get(k)
+            (prop.get("pipeline") or {}).get(k)
             for k in ("applications", "move_ins", "renewals", "late_rent", "move_outs", "other")
         )
+        for prop in payload["properties"]
     )
 
 
 def build_prompt(payload: dict) -> str:
-    """Build the user-turn message from the collected payload. Omits empty sections."""
+    """Build the user-turn message from the collected portfolio payload."""
+    properties = payload["properties"]
+    month_start_str = payload["month_start"]
+    month_end_str = payload["month_end_display"]
+
+    # Format dates as "March 1, 2026" / "March 31, 2026"
+    ms = date.fromisoformat(month_start_str)
+    me = date.fromisoformat(month_end_str)
+    period_start = ms.strftime("%B %-d, %Y")
+    period_end = me.strftime("%B %-d, %Y")
+
+    word_limit = min(150 + (len(properties) - 1) * 75, 400)
+
     lines = [
-        f"Property: {payload['property_address']}",
+        f"Reporting period: {period_start} through {period_end}",
         f"Owner: {payload['owner_name']}",
-        f"Report month: {payload['report_month'][:7]}",
+        f"Portfolio: {payload['portfolio_name']}",
     ]
 
-    al = payload.get("active_lease")
-    if al:
-        tenants = ", ".join(al["tenant_names"]) or "unknown"
-        lines.append(f"\nCurrent tenants: {tenants}")
-        if al.get("rent_amount"):
-            lines.append(f"Monthly rent: ${al['rent_amount']:,.2f}")
-        if al.get("end_date"):
-            lines.append(f"Lease end date: {al['end_date']}")
-        if al.get("notice_date"):
-            lines.append(f"Notice given: {al['notice_date']}")
-        if al.get("expected_move_out"):
-            lines.append(f"Expected move-out: {al['expected_move_out']}")
+    for prop in properties:
+        lines.append(f"\n=== {prop['address']} ===")
 
-    ul = payload.get("upcoming_lease")
-    if ul:
-        tenants = ", ".join(ul["tenant_names"]) or "unknown"
-        lines.append(f"\nUpcoming tenant: {tenants}")
-        if ul.get("move_in_date"):
-            lines.append(f"Move-in date: {ul['move_in_date']}")
-        if ul.get("rent_amount"):
-            lines.append(f"New rent: ${ul['rent_amount']:,.2f}")
+        al = prop.get("active_lease")
+        if al:
+            tenants = ", ".join(al["tenant_names"]) or "unknown"
+            rent = f"${al['rent_amount']:,.2f}/mo" if al.get("rent_amount") else ""
+            lease_end = f"Lease ends: {al['end_date']}" if al.get("end_date") else ""
+            summary_parts = [f"Current tenant: {tenants}"]
+            if rent:
+                summary_parts.append(f"Rent: {rent}")
+            if lease_end:
+                summary_parts.append(lease_end)
+            lines.append(" | ".join(summary_parts))
+            if al.get("notice_date"):
+                lines.append(f"Notice given: {al['notice_date']}")
+            if al.get("expected_move_out"):
+                lines.append(f"Expected move-out: {al['expected_move_out']}")
 
-    fin = payload.get("financials")
-    if fin and fin.get("has_data"):
-        lines.append(f"\nFinancial summary for the month:")
-        lines.append(f"  Rent charged: ${fin['charged']:,.2f}")
-        lines.append(f"  Rent paid: ${fin['paid']:,.2f}")
-        if fin["outstanding_balance"] > 0:
-            lines.append(f"  Outstanding balance: ${fin['outstanding_balance']:,.2f}")
+        ul = prop.get("upcoming_lease")
+        if ul:
+            tenants = ", ".join(ul["tenant_names"]) or "unknown"
+            lines.append(f"Upcoming tenant: {tenants}")
+            if ul.get("move_in_date"):
+                lines.append(f"Move-in date: {ul['move_in_date']}")
+            if ul.get("rent_amount"):
+                lines.append(f"New rent: ${ul['rent_amount']:,.2f}")
 
-    notes = payload.get("tenant_notes") or []
-    if notes:
-        lines.append("\nRecent tenant communications (last 45 days):")
-        for n in notes[:5]:
-            lines.append(f"  [{n['created_at']}] {n['note_text']}")
+        fin = prop.get("financials")
+        if fin and fin.get("has_data"):
+            fin_line = f"Financial: charged ${fin['charged']:,.2f}, paid ${fin['paid']:,.2f}"
+            if fin["outstanding_balance"] > 0:
+                fin_line += f", outstanding ${fin['outstanding_balance']:,.2f}"
+            lines.append(fin_line)
 
-    melds = payload.get("melds") or []
-    if melds:
-        lines.append(f"\nRecent maintenance (last 30 days) — {len(melds)} item(s):")
-        for m in melds[:8]:
-            parts = [f"  - {m['description']} [{m['status']}]"]
-            if m.get("category"):
-                parts.append(f"category: {m['category']}")
-            if m.get("priority") and m["priority"] != "LOW":
-                parts.append(f"priority: {m['priority']}")
-            if m.get("vendor"):
-                parts.append(f"vendor: {m['vendor']}")
-            if m.get("scheduled_date"):
-                parts.append(f"scheduled: {m['scheduled_date']}")
-            if m.get("completed_date"):
-                parts.append(f"completed: {m['completed_date']}")
-            lines.append(", ".join(parts))
+        notes = prop.get("tenant_notes") or []
+        if notes:
+            lines.append(f"Tenant communications (last 45 days):")
+            for n in notes[:5]:
+                lines.append(f"  [{n['created_at']}] {n['note_text']}")
 
-    pipe = payload.get("pipeline") or {}
-    pipeline_items = []
-    for key, label in [
-        ("applications", "Application in progress"),
-        ("move_ins", "Move-in in progress"),
-        ("renewals", "Renewal in progress"),
-        ("late_rent", "Late rent / delinquency"),
-        ("move_outs", "Move-out in progress"),
-    ]:
-        for deal in pipe.get(key, []):
-            pipeline_items.append(
-                f"  - {label}: {deal['name']} (stage: {deal['stage_name']}, "
-                f"since: {deal['created_at']})"
-            )
+        melds = prop.get("melds") or []
+        if melds:
+            lines.append(f"Maintenance (last 30 days) — {len(melds)} item(s):")
+            for m in melds[:8]:
+                parts = [f"  - {m['description']} [{m['status']}]"]
+                if m.get("category"):
+                    parts.append(f"category: {m['category']}")
+                if m.get("priority") and m["priority"] != "LOW":
+                    parts.append(f"priority: {m['priority']}")
+                if m.get("vendor"):
+                    parts.append(f"vendor: {m['vendor']}")
+                if m.get("scheduled_date"):
+                    parts.append(f"scheduled: {m['scheduled_date']}")
+                if m.get("completed_date"):
+                    parts.append(f"completed: {m['completed_date']}")
+                lines.append(", ".join(parts))
 
-    if pipeline_items:
-        lines.append("\nActive pipeline deals:")
-        lines.extend(pipeline_items)
+        pipe = prop.get("pipeline") or {}
+        pipeline_items = []
+        for key, label in [
+            ("applications", "Application in progress"),
+            ("move_ins", "Move-in in progress"),
+            ("renewals", "Renewal in progress"),
+            ("late_rent", "Late rent / delinquency"),
+            ("move_outs", "Move-out in progress"),
+        ]:
+            for deal in pipe.get(key, []):
+                pipeline_items.append(
+                    f"  - {label}: {deal['name']} (stage: {deal['stage_name']}, "
+                    f"since: {deal['created_at']})"
+                )
+        if pipeline_items:
+            lines.append("Active pipeline deals:")
+            lines.extend(pipeline_items)
 
     lines.append(
-        "\nUsing the data above, write a concise monthly owner update note in plain prose "
-        "(no bullets, no headers, one paragraph). Maximum ~150 words."
+        f"\nWrite a single flowing owner update note covering ALL properties above. "
+        f"Open with the reporting period. Scale length with property count (~{word_limit} words)."
     )
 
     return "\n".join(lines)
@@ -244,7 +277,7 @@ def generate_note(payload: dict) -> str:
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=500,
+        max_tokens=800,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_prompt(payload)}],
     )
@@ -258,13 +291,13 @@ def run_monthly_report(
     dry_run: bool = False,
 ) -> dict:
     """
-    Main entry point. Generates AI-drafted monthly notes for all matching
-    owner/property combinations, printing each note to stdout.
+    Main entry point. Generates AI-drafted monthly notes at the portfolio level.
+    One note per portfolio (covering all its properties) per owner.
 
     Args:
         month:       First day of the report month.
         owner_id:    If given, restrict to this RentVine contact ID.
-        property_id: If given, restrict to this Django Property PK.
+        property_id: If given, restrict to only the portfolio containing this Django Property PK.
         dry_run:     Skip DB writes; only print.
 
     Returns:
@@ -273,6 +306,7 @@ def run_monthly_report(
     _validate_settings()
 
     month_start, month_end = _month_bounds(month)
+    period_label = f"{month_start:%B %-d} \u2013 {(month_end - timedelta(days=1)):%B %-d, %Y}"
 
     owners_qs = Owner.objects.filter(is_active=True).prefetch_related("portfolios")
     if owner_id:
@@ -284,25 +318,28 @@ def run_monthly_report(
         return {"generated": 0, "failed": 0, "skipped": 0}
 
     # Fetch all LeadSimple deals once to avoid per-property API hammering
-    print("Fetching LeadSimple pipeline deals …")
     all_deals = ls_source.fetch_all_active_deals()
-    print(f"  {len(all_deals)} active deals fetched.")
+    if all_deals:
+        print(f"LeadSimple: {len(all_deals)} active deals fetched.")
 
     counters = {"generated": 0, "failed": 0, "skipped": 0}
     DIVIDER = "=" * 70
 
     for owner in owners:
-        properties = rv_source.get_owner_properties(owner)
-        if not properties:
-            continue
+        for portfolio in owner.portfolios.filter(is_active=True):
+            properties = list(portfolio.properties.filter(is_active=True))
+            if not properties:
+                continue
 
-        if property_id:
-            properties = [p for p in properties if p.pk == property_id]
+            if property_id:
+                if not any(p.pk == property_id for p in properties):
+                    continue
 
-        for prop in properties:
-            label = f"{owner.name} / {prop.address_line_1}"
+            label = f"{owner.name} / {portfolio.name}"
             try:
-                payload = collect_property_data(prop, owner, month_start, month_end, all_deals)
+                payload = collect_portfolio_data(
+                    portfolio, owner, month_start, month_end, all_deals
+                )
 
                 if not has_sufficient_data(payload):
                     print(f"\n[SKIPPED] {label} — no data found")
@@ -312,7 +349,7 @@ def run_monthly_report(
                             owner_id=str(owner.rentvine_contact_id),
                             owner_name=owner.name,
                             report_month=month_start,
-                            property_address=prop.address_line_1,
+                            portfolio_name=portfolio.name,
                             status="skipped",
                             report_data=payload,
                         )
@@ -322,8 +359,8 @@ def run_monthly_report(
 
                 print(f"\n{DIVIDER}")
                 print(f"OWNER: {owner.name}")
-                print(f"PROPERTY: {prop.address_line_1}")
-                print(f"MONTH: {month_start:%B %Y}")
+                print(f"PORTFOLIO: {portfolio.name} ({len(properties)} propert{'ies' if len(properties) != 1 else 'y'})")
+                print(f"PERIOD: {period_label}")
                 print(DIVIDER)
                 print(note)
                 print(DIVIDER)
@@ -335,7 +372,7 @@ def run_monthly_report(
                         owner_id=str(owner.rentvine_contact_id),
                         owner_name=owner.name,
                         report_month=month_start,
-                        property_address=prop.address_line_1,
+                        portfolio_name=portfolio.name,
                         status="success",
                         report_data=payload,
                         generated_note=note,
@@ -349,9 +386,9 @@ def run_monthly_report(
                         owner_id=str(owner.rentvine_contact_id),
                         owner_name=owner.name,
                         report_month=month_start,
-                        property_address=prop.address_line_1,
+                        portfolio_name=portfolio.name,
                         status="failed",
-                        error_message=f"Unhandled exception — see server logs",
+                        error_message="Unhandled exception — see server logs",
                     )
 
     return counters

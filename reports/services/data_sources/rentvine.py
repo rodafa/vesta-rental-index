@@ -130,11 +130,14 @@ def get_tenant_notes(lease, since_days: int = 45) -> list:
 
         return notes
 
-    except Exception:
+    except Exception as exc:
+        from integrations.rentvine.client import RentvineAPIError
+        if isinstance(exc, RentvineAPIError) and exc.status_code == 404:
+            # 404 means this lease simply has no notes — expected, not an error
+            return []
         logger.warning(
-            "Could not fetch tenant notes for lease %s (contact %s)",
+            "Could not fetch tenant notes for lease %s",
             lease.rentvine_id,
-            tenant.rentvine_contact_id,
             exc_info=True,
         )
         return []

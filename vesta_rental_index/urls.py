@@ -26,6 +26,7 @@ from leasing.listing_alerts_api import router as listing_alerts_router
 from market.api import router as market_router
 from properties.api import router as properties_router
 from onboarding.api import router as onboarding_router
+from reports.api import router as reports_router
 from screening.api import router as screening_router
 
 
@@ -86,6 +87,7 @@ api.add_router("/pipeline/", pipeline_router)
 api.add_router("/listing-alerts/", listing_alerts_router)
 api.add_router("/maintenance/", maintenance_router)
 api.add_router("/onboard/", onboarding_router)
+api.add_router("/reports/", reports_router)
 
 urlpatterns = [
     path("admin/", admin.site.urls),

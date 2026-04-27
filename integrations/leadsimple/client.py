@@ -33,7 +33,7 @@ class LeadSimpleClient:
         Each dict: {name, stage_name, created_at (date str YYYY-MM-DD), comments (str ≤200 chars)}
         """
         if not self.api_key or not self.pipeline_id:
-            logger.warning("LeadSimple: API_KEY or PIPELINE_ID not configured")
+            logger.debug("LeadSimple: API_KEY or PIPELINE_ID not configured — skipping pipeline context")
             return []
 
         cutoff = date.today() - timedelta(days=90)
@@ -47,8 +47,12 @@ class LeadSimpleClient:
                     per_page=100,
                     page=page,
                 )
-            except Exception:
-                logger.exception("LeadSimple: failed to fetch deals (page %s)", page)
+            except Exception as exc:
+                status = getattr(getattr(exc, 'response', None), 'status_code', None)
+                if status == 404:
+                    logger.debug("LeadSimple: pipeline %s not found (404) — no pipeline context", self.pipeline_id)
+                else:
+                    logger.warning("LeadSimple: failed to fetch deals (page %s)", page, exc_info=True)
                 break
 
             # API may return a list directly or a dict with a 'data' key

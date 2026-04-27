@@ -52,6 +52,11 @@ def maintenance_emails(request):
     return render(request, "dashboard/maintenance_emails.html")
 
 
+@login_required
+def owner_notes(request):
+    return render(request, "dashboard/owner_notes.html")
+
+
 class PasswordChangeCompleteView(View):
     """Clear the must_change_password flag and redirect to dashboard."""
 

@@ -391,6 +391,19 @@ def list_property_notes(
     return [_prop_note_to_dict(n) for n in qs]
 
 
+class PropertyNoteDraftSchema(Schema):
+    week_date: Optional[date] = None
+
+
+@router.post("/property-notes/draft")
+def draft_property_notes(request, data: PropertyNoteDraftSchema):
+    """AI-draft PropertyWeeklyNote records for all actively-listed units."""
+    from dashboard.draft_notes import draft_all_property_notes
+
+    result = draft_all_property_notes(week_date=data.week_date)
+    return {"drafted": result["drafted"], "skipped": result["skipped"]}
+
+
 @router.post("/property-notes", response=PropertyWeeklyNoteSchema)
 def create_property_note(request, data: PropertyWeeklyNoteCreateSchema):
     # Use logged-in user as author when available
