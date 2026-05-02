@@ -199,6 +199,10 @@ VESTA_API_KEY = os.environ.get("VESTA_API_KEY", "")
 # Email (SendGrid via django-anymail)
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_WEBHOOK_SECRET = os.environ.get("SENDGRID_WEBHOOK_SECRET", "")
+SG_OWNER_REPORT_TEMPLATE_ID = os.environ.get(
+    "SG_OWNER_REPORT_TEMPLATE_ID", "d-3083295c8c354ccfb8365e9cec9760ae"
+)
+SG_OWNER_REPORT_CC = os.environ.get("SG_OWNER_REPORT_CC", "accounting@vestapm.com")
 if SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
     ANYMAIL = {"SENDGRID_API_KEY": SENDGRID_API_KEY}

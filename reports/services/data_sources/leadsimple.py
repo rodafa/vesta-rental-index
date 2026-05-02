@@ -13,6 +13,7 @@ _STAGE_KEYWORDS = {
     "renewal": ["renew", "renewal", "extension"],
     "late_rent": ["late", "notice", "eviction", "delinquent", "past due"],
     "move_out": ["move-out", "move out", "vacate", "move_out"],
+    "issues": ["issue", "dispute", "complaint", "concern", "violation"],
 }
 
 
@@ -74,17 +75,18 @@ def get_property_pipeline_context(property_obj, all_deals: list) -> dict:
     context = _empty_context()
     for deal in matched:
         pt = deal["pipeline_type"]
-        key = pt + "s" if pt not in ("late_rent", "other") else pt
-        if key == "applications":
+        if pt == "application":
             context["applications"].append(deal)
-        elif key == "move_ins":
+        elif pt == "move_in":
             context["move_ins"].append(deal)
-        elif key == "renewals":
+        elif pt == "renewal":
             context["renewals"].append(deal)
         elif pt == "late_rent":
             context["late_rent"].append(deal)
-        elif key == "move_outs":
+        elif pt == "move_out":
             context["move_outs"].append(deal)
+        elif pt == "issues":
+            context["issues"].append(deal)
         else:
             context["other"].append(deal)
 
@@ -98,5 +100,6 @@ def _empty_context() -> dict:
         "renewals": [],
         "late_rent": [],
         "move_outs": [],
+        "issues": [],
         "other": [],
     }

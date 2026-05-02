@@ -14,4 +14,5 @@ urlpatterns = [
     path("leasing/", views.leasing_pipeline, name="leasing_pipeline"),
     path("maintenance-emails/", views.maintenance_emails, name="maintenance_emails"),
     path("owner-notes/", views.owner_notes, name="owner_notes"),
+    path("monthly-notes/", views.monthly_notes, name="monthly_notes"),
 ]

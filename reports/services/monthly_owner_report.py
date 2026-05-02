@@ -20,22 +20,39 @@ from reports.services.data_sources import leadsimple as ls_source
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "You are a property manager at Vesta Property Management writing a monthly owner update note. "
-    "This note will be pasted directly into RentVine's owner notes field.\n\n"
-    "STRICT FORMATTING RULES:\n"
-    "- Flowing paragraph sentences only. No bullet points, no dashes, no headers, no bold, no markdown.\n"
-    "- No blank lines between topics. One continuous block of text.\n"
-    "- No section labels or titles.\n"
-    "- Include only relevant and actionable information.\n"
-    "- When more detail exists than belongs, close with a pointer to PropertyMeld or the RentVine portal.\n"
-    "- Write as 'We' / 'our' (Vesta's voice). Be transparent about problems and what's being done.\n"
-    "- Open with the reporting period (e.g., 'For the period March 1 through March 31, 2026, ...').\n"
-    "- When covering a portfolio with multiple properties, address each property naturally in the flow.\n\n"
-    "CORRECT FORMAT: \"For the period March 1 through March 31, 2026, your tenant at 123 Main Street "
-    "is current on rent. We received $1,400, of which $400 is still processing. There is one open "
-    "work order for an HVAC filter replacement assigned to the vendor on the 14th. Please check "
-    "PropertyMeld for real-time status.\"\n\n"
-    "INCORRECT FORMAT: \"Rent Status:\\n- Received: $1,400\\nMaintenance:\\n• HVAC filter — open\""
+    "You are writing a monthly property update note for a real estate investor. "
+    "The note will be pasted directly into a property management portal and read "
+    "by the property owner.\n\n"
+
+    "Formatting rules — follow these exactly:\n"
+    "- Begin with the property address on its own line, nothing before it\n"
+    "- Use bullet points throughout\n"
+    "- Nest sub-bullets where needed for clarity\n"
+    "- No bold, no markdown headers, no dividing lines, no preamble\n"
+    "- Do not start with \"For the period...\" or any greeting\n"
+    "- Only include information that is relevant and actionable\n"
+    "- Do not mention cancelled work orders\n"
+    "- Do not include vendor names — refer to any outside vendor as "
+    "\"one of our trusted vendors\"\n"
+    "- When full detail exists beyond what belongs in the note, close with "
+    "a pointer to PropertyMeld or the RentVine owner portal\n\n"
+
+    "Data sequence — present information in this order, omitting any section "
+    "with no relevant data:\n"
+    "1. Portfolio-level funds received and any pending/processing amounts\n"
+    "2. Reserve balance reminder if below minimum\n"
+    "3. Per-lease: end date, total rent due (including pet rent), rent received, "
+    "overdue balance if any\n"
+    "4. LeadSimple process updates (Applications, Move-Ins, Lease Renewals, "
+    "Late Rent, Move-Outs, Issues) — active records only, in Vesta's voice, "
+    "never mention LeadSimple by name\n"
+    "5. Maintenance: all work orders active at any point during the period, "
+    "excluding cancelled ones\n"
+    "6. Leasing/vacancy updates if applicable\n\n"
+
+    "Tone: warm, direct, and transparent. Every problem is paired with what is "
+    "being done about it. Owners are investors — be clear and do not bury "
+    "important information."
 )
 
 
@@ -70,7 +87,6 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
         "active_lease": None,
         "upcoming_lease": None,
         "financials": None,
-        "tenant_notes": [],
         "melds": [],
         "pipeline": None,
     }
@@ -83,6 +99,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
                 "rentvine_id": active_lease.rentvine_id,
                 "tenant_names": [t.name for t in active_lease.tenants.all()],
                 "rent_amount": float(active_lease.rent_amount or 0),
+                "pet_rent_amount": float(active_lease.pet_rent_amount or 0),
                 "start_date": active_lease.start_date.isoformat() if active_lease.start_date else None,
                 "end_date": active_lease.end_date.isoformat() if active_lease.end_date else None,
                 "notice_date": active_lease.notice_date.isoformat() if active_lease.notice_date else None,
@@ -114,12 +131,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
         logger.warning("Failed to fetch financials for property %s", property_obj.pk, exc_info=True)
 
     try:
-        data["tenant_notes"] = rv_source.get_tenant_notes(active_lease)
-    except Exception:
-        logger.warning("Failed to fetch tenant notes for property %s", property_obj.pk, exc_info=True)
-
-    try:
-        data["melds"] = pm_source.get_recent_melds(property_obj)
+        data["melds"] = pm_source.get_melds_for_period(property_obj, month_start, month_end)
     except Exception:
         logger.warning("Failed to fetch melds for property %s", property_obj.pk, exc_info=True)
 
@@ -139,6 +151,16 @@ def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: 
     properties = list(portfolio.properties.filter(is_active=True))
     month_end_display = (month_end - timedelta(days=1)).isoformat()  # "2026-03-31"
 
+    portfolio_financials = None
+    try:
+        portfolio_financials = rv_source.get_portfolio_financial_summary(
+            portfolio, month_start, month_end
+        )
+    except Exception:
+        logger.warning(
+            "Failed to fetch portfolio financials for portfolio %s", portfolio.pk, exc_info=True
+        )
+
     prop_data = []
     for prop in properties:
         prop_data.append(collect_property_data(prop, owner, month_start, month_end, all_deals))
@@ -149,6 +171,7 @@ def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: 
         "portfolio_name": portfolio.name,
         "month_start": month_start.isoformat(),
         "month_end_display": month_end_display,
+        "portfolio_financials": portfolio_financials,
         "properties": prop_data,
     }
 
@@ -162,10 +185,47 @@ def has_sufficient_data(payload: dict) -> bool:
         or prop.get("melds")
         or any(
             (prop.get("pipeline") or {}).get(k)
-            for k in ("applications", "move_ins", "renewals", "late_rent", "move_outs", "other")
+            for k in ("applications", "move_ins", "renewals", "late_rent", "move_outs", "issues", "other")
         )
         for prop in payload["properties"]
     )
+
+
+# Statuses that indicate a work order is resolved/closed (not cancelled — those
+# are filtered at query time in propertymeld.py).
+_MELD_CLOSED_STATUSES = {
+    "COMPLETED",
+    "COMPLETE",
+    "CLOSED",
+    "MAINTENANCE_COULD_NOT_COMPLETE",
+    "VENDOR_COULD_NOT_COMPLETE",
+}
+
+
+def _classify_melds(melds: list) -> tuple[list, list]:
+    """
+    Split a list of meld dicts into (open_melds, completed_melds).
+    Cancelled melds are already excluded before this point.
+    """
+    open_melds = [m for m in melds if m.get("status", "").upper() not in _MELD_CLOSED_STATUSES]
+    completed_melds = [m for m in melds if m.get("status", "").upper() in _MELD_CLOSED_STATUSES]
+    return open_melds, completed_melds
+
+
+def _format_meld(m: dict) -> str:
+    """Format a single meld dict into a compact prompt line. Vendor name is never included."""
+    parts = [f"  - {m['description']} [{m['status']}]"]
+    if m.get("category"):
+        parts.append(f"category: {m['category']}")
+    if m.get("priority") and m["priority"].upper() != "LOW":
+        parts.append(f"priority: {m['priority']}")
+    if m.get("has_vendor"):
+        parts.append("handled by vendor")
+    if m.get("scheduled_date"):
+        parts.append(f"scheduled: {m['scheduled_date']}")
+    if m.get("completed_date"):
+        parts.append(f"completed: {m['completed_date']}")
+    return ", ".join(parts)
 
 
 def build_prompt(payload: dict) -> str:
@@ -174,13 +234,12 @@ def build_prompt(payload: dict) -> str:
     month_start_str = payload["month_start"]
     month_end_str = payload["month_end_display"]
 
-    # Format dates as "March 1, 2026" / "March 31, 2026"
     ms = date.fromisoformat(month_start_str)
     me = date.fromisoformat(month_end_str)
     period_start = ms.strftime("%B %-d, %Y")
     period_end = me.strftime("%B %-d, %Y")
 
-    word_limit = min(150 + (len(properties) - 1) * 75, 400)
+    word_limit = min(250 + (len(properties) - 1) * 100, 600)
 
     lines = [
         f"Reporting period: {period_start} through {period_end}",
@@ -188,85 +247,134 @@ def build_prompt(payload: dict) -> str:
         f"Portfolio: {payload['portfolio_name']}",
     ]
 
+    # ── 1. PORTFOLIO-LEVEL FINANCIALS ─────────────────────────────────────────
+    pf = payload.get("portfolio_financials")
+    if pf:
+        lines.append(
+            f"Portfolio total received this period: ${pf['total_received']:,.2f} "
+            "(no clearing/pending status data available — report only the confirmed total received)"
+        )
+        reserve = pf["reserve_amount"] + pf["additional_reserve_amount"]
+        if reserve > 0:
+            lines.append(f"Portfolio reserve balance on file: ${reserve:,.2f}")
+        else:
+            lines.append(
+                "Portfolio reserve balance: $0.00 "
+                "(flag this — remind owner to ensure reserve requirements are met)"
+            )
+        if pf.get("hold_distributions"):
+            lines.append("NOTE: distributions are currently on hold for this portfolio")
+    else:
+        lines.append("Portfolio financials: unavailable — omit portfolio-level section")
+
+    # ── PER PROPERTY ──────────────────────────────────────────────────────────
     for prop in properties:
         lines.append(f"\n=== {prop['address']} ===")
 
+        # ── 2. PER-LEASE FINANCIALS ───────────────────────────────────────────
         al = prop.get("active_lease")
+        fin = prop.get("financials")
+
         if al:
-            tenants = ", ".join(al["tenant_names"]) or "unknown"
-            rent = f"${al['rent_amount']:,.2f}/mo" if al.get("rent_amount") else ""
-            lease_end = f"Lease ends: {al['end_date']}" if al.get("end_date") else ""
-            summary_parts = [f"Current tenant: {tenants}"]
-            if rent:
-                summary_parts.append(f"Rent: {rent}")
-            if lease_end:
-                summary_parts.append(lease_end)
-            lines.append(" | ".join(summary_parts))
+            rent_due = al["rent_amount"]
+            pet_rent = al["pet_rent_amount"]
+            received = fin["paid"] if fin else 0.0
+            all_time_overdue = fin.get("all_time_overdue", 0.0) if fin else 0.0
+
+            lease_line = f"Lease ends {al['end_date'] or 'unknown date'}. "
+            if pet_rent > 0:
+                lease_line += (
+                    f"Total rent due: ${rent_due:,.2f}/mo (includes ${pet_rent:,.2f} pet rent). "
+                )
+            else:
+                lease_line += f"Total rent due: ${rent_due:,.2f}/mo. "
+            lease_line += f"Received this period: ${received:,.2f}."
+            lines.append(lease_line)
+
+            if all_time_overdue > 0:
+                lines.append(
+                    f"Current overdue balance: ${all_time_overdue:,.2f} "
+                    "(flag this; cross-reference any active late rent pipeline process)"
+                )
+
             if al.get("notice_date"):
-                lines.append(f"Notice given: {al['notice_date']}")
+                lines.append(f"Notice to vacate given: {al['notice_date']}")
             if al.get("expected_move_out"):
                 lines.append(f"Expected move-out: {al['expected_move_out']}")
+        else:
+            lines.append(
+                "No active lease — property is currently vacant. "
+                "Report in leasing/vacancy section (section 6)."
+            )
 
         ul = prop.get("upcoming_lease")
         if ul:
             tenants = ", ".join(ul["tenant_names"]) or "unknown"
-            lines.append(f"Upcoming tenant: {tenants}")
+            lines.append(f"Upcoming lease — tenant: {tenants}")
             if ul.get("move_in_date"):
-                lines.append(f"Move-in date: {ul['move_in_date']}")
+                lines.append(f"  Move-in date: {ul['move_in_date']}")
             if ul.get("rent_amount"):
-                lines.append(f"New rent: ${ul['rent_amount']:,.2f}")
+                lines.append(f"  New rent: ${ul['rent_amount']:,.2f}/mo")
 
-        fin = prop.get("financials")
-        if fin and fin.get("has_data"):
-            fin_line = f"Financial: charged ${fin['charged']:,.2f}, paid ${fin['paid']:,.2f}"
-            if fin["outstanding_balance"] > 0:
-                fin_line += f", outstanding ${fin['outstanding_balance']:,.2f}"
-            lines.append(fin_line)
-
-        notes = prop.get("tenant_notes") or []
-        if notes:
-            lines.append(f"Tenant communications (last 45 days):")
-            for n in notes[:5]:
-                lines.append(f"  [{n['created_at']}] {n['note_text']}")
-
-        melds = prop.get("melds") or []
-        if melds:
-            lines.append(f"Maintenance (last 30 days) — {len(melds)} item(s):")
-            for m in melds[:8]:
-                parts = [f"  - {m['description']} [{m['status']}]"]
-                if m.get("category"):
-                    parts.append(f"category: {m['category']}")
-                if m.get("priority") and m["priority"] != "LOW":
-                    parts.append(f"priority: {m['priority']}")
-                if m.get("vendor"):
-                    parts.append(f"vendor: {m['vendor']}")
-                if m.get("scheduled_date"):
-                    parts.append(f"scheduled: {m['scheduled_date']}")
-                if m.get("completed_date"):
-                    parts.append(f"completed: {m['completed_date']}")
-                lines.append(", ".join(parts))
-
+        # ── 3. LEADSIMPLE PIPELINE ────────────────────────────────────────────
         pipe = prop.get("pipeline") or {}
         pipeline_items = []
         for key, label in [
             ("applications", "Application in progress"),
             ("move_ins", "Move-in in progress"),
-            ("renewals", "Renewal in progress"),
+            ("renewals", "Lease renewal in progress"),
             ("late_rent", "Late rent / delinquency"),
             ("move_outs", "Move-out in progress"),
+            ("issues", "Active issue"),
         ]:
             for deal in pipe.get(key, []):
-                pipeline_items.append(
-                    f"  - {label}: {deal['name']} (stage: {deal['stage_name']}, "
-                    f"since: {deal['created_at']})"
+                item = (
+                    f"  - {label}: {deal['name']} "
+                    f"(stage: {deal['stage_name']}, since: {deal['created_at']})"
                 )
+                if deal.get("comments"):
+                    item += f"\n    notes: {str(deal['comments'])[:200]}"
+                pipeline_items.append(item)
+
         if pipeline_items:
-            lines.append("Active pipeline deals:")
+            lines.append(
+                "Active pipeline processes (write in Vesta's voice — never mention LeadSimple):"
+            )
             lines.extend(pipeline_items)
 
+        # ── 4. MAINTENANCE ────────────────────────────────────────────────────
+        melds = prop.get("melds") or []
+        if melds:
+            open_melds, completed_melds = _classify_melds(melds)
+            total = len(melds)
+            if total > 4:
+                lines.append(
+                    f"Maintenance — {total} work orders were active during this period "
+                    f"({len(open_melds)} still open, {len(completed_melds)} completed). "
+                    "Summarize the pattern briefly, then close with a pointer to PropertyMeld:"
+                )
+                for m in (open_melds + completed_melds)[:6]:
+                    lines.append(_format_meld(m))
+            else:
+                lines.append(
+                    f"Maintenance — {total} work order(s) active during this period:"
+                )
+                for m in open_melds + completed_melds:
+                    lines.append(_format_meld(m))
+        # If no melds: omit the maintenance section — do not say "no maintenance to report"
+
+    # ── CLOSING INSTRUCTION ───────────────────────────────────────────────────
+    property_addresses = [p["address"] for p in properties]
+    addr_list = ", ".join(property_addresses)
     lines.append(
-        f"\nWrite a single flowing owner update note covering ALL properties above. "
-        f"Open with the reporting period. Scale length with property count (~{word_limit} words)."
+        f"\nWrite the owner note for: {addr_list}. "
+        f"Follow all formatting rules: start with the property address on its own line, "
+        f"bullet points throughout, no bold, no headers, no preamble. "
+        f"Present data in order: portfolio funds → lease details → pipeline updates → "
+        f"maintenance → vacancy/leasing. Omit any section with no relevant data. "
+        f"Use only exact figures — do not round, estimate, or infer any numbers. "
+        f"Do not mention vendor names. "
+        f"Target approximately {word_limit} words."
     )
 
     return "\n".join(lines)
@@ -304,6 +412,11 @@ def run_monthly_report(
         {"generated": N, "failed": N, "skipped": N}
     """
     _validate_settings()
+
+    if dry_run:
+        print("\n--- SYSTEM PROMPT (for verification) ---")
+        print(SYSTEM_PROMPT)
+        print("--- END SYSTEM PROMPT ---\n")
 
     month_start, month_end = _month_bounds(month)
     period_label = f"{month_start:%B %-d} \u2013 {(month_end - timedelta(days=1)):%B %-d, %Y}"
@@ -357,6 +470,19 @@ def run_monthly_report(
 
                 note = generate_note(payload)
 
+                # Fetch RentVine owner statement for this portfolio
+                statement_data = {}
+                try:
+                    statement_data = rv_source.get_portfolio_statement(
+                        portfolio.rentvine_id
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to fetch statement for portfolio %s",
+                        portfolio.pk,
+                        exc_info=True,
+                    )
+
                 print(f"\n{DIVIDER}")
                 print(f"OWNER: {owner.name}")
                 print(f"PORTFOLIO: {portfolio.name} ({len(properties)} propert{'ies' if len(properties) != 1 else 'y'})")
@@ -373,9 +499,16 @@ def run_monthly_report(
                         owner_name=owner.name,
                         report_month=month_start,
                         portfolio_name=portfolio.name,
-                        status="success",
+                        status="pending",
                         report_data=payload,
                         generated_note=note,
+                        statement_period=statement_data.get("statement_period", ""),
+                        beginning_balance=statement_data.get("beginning_balance", 0),
+                        total_income=statement_data.get("total_income", 0),
+                        total_expenses=statement_data.get("total_expenses", 0),
+                        total_adjustments=statement_data.get("total_adjustments", 0),
+                        ending_balance=statement_data.get("ending_balance", 0),
+                        total_distribution=statement_data.get("total_distribution", 0),
                     )
 
             except Exception:

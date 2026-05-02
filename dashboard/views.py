@@ -57,6 +57,11 @@ def owner_notes(request):
     return render(request, "dashboard/owner_notes.html")
 
 
+@login_required
+def monthly_notes(request):
+    return render(request, "dashboard/monthly_notes.html")
+
+
 class PasswordChangeCompleteView(View):
     """Clear the must_change_password flag and redirect to dashboard."""
 

@@ -5,7 +5,7 @@ Combines local DB queries with a live API call for tenant notes.
 import logging
 from datetime import timedelta
 
-from django.db.models import Q, Sum
+from django.db.models import Sum
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ def get_financial_summary(property_obj, month_start, month_end) -> dict:
     property during [month_start, month_end).
 
     Returns:
-        {charged, paid, outstanding_balance, has_data: bool}
+        {charged, paid, outstanding_balance, all_time_overdue, has_data: bool}
     """
     from accounting.models import Transaction
 
@@ -78,12 +78,119 @@ def get_financial_summary(property_obj, month_start, month_end) -> dict:
     paid = float(paid_agg["total"] or 0)
     outstanding = max(charged - paid, 0)
 
+    # All-time running balance (total charges minus total payments across all dates)
+    all_charged = float(
+        Transaction.objects.filter(
+            property=property_obj, transaction_type=1, is_voided=False
+        ).aggregate(total=Sum("amount"))["total"] or 0
+    )
+    all_paid = float(
+        Transaction.objects.filter(
+            property=property_obj, transaction_type=2, is_voided=False
+        ).aggregate(total=Sum("amount"))["total"] or 0
+    )
+    all_time_overdue = max(all_charged - all_paid, 0)
+
     return {
         "charged": charged,
         "paid": paid,
         "outstanding_balance": outstanding,
+        "all_time_overdue": all_time_overdue,
         "has_data": charged > 0 or paid > 0,
     }
+
+
+def get_portfolio_financial_summary(portfolio, month_start, month_end) -> dict:
+    """
+    Aggregate payments received across all properties in the portfolio
+    for [month_start, month_end). Also returns reserve balance info.
+
+    Returns:
+        {total_received, reserve_amount, additional_reserve_amount, hold_distributions}
+    """
+    from accounting.models import Transaction
+
+    total_received = float(
+        Transaction.objects.filter(
+            portfolio=portfolio,
+            transaction_type=2,  # Lease Payment
+            is_voided=False,
+            date_posted__gte=month_start,
+            date_posted__lt=month_end,
+        ).aggregate(total=Sum("amount"))["total"] or 0
+    )
+
+    return {
+        "total_received": total_received,
+        "reserve_amount": float(portfolio.reserve_amount or 0),
+        "additional_reserve_amount": float(portfolio.additional_reserve_amount or 0),
+        "hold_distributions": bool(portfolio.hold_distributions),
+    }
+
+
+def _empty_statement() -> dict:
+    return {
+        "statement_period": "",
+        "beginning_balance": 0.0,
+        "total_income": 0.0,
+        "total_expenses": 0.0,
+        "total_adjustments": 0.0,
+        "ending_balance": 0.0,
+        "total_distribution": 0.0,
+    }
+
+
+def get_portfolio_statement(portfolio_rentvine_id) -> dict:
+    """
+    Fetch the most recent owner statement for a portfolio from RentVine.
+
+    Calls GET /portfolios/{id}/statements?type=owner&limit=1&sort=-endDate
+    and parses the statement object.
+
+    Returns a dict with period string and all financial totals.
+    Returns all-zeros dict on any error or when no statement exists.
+    """
+    try:
+        from integrations.rentvine.client import RentvineClient
+
+        client = RentvineClient()
+        response = client.get(
+            f"portfolios/{portfolio_rentvine_id}/statements",
+            params={"type": "owner", "limit": 1, "sort": "-endDate"},
+        )
+
+        if isinstance(response, list):
+            statements = response
+        elif isinstance(response, dict):
+            statements = response.get("data") or response.get("results") or []
+        else:
+            statements = []
+
+        if not statements:
+            return _empty_statement()
+
+        raw = statements[0]
+        data = raw.get("statement") or raw
+
+        return {
+            "statement_period": (
+                f"{data.get('startDate', '')} - {data.get('endDate', '')}"
+            ).strip(" -"),
+            "beginning_balance": float(data.get("beginningBalance") or 0),
+            "total_income": float(data.get("totalIncomeAmount") or 0),
+            "total_expenses": float(data.get("totalExpenseAmount") or 0),
+            "total_adjustments": float(data.get("totalAdjustmentAmount") or 0),
+            "ending_balance": float(data.get("endingBalance") or 0),
+            "total_distribution": float(data.get("totalDistributionAmount") or 0),
+        }
+
+    except Exception:
+        logger.warning(
+            "Could not fetch statement for portfolio %s",
+            portfolio_rentvine_id,
+            exc_info=True,
+        )
+        return _empty_statement()
 
 
 def get_tenant_notes(lease, since_days: int = 45) -> list:
