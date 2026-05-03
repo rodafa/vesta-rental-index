@@ -91,16 +91,6 @@ def list_notes(request, month: str):
     return results
 
 
-@router.put("/owner-notes/{note_id}")
-def update_note(request, note_id: int, payload: NoteUpdate):
-    note = OwnerReportLog.objects.get(
-        id=note_id, status__in=["success", "pending", "approved"]
-    )
-    note.generated_note = payload.generated_note
-    note.save(update_fields=["generated_note"])
-    return _note_dict(note)
-
-
 @router.post("/owner-notes/generate")
 def generate_notes(request, payload: GenerateSchema):
     if payload.month in _active_runs:
@@ -139,30 +129,6 @@ def generate_notes(request, payload: GenerateSchema):
     return {"ok": True, "month": month_str}
 
 
-# ---------------------------------------------------------------------------
-# Approve / Send workflow
-# ---------------------------------------------------------------------------
-
-@router.post("/owner-notes/{note_id}/approve")
-def approve_note(request, note_id: int):
-    """Mark report as approved, ready to send."""
-    from reports.services.send_owner_report import approve_owner_report
-    report = approve_owner_report(note_id)
-    return _note_dict(report)
-
-
-@router.post("/owner-notes/{note_id}/send")
-def send_note(request, note_id: int):
-    """Send the report via SendGrid dynamic template."""
-    from reports.services.send_owner_report import send_owner_report
-    success, message = send_owner_report(note_id)
-    report = OwnerReportLog.objects.get(id=note_id)
-    result = _note_dict(report)
-    result["ok"] = success
-    result["message"] = message
-    return result
-
-
 @router.post("/owner-notes/send-all")
 def send_all_approved(request, month: Optional[str] = None):
     """
@@ -190,3 +156,37 @@ def send_all_approved(request, month: Optional[str] = None):
             failed_count += 1
 
     return {"sent": sent_count, "failed": failed_count, "total": sent_count + failed_count}
+
+
+# ---------------------------------------------------------------------------
+# Parameterised routes — must come AFTER all fixed-path routes above
+# ---------------------------------------------------------------------------
+
+@router.put("/owner-notes/{note_id}")
+def update_note(request, note_id: int, payload: NoteUpdate):
+    note = OwnerReportLog.objects.get(
+        id=note_id, status__in=["success", "pending", "approved"]
+    )
+    note.generated_note = payload.generated_note
+    note.save(update_fields=["generated_note"])
+    return _note_dict(note)
+
+
+@router.post("/owner-notes/{note_id}/approve")
+def approve_note(request, note_id: int):
+    """Mark report as approved, ready to send."""
+    from reports.services.send_owner_report import approve_owner_report
+    report = approve_owner_report(note_id)
+    return _note_dict(report)
+
+
+@router.post("/owner-notes/{note_id}/send")
+def send_note(request, note_id: int):
+    """Send the report via SendGrid dynamic template."""
+    from reports.services.send_owner_report import send_owner_report
+    success, message = send_owner_report(note_id)
+    report = OwnerReportLog.objects.get(id=note_id)
+    result = _note_dict(report)
+    result["ok"] = success
+    result["message"] = message
+    return result
