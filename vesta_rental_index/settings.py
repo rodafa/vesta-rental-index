@@ -253,9 +253,8 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # LeadSimple
 LEADSIMPLE = {
-    "BASE_URL": os.environ.get("LEADSIMPLE_BASE_URL", "https://api.leadsimple.com/v1"),
+    "BASE_URL": os.environ.get("LEADSIMPLE_BASE_URL") or "https://api.leadsimple.com/rest",
     "API_KEY": os.environ.get("LEADSIMPLE_API_KEY", ""),
-    "PIPELINE_ID": os.environ.get("LEADSIMPLE_PIPELINE_ID", "5be6c424-2926-4a6f-b2b2-6cff8d57a90f"),
 }
 
 # Property Meld

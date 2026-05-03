@@ -19,15 +19,14 @@ _STAGE_KEYWORDS = {
 
 def fetch_all_active_deals() -> list:
     """
-    Fetch all active LeadSimple deals. Returns [] on any error.
-    Keeps the API call at pipeline level, not per-property.
+    Fetch all active LeadSimple processes. Returns [] on any error.
     """
     try:
         from integrations.leadsimple.client import LeadSimpleClient
 
-        return LeadSimpleClient().get_active_deals()
+        return LeadSimpleClient().get_active_processes()
     except Exception:
-        logger.warning("LeadSimple: could not fetch active deals", exc_info=True)
+        logger.warning("LeadSimple: could not fetch active processes", exc_info=True)
         return []
 
 
@@ -61,8 +60,8 @@ def get_property_pipeline_context(property_obj, all_deals: list) -> dict:
 
     matched = []
     for deal in all_deals:
-        deal_name = (deal.get("name") or "").lower()
-        if street in deal_name:
+        deal_address = (deal.get("address") or deal.get("name") or "").lower()
+        if street in deal_address:
             pipeline_type = classify_deal(deal)
             matched.append({
                 "name": deal.get("name", ""),
