@@ -13,13 +13,13 @@
     margin-bottom: .6rem;
   }
   .mn-controls label { font-size: .8rem; font-weight: 600; color: #555; }
-  .mn-controls input[type="month"],
+  .mn-controls input[type="date"],
   .mn-controls input[type="text"],
   .mn-controls input[type="number"] {
     font-size: .875rem; padding: .35rem .55rem; border: 1px solid #d1d5db;
     border-radius: 4px; background: #fff;
   }
-  .mn-controls input[type="month"] { width: 155px; }
+  .mn-controls input[type="date"]  { width: 145px; }
   .mn-controls input[type="text"]  { width: 130px; }
   .mn-controls input[type="number"]{ width: 100px; }
   .mn-dry-run { display: flex; align-items: center; gap: .35rem; font-size: .82rem; color: #555; cursor: pointer; }
@@ -107,8 +107,12 @@
 <!-- Controls -->
 <div class="mn-controls">
   <div>
-    <label for="month-input">Month</label><br>
-    <input type="month" id="month-input">
+    <label for="start-date-input">From</label><br>
+    <input type="date" id="start-date-input">
+  </div>
+  <div>
+    <label for="end-date-input">To</label><br>
+    <input type="date" id="end-date-input">
   </div>
   <div>
     <label for="owner-id-input">Owner ID <span style="font-weight:400;color:#9ca3af">(optional)</span></label><br>
@@ -190,5 +194,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=2"></script>
+<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=3"></script>
 {% endblock %}

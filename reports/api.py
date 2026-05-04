@@ -19,10 +19,12 @@ class NoteUpdate(Schema):
 
 
 class GenerateSchema(Schema):
-    month: str  # YYYY-MM
+    month: str  # YYYY-MM — used as DB key and run-status polling key
     dry_run: bool = False
     owner_id: Optional[str] = None
     property_id: Optional[int] = None
+    start_date: Optional[str] = None  # YYYY-MM-DD; overrides month start when provided
+    end_date: Optional[str] = None    # YYYY-MM-DD inclusive; overrides month end when provided
 
 
 def _note_dict(r):
@@ -106,6 +108,20 @@ def generate_notes(request, payload: GenerateSchema):
     property_id = payload.property_id
     dry_run = payload.dry_run
 
+    # Parse optional date range overrides
+    start_date = None
+    end_date = None
+    if payload.start_date:
+        try:
+            start_date = date.fromisoformat(payload.start_date)
+        except ValueError:
+            return {"ok": False, "error": f"Invalid start_date: {payload.start_date}. Use YYYY-MM-DD."}
+    if payload.end_date:
+        try:
+            end_date = date.fromisoformat(payload.end_date)
+        except ValueError:
+            return {"ok": False, "error": f"Invalid end_date: {payload.end_date}. Use YYYY-MM-DD."}
+
     _active_runs.add(month_str)
 
     def _run():
@@ -116,6 +132,8 @@ def generate_notes(request, payload: GenerateSchema):
                 owner_id=owner_id,
                 property_id=property_id,
                 dry_run=dry_run,
+                start_date=start_date,
+                end_date=end_date,
             )
             _last_run_results[month_str] = result
         except Exception as exc:

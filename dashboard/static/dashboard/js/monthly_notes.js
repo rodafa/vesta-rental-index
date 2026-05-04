@@ -13,7 +13,8 @@ document.addEventListener('DOMContentLoaded', function () {
   var _pollInterval = null;
 
   // ── DOM refs ───────────────────────────────────────────────────────────────
-  var monthInput        = document.getElementById('month-input');
+  var startDateInput    = document.getElementById('start-date-input');
+  var endDateInput      = document.getElementById('end-date-input');
   var ownerIdInput      = document.getElementById('owner-id-input');
   var propertyIdInput   = document.getElementById('property-id-input');
   var dryRunCheck       = document.getElementById('dry-run-check');
@@ -43,12 +44,30 @@ document.addEventListener('DOMContentLoaded', function () {
     return a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT');
   }
 
-  function lastMonth() {
+  // Return YYYY-MM-DD for first day of last month
+  function lastMonthStart() {
     var d = new Date();
     var y = d.getFullYear();
-    var m = d.getMonth(); // 0-indexed; 0 = Jan
+    var m = d.getMonth(); // 0-indexed; equals 1-indexed previous month number
     if (m === 0) { y -= 1; m = 12; }
-    return y + '-' + (m < 10 ? '0' + m : '' + m);
+    return y + '-' + (m < 10 ? '0' + m : '' + m) + '-01';
+  }
+
+  // Return YYYY-MM-DD for last day of last month
+  function lastMonthEnd() {
+    var d = new Date();
+    // new Date(y, m, 0) = last day of month m-1 (0-indexed)
+    var last = new Date(d.getFullYear(), d.getMonth(), 0);
+    var y = last.getFullYear();
+    var m = last.getMonth() + 1;
+    var day = last.getDate();
+    return y + '-' + (m < 10 ? '0' + m : '' + m) + '-' + (day < 10 ? '0' + day : '' + day);
+  }
+
+  // Derive YYYY-MM from start date for DB queries and polling key
+  function derivedMonth() {
+    var s = startDateInput.value;
+    return s ? s.substring(0, 7) : '';
   }
 
   function fmtCurrency(val) {
@@ -84,9 +103,9 @@ document.addEventListener('DOMContentLoaded', function () {
     return null;
   }
 
-  // ── Load notes for selected month ──────────────────────────────────────────
+  // ── Load notes for selected period ─────────────────────────────────────────
   function loadNotes() {
-    var month = monthInput.value;
+    var month = derivedMonth();
     if (!month) return;
 
     VestaAPI.get('/reports/owner-notes?month=' + month).then(function (data) {
@@ -283,8 +302,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ── Send all approved ──────────────────────────────────────────────────────
   function sendAllApproved() {
-    var month = monthInput.value;
-    if (!month) { VestaAPI.toast('Select a month first.', 'error'); return; }
+    var month = derivedMonth();
+    if (!month) { VestaAPI.toast('Select a date range first.', 'error'); return; }
 
     var approvedCount = 0;
     for (var i = 0; i < notes.length; i++) {
@@ -311,9 +330,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ── Run generation ─────────────────────────────────────────────────────────
   function runGeneration() {
-    var month = monthInput.value;
-    if (!month) { VestaAPI.toast('Select a month first.', 'error'); return; }
+    var startDate = startDateInput.value;
+    var endDate   = endDateInput.value;
+    if (!startDate || !endDate) { VestaAPI.toast('Select a date range first.', 'error'); return; }
+    if (endDate < startDate) { VestaAPI.toast('End date must be on or after start date.', 'error'); return; }
 
+    var month     = derivedMonth(); // YYYY-MM key for polling and DB
     var ownerId   = ownerIdInput.value.trim() || null;
     var propIdRaw = propertyIdInput.value.trim();
     var propId    = propIdRaw ? parseInt(propIdRaw, 10) : null;
@@ -321,13 +343,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
     runBtn.disabled = true;
     var dryLabel = isDryRun ? ' (dry run — no DB writes)' : '';
-    setStatus('running', 'Generating notes' + dryLabel + ' — this may take a minute…');
+    setStatus('running', 'Generating notes for ' + startDate + ' – ' + endDate + dryLabel + ' — this may take a minute…');
 
     VestaAPI.post('/reports/owner-notes/generate', {
       month: month,
       dry_run: isDryRun,
       owner_id: ownerId,
-      property_id: propId
+      property_id: propId,
+      start_date: startDate,
+      end_date: endDate
     }).then(function (resp) {
       if (!resp.ok) {
         setStatus('error', resp.error || 'Could not start generation.');
@@ -421,7 +445,8 @@ document.addEventListener('DOMContentLoaded', function () {
     updateWordCount();
   });
 
-  monthInput.addEventListener('change', function () {
+  // Changing start date resets the panel and reloads the note list
+  startDateInput.addEventListener('change', function () {
     _activeNoteId = null;
     _dirty = false;
     noteDetail.style.display = 'none';
@@ -430,6 +455,9 @@ document.addEventListener('DOMContentLoaded', function () {
     loadNotes();
   });
 
+  // Changing end date just reloads — keeps current selection
+  endDateInput.addEventListener('change', loadNotes);
+
   // ── Auto-refresh every 60s (skip if a poll is running) ────────────────────
   setInterval(function () {
     if (_pollInterval) return;
@@ -437,7 +465,8 @@ document.addEventListener('DOMContentLoaded', function () {
   }, 60000);
 
   // ── Init ───────────────────────────────────────────────────────────────────
-  monthInput.value = lastMonth();
+  startDateInput.value = lastMonthStart();
+  endDateInput.value   = lastMonthEnd();
   setStatus('idle', 'Ready.');
   loadNotes();
 });

@@ -397,6 +397,8 @@ def run_monthly_report(
     owner_id: str = None,
     property_id: int = None,
     dry_run: bool = False,
+    start_date: date = None,
+    end_date: date = None,
 ) -> dict:
     """
     Main entry point. Generates AI-drafted monthly notes at the portfolio level.
@@ -418,7 +420,11 @@ def run_monthly_report(
         print(SYSTEM_PROMPT)
         print("--- END SYSTEM PROMPT ---\n")
 
-    month_start, month_end = _month_bounds(month)
+    if start_date and end_date:
+        month_start = start_date
+        month_end = end_date + timedelta(days=1)  # exclusive upper bound
+    else:
+        month_start, month_end = _month_bounds(month)
     period_label = f"{month_start:%B %-d} \u2013 {(month_end - timedelta(days=1)):%B %-d, %Y}"
 
     owners_qs = Owner.objects.filter(is_active=True).prefetch_related("portfolios")
