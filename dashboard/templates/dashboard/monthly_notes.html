@@ -115,6 +115,10 @@
     <input type="date" id="end-date-input">
   </div>
   <div>
+    <label for="portfolio-name-input">Portfolio Name <span style="font-weight:400;color:#9ca3af">(optional)</span></label><br>
+    <input type="text" id="portfolio-name-input" placeholder="Exact RentVine name" style="width:200px">
+  </div>
+  <div>
     <label for="owner-id-input">Owner ID <span style="font-weight:400;color:#9ca3af">(optional)</span></label><br>
     <input type="text" id="owner-id-input" placeholder="RentVine ID">
   </div>
@@ -194,5 +198,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=4"></script>
+<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=5"></script>
 {% endblock %}

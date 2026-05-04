@@ -395,6 +395,7 @@ def generate_note(payload: dict) -> str:
 def run_monthly_report(
     month: date,
     owner_id: str = None,
+    portfolio_name: str = None,
     property_id: int = None,
     dry_run: bool = False,
     start_date: date = None,
@@ -445,7 +446,10 @@ def run_monthly_report(
     DIVIDER = "=" * 70
 
     for owner in owners:
-        for portfolio in owner.portfolios.filter(is_active=True):
+        portfolios_qs = owner.portfolios.filter(is_active=True)
+        if portfolio_name:
+            portfolios_qs = portfolios_qs.filter(name__iexact=portfolio_name)
+        for portfolio in portfolios_qs:
             properties = list(portfolio.properties.filter(is_active=True))
             if not properties:
                 continue

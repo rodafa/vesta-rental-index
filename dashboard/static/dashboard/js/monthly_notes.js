@@ -13,9 +13,10 @@ document.addEventListener('DOMContentLoaded', function () {
   var _pollInterval = null;
 
   // ── DOM refs ───────────────────────────────────────────────────────────────
-  var startDateInput    = document.getElementById('start-date-input');
-  var endDateInput      = document.getElementById('end-date-input');
-  var ownerIdInput      = document.getElementById('owner-id-input');
+  var startDateInput      = document.getElementById('start-date-input');
+  var endDateInput        = document.getElementById('end-date-input');
+  var portfolioNameInput  = document.getElementById('portfolio-name-input');
+  var ownerIdInput        = document.getElementById('owner-id-input');
   var propertyIdInput   = document.getElementById('property-id-input');
   var dryRunCheck       = document.getElementById('dry-run-check');
   var runBtn            = document.getElementById('run-btn');
@@ -335,11 +336,12 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!startDate || !endDate) { VestaAPI.toast('Select a date range first.', 'error'); return; }
     if (endDate < startDate) { VestaAPI.toast('End date must be on or after start date.', 'error'); return; }
 
-    var month     = derivedMonth(); // YYYY-MM key for polling and DB
-    var ownerId   = ownerIdInput.value.trim() || null;
-    var propIdRaw = propertyIdInput.value.trim();
-    var propId    = propIdRaw ? parseInt(propIdRaw, 10) : null;
-    var isDryRun  = dryRunCheck.checked;
+    var month         = derivedMonth(); // YYYY-MM key for polling and DB
+    var portfolioName = portfolioNameInput.value.trim() || null;
+    var ownerId       = ownerIdInput.value.trim() || null;
+    var propIdRaw     = propertyIdInput.value.trim();
+    var propId        = propIdRaw ? parseInt(propIdRaw, 10) : null;
+    var isDryRun      = dryRunCheck.checked;
 
     runBtn.disabled = true;
     var dryLabel = isDryRun ? ' (dry run — no DB writes)' : '';
@@ -349,6 +351,7 @@ document.addEventListener('DOMContentLoaded', function () {
       month: month,
       dry_run: isDryRun,
       owner_id: ownerId,
+      portfolio_name: portfolioName,
       property_id: propId,
       start_date: startDate,
       end_date: endDate

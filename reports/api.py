@@ -22,6 +22,7 @@ class GenerateSchema(Schema):
     month: str  # YYYY-MM — used as DB key and run-status polling key
     dry_run: bool = False
     owner_id: Optional[str] = None
+    portfolio_name: Optional[str] = None  # exact match (case-insensitive) to RentVine portfolio name
     property_id: Optional[int] = None
     start_date: Optional[str] = None  # YYYY-MM-DD; overrides month start when provided
     end_date: Optional[str] = None    # YYYY-MM-DD inclusive; overrides month end when provided
@@ -105,6 +106,7 @@ def generate_notes(request, payload: GenerateSchema):
 
     month_str = payload.month
     owner_id = payload.owner_id
+    portfolio_name = payload.portfolio_name or None
     property_id = payload.property_id
     dry_run = payload.dry_run
 
@@ -130,6 +132,7 @@ def generate_notes(request, payload: GenerateSchema):
             result = run_monthly_report(
                 month=month,
                 owner_id=owner_id,
+                portfolio_name=portfolio_name,
                 property_id=property_id,
                 dry_run=dry_run,
                 start_date=start_date,
