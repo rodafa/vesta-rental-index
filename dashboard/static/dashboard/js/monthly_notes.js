@@ -358,37 +358,61 @@ document.addEventListener('DOMContentLoaded', function () {
         runBtn.disabled = false;
         return;
       }
-      startPolling(month);
+      if (isDryRun) {
+        // Dry run writes nothing to DB — output is in Railway / server logs only
+        setStatus('done', 'Dry run started in background. Check Railway logs for output. No notes will be saved here.');
+        runBtn.disabled = false;
+      } else {
+        startPolling(month);
+      }
     }).catch(function () {
       setStatus('error', 'Request failed — check server logs.');
       runBtn.disabled = false;
     });
   }
 
-  // ── Poll run status until complete ─────────────────────────────────────────
+  // ── Poll DB directly until notes appear (works across multiple gunicorn workers) ──
   function startPolling(month) {
     if (_pollInterval) clearInterval(_pollInterval);
+    var attempts = 0;
+    var maxAttempts = 36; // 3 minutes at 5s intervals
+    var lastCount = -1;
+    var stableChecks = 0;
+
     _pollInterval = setInterval(function () {
-      VestaAPI.get('/reports/owner-notes/run-status?month=' + month).then(function (data) {
-        if (!data.running) {
+      attempts++;
+      VestaAPI.get('/reports/owner-notes?month=' + month).then(function (data) {
+        var fresh = Array.isArray(data) ? data : (data.items || []);
+        var currentCount = fresh.length;
+
+        if (currentCount > 0) {
+          notes = fresh;
+          if (!isEditing()) renderList();
+          setStatus('running', 'Generating\u2026 ' + currentCount + ' note(s) saved so far.');
+        }
+
+        if (currentCount > 0 && currentCount === lastCount) {
+          stableChecks++;
+        } else {
+          stableChecks = 0;
+        }
+        lastCount = currentCount;
+
+        var done = stableChecks >= 3 || attempts >= maxAttempts;
+        if (done) {
           clearInterval(_pollInterval);
           _pollInterval = null;
           runBtn.disabled = false;
-
-          var r = data.result;
-          if (r && r.error) {
-            setStatus('error', 'Run failed: ' + r.error);
-          } else if (r) {
-            var msg = 'Done — ' + r.generated + ' generated, ' + r.skipped + ' skipped, ' + r.failed + ' failed.';
-            setStatus(r.failed > 0 ? 'warn' : 'done', msg);
-            loadNotes();
+          if (currentCount === 0) {
+            setStatus('warn', 'Generation may still be running \u2014 check back in a moment or watch Railway logs.');
           } else {
-            setStatus('done', 'Done.');
-            loadNotes();
+            setStatus('done', 'Done \u2014 ' + currentCount + ' note(s) generated.');
+            notes = fresh;
+            if (!isEditing()) renderList();
           }
         }
       });
-    }, 2000);
+    }, 5000);
   }
 
   // ── Save note ──────────────────────────────────────────────────────────────
