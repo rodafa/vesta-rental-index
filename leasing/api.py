@@ -1,3 +1,6 @@
+import threading
+
+from django.core.management import call_command
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from ninja import Query, Router
@@ -138,3 +141,25 @@ def get_application(request, application_id: int):
         ),
         id=application_id,
     )
+
+
+# --- Leasing Directory ---
+
+
+def _run_leasing_ingest():
+    """Run ingest + summary in a background thread."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        call_command("ingest_leasing_metrics")
+        call_command("post_leasing_summary")
+    except Exception:
+        logger.exception("Error running leasing directory ingest")
+
+
+@router.post("/directory/ingest")
+def trigger_leasing_ingest(request):
+    """Trigger daily leasing metrics ingest + Slack summary for yesterday."""
+    threading.Thread(target=_run_leasing_ingest, daemon=True).start()
+    return {"status": "started", "message": "Leasing ingest + summary started"}

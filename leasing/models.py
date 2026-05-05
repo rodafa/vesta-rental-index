@@ -392,3 +392,109 @@ class Applicant(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class DailyLeasingMetric(models.Model):
+    """
+    Daily leasing performance snapshot per unit. One row per (unit, date).
+    Replaces the Apps-Script-driven Google Sheet daily rollups.
+    Source of truth for unit-level leasing performance data, consumed by
+    weekly owner leasing emails, monthly reports, and dashboards.
+    """
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="daily_leasing_metrics",
+    )
+    date = models.DateField(db_index=True)
+
+    # Core metrics (always populated)
+    new_prospects = models.IntegerField(default=0)
+    showings_completed = models.IntegerField(default=0)
+    applications_submitted = models.IntegerField(default=0)
+    showings_missed_or_failed = models.IntegerField(default=0)
+
+    # API-only fields (nullable for csv_backfill source)
+    days_on_market = models.IntegerField(null=True, blank=True)
+
+    PROPERTY_HEALTH_CHOICES = [
+        ("Off-Market", "Off-Market"),
+        ("Healthy", "Healthy"),
+        ("At-risk", "At-risk"),
+        ("On Hold", "On Hold"),
+        ("Waitlist", "Waitlist"),
+        ("Commercial", "Commercial"),
+        ("Unknown", "Unknown"),
+    ]
+    property_health = models.CharField(
+        max_length=20,
+        choices=PROPERTY_HEALTH_CHOICES,
+        null=True,
+        blank=True,
+    )
+    benchmark_leads_since_last_price_change = models.IntegerField(
+        null=True, blank=True
+    )
+    showings_scheduled = models.IntegerField(null=True, blank=True)
+    applications_requested = models.IntegerField(null=True, blank=True)
+    active_prospects = models.IntegerField(null=True, blank=True)
+    upcoming_showings = models.IntegerField(null=True, blank=True)
+    outbound_texts = models.IntegerField(null=True, blank=True)
+    total_calls = models.IntegerField(null=True, blank=True)
+
+    # Denormalized rollup of showing feedback for this (unit, date).
+    # Structure: [{"prospect_id": int, "prospect_name": str,
+    #              "showing_completed_at": iso8601, "feedback": str|null}, ...]
+    # Empty list for csv_backfill source.
+    showing_feedback_summary = models.JSONField(default=list)
+
+    # Provenance
+    SOURCE_CHOICES = [
+        ("csv_backfill", "CSV Backfill"),
+        ("rentengine_api", "RentEngine API"),
+    ]
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+    raw_payload = models.JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["unit", "date"]
+        indexes = [
+            models.Index(fields=["date", "unit"]),
+        ]
+
+    def __str__(self):
+        return f"{self.unit} - {self.date}"
+
+
+class ShowingFeedback(models.Model):
+    """
+    Canonical per-showing feedback record from RentEngine's leasing
+    performance API.
+
+    Note: showing_completed_at is sourced from the API's ``created_at``
+    field in the showing_feedback array, which represents the showing
+    completion timestamp (not record creation time).
+    """
+
+    unit = models.ForeignKey(
+        "properties.Unit",
+        on_delete=models.CASCADE,
+        related_name="showing_feedbacks",
+    )
+    rentengine_prospect_id = models.IntegerField(db_index=True)
+    prospect_name = models.CharField(max_length=255)
+    showing_completed_at = models.DateTimeField(db_index=True)
+    feedback = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ["rentengine_prospect_id", "showing_completed_at"]
+
+    def __str__(self):
+        return f"{self.prospect_name} - {self.showing_completed_at}"

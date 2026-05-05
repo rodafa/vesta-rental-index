@@ -221,6 +221,9 @@ SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
 MINERVA_BOT_TOKEN = os.environ.get("MINERVA_BOT_TOKEN", "")
 MINERVA_SIGNING_SECRET = os.environ.get("MINERVA_SIGNING_SECRET", "")
 
+# Leasing Directory
+SLACK_LEASING_WEBHOOK_URL = os.environ.get("SLACK_LEASING_WEBHOOK_URL", "")
+
 # Logging
 LOGGING = {
     "version": 1,

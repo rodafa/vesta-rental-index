@@ -1,0 +1,31 @@
+name: Daily Leasing Ingest
+
+on:
+  schedule:
+    # 6:00 AM ET (11:00 UTC during EDT, 10:00 UTC during EST)
+    - cron: "0 10 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  ingest-and-summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ingest yesterday's leasing metrics
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "X-API-Key: ${{ secrets.VESTA_API_KEY }}" \
+            https://dashboard.vestapm.com/api/leasing/directory/ingest)
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+
+          echo "HTTP $HTTP_CODE: $BODY"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Leasing ingest triggered successfully"
+            exit 0
+          fi
+
+          echo "Failed to trigger leasing ingest"
+          exit 1
