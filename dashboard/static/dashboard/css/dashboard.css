@@ -101,6 +101,7 @@ body {
   box-shadow: inset 3px 0 0 var(--sidebar-active);
 }
 .nav-link.active svg { opacity: 1; }
+.nav-sublink { padding-left: 2.1rem; font-size: .78rem; }
 
 .sidebar-user {
   flex-shrink: 0;
