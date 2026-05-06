@@ -548,20 +548,16 @@ class TestIngestDayIdempotent:
 
 
 # ---------------------------------------------------------------------------
-# _display_address (Slack summary rendering)
+# Unit.display_address (canonical unit-level address rendering)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-class TestDisplayAddress:
-    """Verify _display_address renders unit-level grain correctly."""
+class TestUnitDisplayAddress:
+    """Verify Unit.display_address renders unit-level grain correctly."""
 
     def test_multifamily_renders_per_unit(self, db):
         """A fourplex should produce four distinct display lines."""
-        from leasing.management.commands.post_leasing_summary import (
-            _display_address,
-        )
-
         prop = Property.objects.create(
             rentvine_id=900,
             name="100 Elm St",
@@ -579,7 +575,7 @@ class TestDisplayAddress:
             for i, label in enumerate(labels)
         ]
 
-        addresses = [_display_address(u) for u in units]
+        addresses = [u.display_address for u in units]
 
         assert len(set(addresses)) == 4, f"Expected 4 distinct addresses, got {addresses}"
         for label in labels:
@@ -587,10 +583,6 @@ class TestDisplayAddress:
 
     def test_single_family_no_suffix(self, db):
         """Single-family with empty name/address_line_2 shows one clean line."""
-        from leasing.management.commands.post_leasing_summary import (
-            _display_address,
-        )
-
         prop = Property.objects.create(
             rentvine_id=901,
             name="456 Oak Ave",
@@ -603,14 +595,10 @@ class TestDisplayAddress:
             name="",
         )
 
-        assert _display_address(unit) == "456 Oak Ave"
+        assert unit.display_address == "456 Oak Ave"
 
     def test_single_family_name_matches_address(self, db):
         """When name equals the address (case-insensitive), no suffix appended."""
-        from leasing.management.commands.post_leasing_summary import (
-            _display_address,
-        )
-
         prop = Property.objects.create(
             rentvine_id=902,
             name="456 Oak Ave",
@@ -623,14 +611,10 @@ class TestDisplayAddress:
             name="456 oak ave",
         )
 
-        assert _display_address(unit) == "456 Oak Ave"
+        assert unit.display_address == "456 Oak Ave"
 
     def test_name_empty_no_suffix(self, db):
         """name="" (empty string) should not produce a suffix."""
-        from leasing.management.commands.post_leasing_summary import (
-            _display_address,
-        )
-
         prop = Property.objects.create(
             rentvine_id=903,
             name="789 Pine Rd",
@@ -643,14 +627,10 @@ class TestDisplayAddress:
             name="",
         )
 
-        assert _display_address(unit) == "789 Pine Rd"
+        assert unit.display_address == "789 Pine Rd"
 
-    def test_display_address_suppresses_name_matching_address_line_2(self, db):
+    def test_suppresses_name_matching_address_line_2(self, db):
         """name == address_line_2 should not double the suffix."""
-        from leasing.management.commands.post_leasing_summary import (
-            _display_address,
-        )
-
         prop = Property.objects.create(
             rentvine_id=904,
             name="588 Ray Hill Road",
@@ -664,14 +644,10 @@ class TestDisplayAddress:
             name="D",
         )
 
-        assert _display_address(unit) == "588 Ray Hill Road - D"
+        assert unit.display_address == "588 Ray Hill Road - D"
 
-    def test_display_address_suppresses_word_subset_of_address_line_1(self, db):
+    def test_suppresses_word_subset_of_address_line_1(self, db):
         """name whose words are a subset of address_line_1 should be suppressed."""
-        from leasing.management.commands.post_leasing_summary import (
-            _display_address,
-        )
-
         prop = Property.objects.create(
             rentvine_id=905,
             name="555 Baldwin Avenue",
@@ -684,7 +660,25 @@ class TestDisplayAddress:
             name="Baldwin Avenue 555",
         )
 
-        assert _display_address(unit) == "555 Baldwin Avenue"
+        assert unit.display_address == "555 Baldwin Avenue"
+
+    def test_unit_str_uses_display_address(self, db):
+        """Unit.__str__() should return the same value as display_address."""
+        prop = Property.objects.create(
+            rentvine_id=906,
+            name="100 Elm St",
+            address_line_1="100 Elm St",
+        )
+        unit = Unit.objects.create(
+            property=prop,
+            rentvine_id=955,
+            address_line_1="100 Elm St",
+            address_line_2="B",
+            name="B",
+        )
+
+        assert str(unit) == unit.display_address
+        assert str(unit) == "100 Elm St - B"
 
 
 # ---------------------------------------------------------------------------

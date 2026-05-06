@@ -1,5 +1,8 @@
 from django.db import models
 
+# Unit.property (ForeignKey) shadows the built-in; alias for decorator use.
+_property = property
+
 
 class Portfolio(models.Model):
     """Owner portfolio from RentVine. Groups properties under a single ownership entity."""
@@ -225,8 +228,49 @@ class Unit(models.Model):
             raw_data__unit__isNonRevenue="1"
         )
 
+    @_property
+    def display_address(self):
+        """
+        Canonical display address at unit-level grain.
+
+        Single-family: "123 Main St" (address_line_2 is empty).
+        Multi-unit:    "123 Main St - Unit A" (address_line_2 holds the designator).
+        Falls back to name if address_line_2 is empty but name differs from
+        the base address (e.g. name="B" on a duplex).
+
+        Dedup rules applied to name before using it as suffix:
+        1. name == address_line_2 -> suppress (kills "588 Ray Hill Rd - D - D")
+        2. name words are subset of address_line_1 words -> suppress
+           (kills "555 Baldwin Ave - Baldwin Avenue 555")
+        3. name == address_line_1 (exact, casefold) -> suppress
+        """
+        base = (
+            self.address_line_1
+            or self.property.address_line_1
+            or str(self.property)
+        )
+        suffix = (self.address_line_2 or "").strip()
+        if not suffix:
+            name = (self.name or "").strip()
+            if name:
+                line2 = (self.address_line_2 or "").strip()
+                # 1. name duplicates address_line_2
+                if line2 and name.casefold() == line2.casefold():
+                    pass
+                # 2. name is a word-subset of address_line_1
+                elif set(name.casefold().split()) <= set(base.casefold().split()):
+                    pass
+                # 3. exact match
+                elif name.casefold() == base.casefold():
+                    pass
+                else:
+                    suffix = name
+        if suffix:
+            return f"{base} - {suffix}"
+        return base
+
     def __str__(self):
-        return self.name or self.address_line_1 or f"Unit #{self.pk}"
+        return self.display_address
 
 
 class MultifamilyProperty(models.Model):

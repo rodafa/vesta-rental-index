@@ -24,42 +24,6 @@ from leasing.models import DailyLeasingMetric
 logger = logging.getLogger(__name__)
 
 
-def _display_address(unit):
-    """
-    Canonical display address for a unit at unit-level grain.
-
-    Single-family: "123 Main St" (address_line_2 is empty).
-    Multi-unit:    "123 Main St - Unit A" (address_line_2 holds the designator).
-    Falls back to unit.name if address_line_2 is empty but name differs from
-    the base address (e.g. name="B" on a duplex).
-
-    Dedup rules applied to name before using it as suffix:
-    1. name == address_line_2 → suppress (kills "588 Ray Hill Rd - D - D")
-    2. name words ⊆ address_line_1 words → suppress (kills "555 Baldwin Ave - Baldwin Avenue 555")
-    3. name == address_line_1 (exact, casefold) → suppress
-    """
-    base = unit.address_line_1 or unit.property.address_line_1 or str(unit.property)
-    suffix = (unit.address_line_2 or "").strip()
-    if not suffix:
-        name = (unit.name or "").strip()
-        if name:
-            line2 = (unit.address_line_2 or "").strip()
-            # 1. name duplicates address_line_2
-            if line2 and name.casefold() == line2.casefold():
-                pass
-            # 2. name is a word-subset of address_line_1
-            elif set(name.casefold().split()) <= set(base.casefold().split()):
-                pass
-            # 3. exact match (original check, now redundant but kept for clarity)
-            elif name.casefold() == base.casefold():
-                pass
-            else:
-                suffix = name
-    if suffix:
-        return f"{base} - {suffix}"
-    return base
-
-
 def _build_summary(target_date):
     """Build summary data from DailyLeasingMetric rows for the given date."""
     metrics = DailyLeasingMetric.objects.filter(
@@ -83,7 +47,7 @@ def _build_summary(target_date):
     })
 
     for m in metrics:
-        addr = _display_address(m.unit)
+        addr = m.unit.display_address
         by_property[addr]["prospects"] += m.new_prospects
         by_property[addr]["showings"] += m.showings_completed
         by_property[addr]["applications"] += m.applications_submitted
