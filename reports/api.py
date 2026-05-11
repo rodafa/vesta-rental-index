@@ -183,6 +183,19 @@ def send_all_approved(request, month: Optional[str] = None):
 # Parameterised routes — must come AFTER all fixed-path routes above
 # ---------------------------------------------------------------------------
 
+@router.delete("/owner-notes/{note_id}")
+def delete_note(request, note_id: int):
+    """Hard-delete a note. Only allowed for non-sent statuses."""
+    deletable = ["pending", "approved", "failed", "skipped"]
+    try:
+        note = OwnerReportLog.objects.get(id=note_id, status__in=deletable)
+    except OwnerReportLog.DoesNotExist:
+        from ninja.errors import HttpError
+        raise HttpError(404, "Note not found or already sent.")
+    note.delete()
+    return {"ok": True, "id": note_id}
+
+
 @router.put("/owner-notes/{note_id}")
 def update_note(request, note_id: int, payload: NoteUpdate):
     note = OwnerReportLog.objects.get(

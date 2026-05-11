@@ -40,6 +40,10 @@ const VestaAPI = (() => {
     return request(path, { method: 'PUT', body: JSON.stringify(body) });
   }
 
+  function del(path) {
+    return request(path, { method: 'DELETE' });
+  }
+
   // Fetch a list endpoint, returns the items array.
   // django-ninja LimitOffsetPagination wraps results in { items: [], count: N }.
   async function list(path) {
@@ -109,5 +113,5 @@ const VestaAPI = (() => {
     return el;
   }
 
-  return { get, post, put, list, $, $dec, pct, num, dateStr, daysAgo, today, toast, render };
+  return { get, post, put, delete: del, list, $, $dec, pct, num, dateStr, daysAgo, today, toast, render };
 })();

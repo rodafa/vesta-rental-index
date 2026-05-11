@@ -59,6 +59,8 @@
   .mn-action-approve:hover { background: #bfdbfe; }
   .mn-action-send { background: #d1fae5; color: #065f46; }
   .mn-action-send:hover { background: #a7f3d0; }
+  .mn-action-delete { background: #fee2e2; color: #991b1b; }
+  .mn-action-delete:hover { background: #fecaca; }
 
   /* ── Right panel ── */
   .mn-right { flex: 1; display: flex; flex-direction: column; padding: 1.25rem 1.5rem; overflow-y: auto; }
@@ -136,6 +138,9 @@
     <button class="btn btn-primary" id="run-btn">Run Generation</button>
   </div>
   <div style="padding-top:1.35rem">
+    <button class="btn btn-secondary" id="run-all-btn">Run All Portfolios</button>
+  </div>
+  <div style="padding-top:1.35rem">
     <button class="btn btn-secondary" id="send-all-btn">Send All Approved</button>
   </div>
 </div>
@@ -190,6 +195,7 @@
         <button class="btn btn-primary"   id="save-btn" disabled>Save</button>
         <button class="btn btn-secondary" id="approve-btn" style="display:none">Approve</button>
         <button class="btn btn-primary"   id="note-send-btn" style="display:none">Send Email</button>
+        <button class="btn btn-secondary" id="delete-btn" style="display:none;background:#fee2e2;color:#991b1b;border-color:#fecaca">Delete</button>
         <span class="mn-word-count" id="word-count"></span>
       </div>
     </div>
@@ -198,5 +204,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=5"></script>
+<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=6"></script>
 {% endblock %}

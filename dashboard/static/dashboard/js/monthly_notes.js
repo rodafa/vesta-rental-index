@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var propertyIdInput   = document.getElementById('property-id-input');
   var dryRunCheck       = document.getElementById('dry-run-check');
   var runBtn            = document.getElementById('run-btn');
+  var runAllBtn         = document.getElementById('run-all-btn');
   var sendAllBtn        = document.getElementById('send-all-btn');
   var statusBar         = document.getElementById('status-bar');
   var noteList          = document.getElementById('note-list');
@@ -31,6 +32,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var saveBtn           = document.getElementById('save-btn');
   var approveBtn        = document.getElementById('approve-btn');
   var noteSendBtn       = document.getElementById('note-send-btn');
+  var deleteBtn         = document.getElementById('delete-btn');
   var wordCountEl       = document.getElementById('word-count');
   var noteFinancials    = document.getElementById('note-financials');
   var finPeriod         = document.getElementById('fin-period');
@@ -135,15 +137,19 @@ document.addEventListener('DOMContentLoaded', function () {
         html += '<div class="mn-row-words">' + n.word_count + ' words</div>';
       }
       // Row-level action buttons
-      var hasApprove = (n.status === 'pending' || n.status === 'success');
-      var hasSend    = (n.status === 'approved');
-      if (hasApprove || hasSend) {
+      var hasApprove  = (n.status === 'pending' || n.status === 'success');
+      var hasSend     = (n.status === 'approved');
+      var hasDelete   = (n.status === 'pending' || n.status === 'approved' || n.status === 'failed' || n.status === 'skipped');
+      if (hasApprove || hasSend || hasDelete) {
         html += '<div class="mn-row-actions">';
         if (hasApprove) {
           html += '<button class="mn-action-btn mn-action-approve" data-id="' + n.id + '">Approve</button>';
         }
         if (hasSend) {
           html += '<button class="mn-action-btn mn-action-send" data-id="' + n.id + '">Send</button>';
+        }
+        if (hasDelete) {
+          html += '<button class="mn-action-btn mn-action-delete" data-id="' + n.id + '">Delete</button>';
         }
         html += '</div>';
       }
@@ -181,6 +187,17 @@ document.addEventListener('DOMContentLoaded', function () {
           sendNote(parseInt(btn.getAttribute('data-id'), 10));
         });
       })(sendBtns[m]);
+    }
+
+    // Delete buttons
+    var deleteBtns = noteList.querySelectorAll('.mn-action-delete');
+    for (var d = 0; d < deleteBtns.length; d++) {
+      (function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          deleteNote(parseInt(btn.getAttribute('data-id'), 10));
+        });
+      })(deleteBtns[d]);
     }
 
     // Restore active selection if still valid
@@ -268,6 +285,10 @@ document.addEventListener('DOMContentLoaded', function () {
       noteSendBtn.style.display = 'none';
     }
 
+    // Delete button — show for non-sent statuses
+    var isDeletable = (note.status === 'pending' || note.status === 'approved' || note.status === 'failed' || note.status === 'skipped');
+    deleteBtn.style.display = isDeletable ? '' : 'none';
+
     updateWordCount();
   }
 
@@ -298,6 +319,31 @@ document.addEventListener('DOMContentLoaded', function () {
     }).catch(function () {
       setStatus('error', 'Send request failed.');
       VestaAPI.toast('Send failed.', 'error');
+    });
+  }
+
+  // ── Delete note ────────────────────────────────────────────────────────────
+  function deleteNote(id) {
+    var note = _noteById(id);
+    var label = note ? (note.owner_name + ' — ' + note.portfolio_name) : ('note #' + id);
+    if (!confirm('Delete "' + label + '"? This cannot be undone.')) return;
+
+    VestaAPI.delete('/reports/owner-notes/' + id).then(function () {
+      // Remove from local array
+      for (var i = 0; i < notes.length; i++) {
+        if (notes[i].id === id) { notes.splice(i, 1); break; }
+      }
+      // Clear right panel if deleted note was selected
+      if (_activeNoteId === id) {
+        _activeNoteId = null;
+        _dirty = false;
+        noteDetail.style.display = 'none';
+        detailPlaceholder.style.display = 'flex';
+      }
+      renderList();
+      VestaAPI.toast('Deleted.', 'success');
+    }).catch(function () {
+      VestaAPI.toast('Delete failed.', 'error');
     });
   }
 
@@ -461,10 +507,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // ── Event bindings ─────────────────────────────────────────────────────────
   runBtn.addEventListener('click', runGeneration);
+  runAllBtn.addEventListener('click', function () {
+    portfolioNameInput.value = '';
+    ownerIdInput.value = '';
+    propertyIdInput.value = '';
+    runGeneration();
+  });
   saveBtn.addEventListener('click', saveNote);
   copyBtn.addEventListener('click', copyNote);
   approveBtn.addEventListener('click', function () { if (_activeNoteId) approveNote(_activeNoteId); });
   noteSendBtn.addEventListener('click', function () { if (_activeNoteId) sendNote(_activeNoteId); });
+  deleteBtn.addEventListener('click', function () { if (_activeNoteId) deleteNote(_activeNoteId); });
   sendAllBtn.addEventListener('click', sendAllApproved);
 
   noteTextarea.addEventListener('input', function () {
