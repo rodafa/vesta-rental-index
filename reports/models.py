@@ -7,6 +7,7 @@ class OwnerReportLog(models.Model):
         ("approved", "Approved"),
         ("sent", "Sent"),
         ("failed", "Failed"),
+        ("skipped", "Skipped"),
     ]
 
     owner_id = models.CharField(max_length=100)

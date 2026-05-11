@@ -43,6 +43,9 @@ SYSTEM_PROMPT = (
     "2. Reserve balance reminder if below minimum\n"
     "3. Per-lease: end date, total rent due (including pet rent), rent received, "
     "overdue balance if any\n"
+    "3a. Recent tenant notes from the management portal (last 45 days) — "
+    "summarize any relevant context from these notes that adds value for the "
+    "owner; do not quote them verbatim, weave key points into the narrative\n"
     "4. LeadSimple process updates (Applications, Move-Ins, Lease Renewals, "
     "Late Rent, Move-Outs, Issues) — active records only, in Vesta's voice, "
     "never mention LeadSimple by name\n"
@@ -89,6 +92,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
         "financials": None,
         "melds": [],
         "pipeline": None,
+        "tenant_notes": [],
     }
 
     active_lease = None
@@ -111,6 +115,11 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
             }
     except Exception:
         logger.warning("Failed to fetch active lease for property %s", property_obj.pk, exc_info=True)
+
+    try:
+        data["tenant_notes"] = rv_source.get_tenant_notes(active_lease)
+    except Exception:
+        logger.warning("Failed to fetch tenant notes for property %s", property_obj.pk, exc_info=True)
 
     try:
         upcoming_lease = rv_source.get_upcoming_lease(property_obj)
@@ -236,8 +245,8 @@ def build_prompt(payload: dict) -> str:
 
     ms = date.fromisoformat(month_start_str)
     me = date.fromisoformat(month_end_str)
-    period_start = ms.strftime("%B %-d, %Y")
-    period_end = me.strftime("%B %-d, %Y")
+    period_start = f"{ms.strftime('%B')} {ms.day}, {ms.year}"
+    period_end = f"{me.strftime('%B')} {me.day}, {me.year}"
 
     word_limit = min(250 + (len(properties) - 1) * 100, 600)
 
@@ -301,6 +310,16 @@ def build_prompt(payload: dict) -> str:
                 lines.append(f"Notice to vacate given: {al['notice_date']}")
             if al.get("expected_move_out"):
                 lines.append(f"Expected move-out: {al['expected_move_out']}")
+
+            # ── 3a. TENANT NOTES ─────────────────────────────────────────
+            tenant_notes = prop.get("tenant_notes") or []
+            if tenant_notes:
+                lines.append(
+                    "Recent tenant notes from the management portal (last 45 days) — "
+                    "summarize relevant context, do not quote verbatim:"
+                )
+                for tn in tenant_notes:
+                    lines.append(f"  - [{tn['created_at']}] {tn['note_text']}")
         else:
             lines.append(
                 "No active lease — property is currently vacant. "
@@ -392,6 +411,40 @@ def generate_note(payload: dict) -> str:
     return message.content[0].text.strip()
 
 
+def _upsert_report(owner_id: str, portfolio_name: str, report_month: date, **fields) -> OwnerReportLog:
+    """
+    Create or update an OwnerReportLog entry for the given owner+portfolio+month.
+
+    - If an existing row has status pending/approved/failed/skipped: overwrite it.
+    - If the only existing row has status 'sent': create a new row (re-send scenario).
+    - If no row exists: create a new one.
+    """
+    existing = (
+        OwnerReportLog.objects
+        .filter(
+            owner_id=owner_id,
+            portfolio_name=portfolio_name,
+            report_month=report_month,
+        )
+        .exclude(status="sent")
+        .order_by("-created_at")
+        .first()
+    )
+
+    if existing:
+        for k, v in fields.items():
+            setattr(existing, k, v)
+        existing.save(update_fields=list(fields.keys()))
+        return existing
+
+    return OwnerReportLog.objects.create(
+        owner_id=owner_id,
+        portfolio_name=portfolio_name,
+        report_month=report_month,
+        **fields,
+    )
+
+
 def run_monthly_report(
     month: date,
     owner_id: str = None,
@@ -426,7 +479,11 @@ def run_monthly_report(
         month_end = end_date + timedelta(days=1)  # exclusive upper bound
     else:
         month_start, month_end = _month_bounds(month)
-    period_label = f"{month_start:%B %-d} \u2013 {(month_end - timedelta(days=1)):%B %-d, %Y}"
+    end_display = month_end - timedelta(days=1)
+    period_label = (
+        f"{month_start.strftime('%B')} {month_start.day} \u2013 "
+        f"{end_display.strftime('%B')} {end_display.day}, {end_display.year}"
+    )
 
     owners_qs = Owner.objects.filter(is_active=True).prefetch_related("portfolios")
     if owner_id:
@@ -468,13 +525,15 @@ def run_monthly_report(
                     print(f"\n[SKIPPED] {label} — no data found")
                     counters["skipped"] += 1
                     if not dry_run:
-                        OwnerReportLog.objects.create(
+                        _upsert_report(
                             owner_id=str(owner.rentvine_contact_id),
-                            owner_name=owner.name,
                             report_month=month_start,
                             portfolio_name=portfolio.name,
+                            owner_name=owner.name,
                             status="skipped",
                             report_data=payload,
+                            error_message="",
+                            generated_note="",
                         )
                     continue
 
@@ -504,14 +563,15 @@ def run_monthly_report(
                 counters["generated"] += 1
 
                 if not dry_run:
-                    OwnerReportLog.objects.create(
+                    _upsert_report(
                         owner_id=str(owner.rentvine_contact_id),
-                        owner_name=owner.name,
                         report_month=month_start,
                         portfolio_name=portfolio.name,
+                        owner_name=owner.name,
                         status="pending",
                         report_data=payload,
                         generated_note=note,
+                        error_message="",
                         statement_period=statement_data.get("statement_period", ""),
                         beginning_balance=statement_data.get("beginning_balance", 0),
                         total_income=statement_data.get("total_income", 0),
@@ -525,13 +585,14 @@ def run_monthly_report(
                 logger.exception("Failed generating note for %s", label)
                 counters["failed"] += 1
                 if not dry_run:
-                    OwnerReportLog.objects.create(
+                    _upsert_report(
                         owner_id=str(owner.rentvine_contact_id),
-                        owner_name=owner.name,
                         report_month=month_start,
                         portfolio_name=portfolio.name,
+                        owner_name=owner.name,
                         status="failed",
                         error_message="Unhandled exception — see server logs",
+                        generated_note="",
                     )
 
     return counters

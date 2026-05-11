@@ -13,6 +13,12 @@ Usage examples:
 
     # Single property by Django PK
     python manage.py generate_monthly_owner_notes --property-id 42 --dry-run
+
+    # Filter by portfolio name
+    python manage.py generate_monthly_owner_notes --portfolio-name "Smith Family"
+
+    # Custom date range (overrides --month start/end)
+    python manage.py generate_monthly_owner_notes --month 2026-04 --start-date 2026-04-01 --end-date 2026-04-15
 """
 from datetime import date
 
@@ -51,12 +57,33 @@ class Command(BaseCommand):
                 "Defaults to the previous calendar month."
             ),
         )
+        parser.add_argument(
+            "--portfolio-name",
+            type=str,
+            default=None,
+            help="Filter by portfolio name (exact match, case-insensitive).",
+        )
+        parser.add_argument(
+            "--start-date",
+            type=str,
+            default=None,
+            help="Override period start date (YYYY-MM-DD). Requires --end-date.",
+        )
+        parser.add_argument(
+            "--end-date",
+            type=str,
+            default=None,
+            help="Override period end date, inclusive (YYYY-MM-DD). Requires --start-date.",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         owner_id = options["owner_id"]
         property_id = options["property_id"]
         month_str = options["month"]
+        portfolio_name = options["portfolio_name"]
+        start_date_str = options["start_date"]
+        end_date_str = options["end_date"]
 
         # Resolve month
         if month_str:
@@ -73,6 +100,27 @@ class Command(BaseCommand):
             else:
                 month = date(today.year, today.month - 1, 1)
 
+        # Parse optional date range overrides
+        start_date = None
+        end_date = None
+        if start_date_str:
+            try:
+                start_date = date.fromisoformat(start_date_str)
+            except ValueError:
+                raise CommandError(
+                    f"Invalid --start-date value '{start_date_str}'. Use YYYY-MM-DD format."
+                )
+        if end_date_str:
+            try:
+                end_date = date.fromisoformat(end_date_str)
+            except ValueError:
+                raise CommandError(
+                    f"Invalid --end-date value '{end_date_str}'. Use YYYY-MM-DD format."
+                )
+
+        if (start_date and not end_date) or (end_date and not start_date):
+            raise CommandError("--start-date and --end-date must be provided together.")
+
         if dry_run:
             self.stdout.write(
                 self.style.WARNING("DRY RUN — notes will be printed but not saved to the database.")
@@ -86,8 +134,11 @@ class Command(BaseCommand):
             result = run_monthly_report(
                 month=month,
                 owner_id=owner_id,
+                portfolio_name=portfolio_name,
                 property_id=property_id,
                 dry_run=dry_run,
+                start_date=start_date,
+                end_date=end_date,
             )
         except Exception as exc:
             raise CommandError(str(exc)) from exc

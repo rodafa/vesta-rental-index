@@ -56,16 +56,85 @@ def _build_financials_html(report: OwnerReportLog) -> str:
     )
 
 
+_TEXT_STYLE = (
+    "font-family:Georgia,'Times New Roman',serif;"
+    "font-size:14px;color:#333333;line-height:135%;"
+)
+_UL_STYLE = "margin:0;padding:0 0 0 15px;list-style:disc;"
+_NESTED_UL_STYLE = "margin:0;padding:0 0 0 20px;list-style:disc;"
+_LI_STYLE = f"{_TEXT_STYLE}padding:2px 0;"
+
+
 def _note_to_html(text: str) -> str:
-    """Convert the plain-text AI note to basic HTML, preserving line structure."""
+    """
+    Convert the AI-generated plain-text note to semantic HTML.
+
+    Handles:
+    - Lines starting with "- " or "• " → <li> inside <ul>
+    - Lines starting with 2+ spaces then "- " or "• " → nested <li> in child <ul>
+    - Plain text lines → <p>
+    - Empty lines → close any open list and continue
+    """
     if not text:
         return ""
+
     html_parts = []
-    for line in text.split("\n"):
-        if line.strip():
-            html_parts.append(line + "<br>")
+    in_list = False       # inside a top-level <ul>
+    in_nested = False     # inside a nested <ul>
+
+    def _close_nested():
+        nonlocal in_nested
+        if in_nested:
+            html_parts.append("</ul></li>")
+            in_nested = False
+
+    def _close_list():
+        nonlocal in_list
+        _close_nested()
+        if in_list:
+            html_parts.append("</ul>")
+            in_list = False
+
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip()
+
+        # Empty line — close any open lists
+        if not line.strip():
+            _close_list()
+            continue
+
+        stripped = line.lstrip()
+
+        # Detect bullet lines
+        is_bullet = stripped.startswith("- ") or stripped.startswith("\u2022 ")
+        indent = len(line) - len(stripped)
+        is_nested_bullet = is_bullet and indent >= 2
+
+        if is_nested_bullet:
+            bullet_text = stripped[2:]  # skip "- " or "• "
+            if not in_list:
+                html_parts.append(f'<ul style="{_UL_STYLE}">')
+                in_list = True
+            if not in_nested:
+                # Open a parent <li> that will contain the nested <ul>
+                html_parts.append(f'<li style="{_LI_STYLE}"><ul style="{_NESTED_UL_STYLE}">')
+                in_nested = True
+            html_parts.append(f'<li style="{_LI_STYLE}">{bullet_text}</li>')
+
+        elif is_bullet:
+            bullet_text = stripped[2:]
+            _close_nested()
+            if not in_list:
+                html_parts.append(f'<ul style="{_UL_STYLE}">')
+                in_list = True
+            html_parts.append(f'<li style="{_LI_STYLE}">{bullet_text}</li>')
+
         else:
-            html_parts.append("<br>")
+            # Plain text line
+            _close_list()
+            html_parts.append(f'<p style="{_TEXT_STYLE}margin:0 0 4px 0;">{line}</p>')
+
+    _close_list()
     return "".join(html_parts)
 
 

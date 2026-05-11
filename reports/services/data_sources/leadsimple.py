@@ -3,6 +3,7 @@ LeadSimple data source for monthly owner reports.
 Fetches pipeline deals via the live API, then matches to properties by address.
 """
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,25 @@ _STAGE_KEYWORDS = {
     "move_out": ["move-out", "move out", "vacate", "move_out"],
     "issues": ["issue", "dispute", "complaint", "concern", "violation"],
 }
+
+# Regex to extract the leading street number + street name from an address.
+_STREET_RE = re.compile(r"^(\d+\s+\S+(?:\s+\S+)?)")
+
+
+def _normalize_address(addr: str) -> str:
+    """Lowercase, strip whitespace, remove periods/commas/# symbols."""
+    return re.sub(r"[.,#]", "", (addr or "").strip().lower())
+
+
+def _extract_street_key(addr: str) -> str:
+    """
+    Extract normalized street number + street name for comparison.
+    Returns e.g. "123 main st" from "123 Main St., Apt B, Austin TX".
+    Falls back to the full normalized address if pattern doesn't match.
+    """
+    normalized = _normalize_address(addr)
+    m = _STREET_RE.match(normalized)
+    return m.group(1) if m else normalized
 
 
 def fetch_all_active_deals() -> list:
@@ -41,7 +61,8 @@ def classify_deal(deal: dict) -> str:
 
 def get_property_pipeline_context(property_obj, all_deals: list) -> dict:
     """
-    Match deals from all_deals to property_obj by substring address match.
+    Match deals from all_deals to property_obj using normalized street
+    number + street name comparison.
     Groups matched deals by pipeline type.
 
     Returns:
@@ -54,14 +75,23 @@ def get_property_pipeline_context(property_obj, all_deals: list) -> dict:
             other: [...],
         }
     """
-    street = (property_obj.address_line_1 or "").strip().lower()
+    street = (property_obj.address_line_1 or "").strip()
     if not street:
         return _empty_context()
 
+    property_street_key = _extract_street_key(street)
+
+    logger.debug(
+        "LeadSimple address match: property %s (%s), street_key=%s",
+        property_obj.pk, street, property_street_key,
+    )
+
     matched = []
     for deal in all_deals:
-        deal_address = (deal.get("address") or deal.get("name") or "").lower()
-        if street in deal_address:
+        deal_address = deal.get("address") or deal.get("name") or ""
+        deal_street_key = _extract_street_key(deal_address)
+
+        if deal_street_key == property_street_key:
             pipeline_type = classify_deal(deal)
             matched.append({
                 "name": deal.get("name", ""),
