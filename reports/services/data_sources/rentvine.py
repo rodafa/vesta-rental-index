@@ -5,7 +5,6 @@ Combines local DB queries with a live API call for tenant notes.
 import logging
 from datetime import timedelta
 
-from django.db.models import Sum
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -54,78 +53,177 @@ def get_upcoming_lease(property_obj):
     )
 
 
+def _extract_transactions(response):
+    """Extract the transaction list from a RentVine API response."""
+    if isinstance(response, list):
+        return response
+    if isinstance(response, dict):
+        return response.get("data") or response.get("results") or []
+    return []
+
+
+def _sum_charges_and_payments(transactions) -> tuple:
+    """Sum lease charges (type 1) and lease payments (type 2) from raw API data."""
+    charged = 0.0
+    paid = 0.0
+    for txn in transactions:
+        t = txn.get("transaction", txn) if isinstance(txn, dict) else txn
+        if str(t.get("isVoided", "0")) in ("1", "true", "True", True):
+            continue
+        try:
+            txn_type = int(t.get("transactionTypeID", 0))
+            amount = float(t.get("amount", 0))
+        except (ValueError, TypeError):
+            continue
+        if txn_type == 1:  # Lease Charge
+            charged += amount
+        elif txn_type == 2:  # Lease Payment
+            paid += amount
+    return charged, paid
+
+
 def get_financial_summary(property_obj, month_start, month_end) -> dict:
     """
-    Summarise lease charges and payments from accounting.Transaction for this
+    Fetch lease charges and payments from the live RentVine API for this
     property during [month_start, month_end).
 
     Returns:
-        {charged, paid, outstanding_balance, all_time_overdue, has_data: bool}
+        {total_income, total_collected, outstanding, all_time_overdue, has_data: bool}
     """
-    from accounting.models import Transaction
-
-    base_qs = Transaction.objects.filter(
-        property=property_obj,
-        is_voided=False,
-        date_posted__gte=month_start,
-        date_posted__lt=month_end,
-    )
-
-    charged_agg = base_qs.filter(transaction_type=1).aggregate(total=Sum("amount"))
-    paid_agg = base_qs.filter(transaction_type=2).aggregate(total=Sum("amount"))
-
-    charged = float(charged_agg["total"] or 0)
-    paid = float(paid_agg["total"] or 0)
-    outstanding = max(charged - paid, 0)
-
-    # All-time running balance (total charges minus total payments across all dates)
-    all_charged = float(
-        Transaction.objects.filter(
-            property=property_obj, transaction_type=1, is_voided=False
-        ).aggregate(total=Sum("amount"))["total"] or 0
-    )
-    all_paid = float(
-        Transaction.objects.filter(
-            property=property_obj, transaction_type=2, is_voided=False
-        ).aggregate(total=Sum("amount"))["total"] or 0
-    )
-    all_time_overdue = max(all_charged - all_paid, 0)
-
-    return {
-        "charged": charged,
-        "paid": paid,
-        "outstanding_balance": outstanding,
-        "all_time_overdue": all_time_overdue,
-        "has_data": charged > 0 or paid > 0,
+    empty = {
+        "total_income": 0.0,
+        "total_collected": 0.0,
+        "outstanding": 0.0,
+        "all_time_overdue": 0.0,
+        "has_data": False,
     }
+
+    if not property_obj.rentvine_id:
+        return empty
+
+    try:
+        from integrations.rentvine.client import RentvineClient
+
+        client = RentvineClient()
+        month_end_inclusive = (month_end - timedelta(days=1)).isoformat()
+
+        # Period transactions
+        response = client.get(
+            "accounting/transactions/search",
+            params={
+                "propertyID": property_obj.rentvine_id,
+                "datePostedMin": month_start.isoformat(),
+                "datePostedMax": month_end_inclusive,
+                "pageSize": 500,
+            },
+        )
+        txns = _extract_transactions(response)
+        charged, paid = _sum_charges_and_payments(txns)
+        outstanding = max(charged - paid, 0)
+
+        # All-time running balance (charges minus payments across all dates)
+        all_response = client.get(
+            "accounting/transactions/search",
+            params={
+                "propertyID": property_obj.rentvine_id,
+                "pageSize": 1000,
+            },
+        )
+        all_txns = _extract_transactions(all_response)
+        all_charged, all_paid = _sum_charges_and_payments(all_txns)
+        all_time_overdue = max(all_charged - all_paid, 0)
+
+        return {
+            "total_income": charged,
+            "total_collected": paid,
+            "outstanding": outstanding,
+            "all_time_overdue": all_time_overdue,
+            "has_data": charged > 0 or paid > 0,
+        }
+
+    except Exception:
+        logger.warning(
+            "Could not fetch financial summary for property %s",
+            property_obj.pk,
+            exc_info=True,
+        )
+        return empty
 
 
 def get_portfolio_financial_summary(portfolio, month_start, month_end) -> dict:
     """
-    Aggregate payments received across all properties in the portfolio
-    for [month_start, month_end). Also returns reserve balance info.
+    Fetch total payments received across all properties in the portfolio
+    for [month_start, month_end) from the live RentVine API.
+
+    Note: The RentVine ``portfolioID`` query param does not filter results,
+    so we paginate through all type-2 (Lease Payment) transactions for the
+    period and match the portfolio client-side.
 
     Returns:
-        {total_received, reserve_amount, additional_reserve_amount, hold_distributions}
+        {total_collected, reserve_amount, additional_reserve_amount, hold_distributions}
     """
-    from accounting.models import Transaction
-
-    total_received = float(
-        Transaction.objects.filter(
-            portfolio=portfolio,
-            transaction_type=2,  # Lease Payment
-            is_voided=False,
-            date_posted__gte=month_start,
-            date_posted__lt=month_end,
-        ).aggregate(total=Sum("amount"))["total"] or 0
-    )
-
-    return {
-        "total_received": total_received,
+    result = {
+        "total_collected": 0.0,
         "reserve_amount": float(portfolio.reserve_amount or 0),
         "additional_reserve_amount": float(portfolio.additional_reserve_amount or 0),
         "hold_distributions": bool(portfolio.hold_distributions),
     }
+
+    if not portfolio.rentvine_id:
+        return result
+
+    try:
+        from integrations.rentvine.client import RentvineClient
+
+        client = RentvineClient()
+        month_end_inclusive = (month_end - timedelta(days=1)).isoformat()
+        target_id = str(portfolio.rentvine_id)
+
+        total = 0.0
+        page = 1
+        page_size = 500
+
+        while True:
+            response = client.get(
+                "accounting/transactions/search",
+                params={
+                    "transactionTypeID": 2,  # Lease Payment
+                    "datePostedMin": month_start.isoformat(),
+                    "datePostedMax": month_end_inclusive,
+                    "page": page,
+                    "pageSize": page_size,
+                },
+            )
+            txns = _extract_transactions(response)
+            if not txns:
+                break
+
+            for txn in txns:
+                port_obj = txn.get("portfolio") or {}
+                if str(port_obj.get("portfolioID")) != target_id:
+                    continue
+                t = txn.get("transaction", txn) if isinstance(txn, dict) else txn
+                if str(t.get("isVoided", "0")) in ("1", "true", "True", True):
+                    continue
+                try:
+                    total += float(t.get("amount", 0))
+                except (ValueError, TypeError):
+                    pass
+
+            if len(txns) < page_size:
+                break
+            page += 1
+
+        result["total_collected"] = total
+
+    except Exception:
+        logger.warning(
+            "Could not fetch portfolio financial summary for portfolio %s",
+            portfolio.pk,
+            exc_info=True,
+        )
+
+    return result
 
 
 def _empty_statement() -> dict:
@@ -248,3 +346,30 @@ def get_tenant_notes(lease, since_days: int = 45) -> list:
             exc_info=True,
         )
         return []
+
+
+def get_vacancy_status(property_obj) -> str:
+    """
+    Check the most recent DailyUnitSnapshot for this property's units to
+    determine marketing status.
+
+    Returns:
+        'active'     — at least one unit is actively being marketed
+        'make_ready' — units are in make-ready, not yet marketed
+        'vacant'     — vacant with no snapshot data
+    """
+    from market.models import DailyUnitSnapshot
+
+    latest_status = (
+        DailyUnitSnapshot.objects
+        .filter(unit__property=property_obj)
+        .order_by("-snapshot_date")
+        .values_list("status", flat=True)
+        .first()
+    )
+
+    if latest_status == "active":
+        return "active"
+    elif latest_status == "make_ready":
+        return "make_ready"
+    return "vacant"

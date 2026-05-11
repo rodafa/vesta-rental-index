@@ -75,6 +75,11 @@ class Command(BaseCommand):
             default=None,
             help="Override period end date, inclusive (YYYY-MM-DD). Requires --start-date.",
         )
+        parser.add_argument(
+            "--debug-data",
+            action="store_true",
+            help="Print raw financial values (total_income, total_collected, outstanding) per owner before generation.",
+        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
@@ -130,6 +135,8 @@ class Command(BaseCommand):
             f"Generating monthly owner notes for {month:%B %Y} …"
         )
 
+        debug_data = options["debug_data"]
+
         try:
             result = run_monthly_report(
                 month=month,
@@ -139,6 +146,7 @@ class Command(BaseCommand):
                 dry_run=dry_run,
                 start_date=start_date,
                 end_date=end_date,
+                debug_data=debug_data,
             )
         except Exception as exc:
             raise CommandError(str(exc)) from exc

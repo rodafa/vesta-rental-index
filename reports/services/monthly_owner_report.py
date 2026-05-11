@@ -39,10 +39,11 @@ SYSTEM_PROMPT = (
 
     "Data sequence — present information in this order, omitting any section "
     "with no relevant data:\n"
-    "1. Portfolio-level funds received and any pending/processing amounts\n"
+    "1. Portfolio-level total income billed, total collected, and outstanding "
+    "balance if any\n"
     "2. Reserve balance reminder if below minimum\n"
-    "3. Per-lease: end date, total rent due (including pet rent), rent received, "
-    "overdue balance if any\n"
+    "3. Per-lease: end date, total rent due (including pet rent), total billed, "
+    "collected, outstanding if any, overdue balance if any\n"
     "3a. Recent tenant notes from the management portal (last 45 days) — "
     "summarize any relevant context from these notes that adds value for the "
     "owner; do not quote them verbatim, weave key points into the narrative\n"
@@ -55,7 +56,12 @@ SYSTEM_PROMPT = (
 
     "Tone: warm, direct, and transparent. Every problem is paired with what is "
     "being done about it. Owners are investors — be clear and do not bury "
-    "important information."
+    "important information.\n\n"
+
+    "Never self-correct, revise, or show reasoning mid-note. If data appears "
+    "contradictory, use the figure from the most authoritative source "
+    "(RentVine financial data takes precedence) without any commentary or "
+    "correction language."
 )
 
 
@@ -116,6 +122,13 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
     except Exception:
         logger.warning("Failed to fetch active lease for property %s", property_obj.pk, exc_info=True)
 
+    if not active_lease:
+        try:
+            data["vacancy_status"] = rv_source.get_vacancy_status(property_obj)
+        except Exception:
+            logger.warning("Failed to fetch vacancy status for property %s", property_obj.pk, exc_info=True)
+            data["vacancy_status"] = "vacant"
+
     try:
         data["tenant_notes"] = rv_source.get_tenant_notes(active_lease)
     except Exception:
@@ -169,6 +182,22 @@ def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: 
         logger.warning(
             "Failed to fetch portfolio financials for portfolio %s", portfolio.pk, exc_info=True
         )
+
+    # Fetch accrual-based statement to get total_income (billed) vs total_collected (cash)
+    statement_data = {}
+    try:
+        statement_data = rv_source.get_portfolio_statement(portfolio.rentvine_id)
+    except Exception:
+        logger.warning(
+            "Failed to fetch statement for portfolio %s", portfolio.pk, exc_info=True
+        )
+
+    if portfolio_financials is not None:
+        portfolio_financials["total_income"] = statement_data.get("total_income", 0.0)
+        collected = portfolio_financials.get("total_collected", 0.0)
+        income = portfolio_financials["total_income"]
+        portfolio_financials["outstanding"] = max(income - collected, 0.0)
+        portfolio_financials["_statement"] = statement_data
 
     prop_data = []
     for prop in properties:
@@ -259,10 +288,14 @@ def build_prompt(payload: dict) -> str:
     # ── 1. PORTFOLIO-LEVEL FINANCIALS ─────────────────────────────────────────
     pf = payload.get("portfolio_financials")
     if pf:
-        lines.append(
-            f"Portfolio total received this period: ${pf['total_received']:,.2f} "
-            "(no clearing/pending status data available — report only the confirmed total received)"
-        )
+        lines.append(f"Portfolio total income this period: ${pf['total_income']:,.2f}")
+        lines.append(f"Portfolio total collected this period: ${pf['total_collected']:,.2f}")
+        outstanding = pf.get("outstanding", 0.0)
+        if outstanding > 0:
+            lines.append(
+                f"Outstanding balance (billed but not yet collected): ${outstanding:,.2f} "
+                "— flag this for the owner"
+            )
         reserve = pf["reserve_amount"] + pf["additional_reserve_amount"]
         if reserve > 0:
             lines.append(f"Portfolio reserve balance on file: ${reserve:,.2f}")
@@ -287,7 +320,9 @@ def build_prompt(payload: dict) -> str:
         if al:
             rent_due = al["rent_amount"]
             pet_rent = al["pet_rent_amount"]
-            received = fin["paid"] if fin else 0.0
+            total_income = fin["total_income"] if fin else 0.0
+            total_collected = fin["total_collected"] if fin else 0.0
+            prop_outstanding = fin.get("outstanding", 0.0) if fin else 0.0
             all_time_overdue = fin.get("all_time_overdue", 0.0) if fin else 0.0
 
             lease_line = f"Lease ends {al['end_date'] or 'unknown date'}. "
@@ -297,8 +332,14 @@ def build_prompt(payload: dict) -> str:
                 )
             else:
                 lease_line += f"Total rent due: ${rent_due:,.2f}/mo. "
-            lease_line += f"Received this period: ${received:,.2f}."
+            lease_line += f"Total billed: ${total_income:,.2f}. Collected: ${total_collected:,.2f}."
             lines.append(lease_line)
+
+            if prop_outstanding > 0:
+                lines.append(
+                    f"Outstanding this period: ${prop_outstanding:,.2f} "
+                    "(flag — billed but not yet collected)"
+                )
 
             if all_time_overdue > 0:
                 lines.append(
@@ -321,10 +362,17 @@ def build_prompt(payload: dict) -> str:
                 for tn in tenant_notes:
                     lines.append(f"  - [{tn['created_at']}] {tn['note_text']}")
         else:
-            lines.append(
-                "No active lease — property is currently vacant. "
-                "Report in leasing/vacancy section (section 6)."
-            )
+            vacancy_status = prop.get("vacancy_status", "vacant")
+            if vacancy_status == "active":
+                lines.append(
+                    "No active lease — property is currently vacant and actively being marketed. "
+                    "Report in leasing/vacancy section (section 6)."
+                )
+            else:
+                lines.append(
+                    "No active lease — property is currently vacant. "
+                    "No active marketing at this time."
+                )
 
         ul = prop.get("upcoming_lease")
         if ul:
@@ -453,6 +501,7 @@ def run_monthly_report(
     dry_run: bool = False,
     start_date: date = None,
     end_date: date = None,
+    debug_data: bool = False,
 ) -> dict:
     """
     Main entry point. Generates AI-drafted monthly notes at the portfolio level.
@@ -521,6 +570,27 @@ def run_monthly_report(
                     portfolio, owner, month_start, month_end, all_deals
                 )
 
+                if debug_data:
+                    print(f"\n{'─' * 60}")
+                    print(f"[DEBUG DATA] {label}")
+                    print(f"  Period: {month_start} to {month_end - timedelta(days=1)}")
+                    pf_debug = payload.get("portfolio_financials") or {}
+                    print(f"  Portfolio total_income:    ${pf_debug.get('total_income', 0):,.2f}")
+                    print(f"  Portfolio total_collected: ${pf_debug.get('total_collected', 0):,.2f}")
+                    print(f"  Portfolio outstanding:     ${pf_debug.get('outstanding', 0):,.2f}")
+                    for prop in payload["properties"]:
+                        addr = prop.get("address", "?")
+                        fin = prop.get("financials") or {}
+                        al = prop.get("active_lease") or {}
+                        rent_due = al.get("rent_amount", 0) + al.get("pet_rent_amount", 0)
+                        print(f"  [{addr}]")
+                        print(f"    rent_due (lease):     ${rent_due:,.2f}")
+                        print(f"    total_income (period):  ${fin.get('total_income', 0):,.2f}")
+                        print(f"    total_collected (period): ${fin.get('total_collected', 0):,.2f}")
+                        print(f"    outstanding (period):   ${fin.get('outstanding', 0):,.2f}")
+                        print(f"    all_time_overdue:       ${fin.get('all_time_overdue', 0):,.2f}")
+                    print(f"{'─' * 60}")
+
                 if not has_sufficient_data(payload):
                     print(f"\n[SKIPPED] {label} — no data found")
                     counters["skipped"] += 1
@@ -539,18 +609,9 @@ def run_monthly_report(
 
                 note = generate_note(payload)
 
-                # Fetch RentVine owner statement for this portfolio
-                statement_data = {}
-                try:
-                    statement_data = rv_source.get_portfolio_statement(
-                        portfolio.rentvine_id
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to fetch statement for portfolio %s",
-                        portfolio.pk,
-                        exc_info=True,
-                    )
+                # Reuse statement data already fetched in collect_portfolio_data()
+                pf_data = payload.get("portfolio_financials") or {}
+                statement_data = pf_data.pop("_statement", {})
 
                 print(f"\n{DIVIDER}")
                 print(f"OWNER: {owner.name}")
