@@ -21,106 +21,92 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are writing a monthly property update note for a real estate investor. "
-    "The note will be pasted directly into a property management portal and read "
-    "by the property owner. Be concise — owners want signal, not noise.\n\n"
+    "The note will be pasted directly into a property management portal. "
+    "Brevity is mandatory — owners want signal, not noise.\n\n"
 
-    "Formatting rules — follow these exactly:\n"
-    "- Use bullet points throughout\n"
-    "- Nest sub-bullets where needed for clarity\n"
+    "FORMAT:\n"
+    "- Bullet points throughout\n"
     "- No bold, no markdown headers, no dividing lines, no preamble\n"
-    "- Do not start with \"For the period...\" or any greeting\n"
-    "- Do not mention cancelled work orders\n"
-    "- Do not include vendor names — refer to any outside vendor as "
-    "\"one of our trusted vendors\"\n"
-    "- When full detail exists beyond what belongs in the note, close with "
-    "a pointer to PropertyMeld or the RentVine owner portal\n\n"
+    "- Do not start with a greeting or \"For the period...\"\n"
+    "- Do not mention vendor names — say \"one of our trusted vendors\"\n"
+    "- All dates must be written in plain English format: July 31, 2026 — "
+    "never ISO format (2026-07-31)\n"
+    "- Between property sections use exactly one blank line. "
+    "Never use --- or any divider characters anywhere in the note\n"
+    "- Never self-correct, revise, or show reasoning mid-note\n"
+    "- If data appears contradictory, use RentVine figures without commentary\n\n"
 
-    "Structure — use this three-tier format:\n\n"
+    "PORTFOLIO SUMMARY — 3 lines maximum:\n"
+    "- Line 1: Total billed | collected | outstanding\n"
+    "- Line 2: Reserve status ONLY if balance is below minimum\n"
+    "- Line 3: One framing sentence ONLY if more than 2 properties have "
+    "outstanding balances. If collection follow-up applies, state it once here "
+    "(e.g. \"Late rent processes are active where balances remain\"). "
+    "Do NOT repeat collection language anywhere else in the note.\n\n"
 
-    "TIER 1 — Portfolio summary (always included):\n"
-    "- Total billed, total collected, and outstanding balance if any\n"
-    "- Reserve status only if the balance is below minimum\n"
-    "- One sentence framing the month overall\n\n"
+    "PROPERTY SECTIONS — strict inclusion rules:\n"
+    "Only include a property section if at least one of these is true:\n"
+    "- Outstanding balance > $0 this period (billed but not yet collected)\n"
+    "- All-time overdue balance > $0\n"
+    "- Lease ends within 90 days of report period end\n"
+    "- Unresolved HIGH PRIORITY maintenance item\n"
+    "- Active pipeline process (application, move-in, renewal, move-out)\n"
+    "If NONE of these are true, omit the property entirely — not even a mention.\n\n"
+
+    "Per included property, use at most 4 lines:\n"
+    "- Billed | collected | outstanding (only if outstanding > $0)\n"
+    "- Overdue balance with ONE action word (e.g. \"$3,700 overdue — pursuing\"). "
+    "Never repeat \"follow-up is underway\" or similar phrases.\n"
+    "- Lease renewal status if an active renewal process exists\n"
+    "- Maintenance ONLY if high priority AND unresolved\n"
+    "Omit any line that does not apply.\n\n"
 
     "MULTI-UNIT PROPERTIES:\n"
-    "When a property has multiple units, always identify the specific unit "
-    "(e.g. \"Unit A\", \"Unit B\") when reporting financials, lease details, "
-    "or maintenance. Never report these at the property level when unit-level "
-    "data is available. Group information under each unit label within the "
-    "property section. Pipeline processes (applications, move-ins, etc.) "
-    "apply to the property as a whole — no unit attribution needed.\n\n"
+    "When a property has multiple units, identify the specific unit "
+    "(e.g. \"Unit A\", \"Unit B\") for financials, lease details, and maintenance. "
+    "Only include units that meet the inclusion rules above. "
+    "Pipeline processes apply property-wide — no unit attribution needed.\n\n"
 
-    "TIER 2 — Property details (only when something is notable):\n"
-    "Only include a section for a property if at least one of these is true:\n"
-    "- Outstanding balance > $0 (billed but not yet collected)\n"
-    "- Lease end date is within 90 days of the report period end date\n"
-    "- An active pipeline process exists (application, move-in, renewal, "
-    "late rent, move-out, or issue)\n"
-    "- A maintenance item that is high priority, unresolved, or where a vendor "
-    "was dispatched for a significant repair\n"
-    "Do NOT include a property section if rent was collected in full, there is "
-    "no overdue balance, no expiring lease, and no significant maintenance.\n"
-    "Omit routine items entirely: quarterly walkthroughs, annual inspections, "
-    "pending scheduling coordination — unless overdue or flagged.\n\n"
+    "OVERDUE BALANCE RULE:\n"
+    "If a property has an all-time overdue balance > $0 it MUST appear in the note "
+    "body with its financials. It must never appear only in the closing line. "
+    "The closing line is only for properties with zero outstanding and zero "
+    "overdue balance.\n\n"
 
-    "TIER 3 — Closing line (always included):\n"
-    "If any properties have nothing notable to report:\n"
-    "- 4 or fewer quiet properties: name them individually: "
-    "\"[Property A], [Property B], and [Property C] are current on rent with "
-    "no open maintenance items requiring your attention.\"\n"
-    "- More than 4 quiet properties: summarize as \"The remaining [X] properties "
-    "are current on rent with no open items requiring your attention.\"\n\n"
+    "OMIT ENTIRELY — no exceptions:\n"
+    "- Properties where current period outstanding = $0 AND overdue balance = $0 "
+    "AND no expiring lease AND no high-priority open maintenance\n"
+    "- Routine items: quarterly walkthroughs, annual inspections, filter changes, "
+    "pending scheduling coordination\n"
+    "- Cancelled work orders\n\n"
 
-    "Filtering rules — apply these strictly:\n\n"
+    "CLOSING LINE — required only if any properties were omitted:\n"
+    "- 4 or fewer omitted: \"[Property A] and [Property B] are current with no "
+    "open items.\"\n"
+    "- More than 4 omitted: \"The remaining [X] properties are current with no "
+    "open items.\"\n"
+    "- A property must never appear in both the note body AND the closing line. "
+    "The closing line only includes properties that were completely omitted "
+    "from the body.\n"
+    "- When a multi-unit property appears in the closing line, identify the "
+    "specific unit — never just the property address. For example: "
+    "\"11 Chestnut Terrace Unit A, 240 Hillside Street Unit B, and "
+    "37 Shadowlawn Drive Unit B are current with no open items.\" "
+    "If all units at a property are clean, list each unit separately or use: "
+    "\"11 Chestnut Terrace (all units)\".\n"
+    "- Never write a line like '[Property] has no items requiring your attention' "
+    "— properties with nothing notable are omitted entirely or named only in "
+    "the closing line.\n\n"
 
-    "LEASE END DATE RULE:\n"
-    "Only mention a lease end date if it falls within 90 days of the report "
-    "period end date. Never show lease end dates more than 90 days out — "
-    "they are not actionable.\n\n"
-
-    "MAINTENANCE RULE:\n"
-    "Only mention maintenance if:\n"
-    "- The work order is high priority\n"
-    "- A vendor was dispatched for a non-routine repair\n"
-    "- The item is unresolved and has been open more than 14 days\n"
-    "Never mention: quarterly preventative maintenance, annual inspections, "
-    "pending scheduling coordination — unless overdue.\n\n"
-
-    "FINANCIAL RULE PER PROPERTY:\n"
-    "Only show the billed/collected/outstanding breakdown for a property if "
-    "the outstanding amount is > $0. If a property collected in full, do not "
-    "show its financials — it is already captured in the portfolio total.\n\n"
-
-    "OUTSTANDING / LATE RENT TONE:\n"
-    "When reporting outstanding balances or late rent, be direct but "
-    "solution-focused. State the balance, state what action is underway, "
-    "do not editorialize. Never use language like \"significant concern\" "
-    "or \"unfortunately\" — just facts and next steps.\n\n"
+    "TONE:\n"
+    "Warm, direct, transparent. Every problem is paired with what is being done. "
+    "Be solution-focused — no editorializing (\"unfortunately\", \"significant concern\"). "
+    "Facts and next steps only.\n\n"
 
     "PENDING / PROCESSING FUNDS:\n"
-    "If any portion of collected rent is still processing or pending "
-    "clearance, state the amount received, the amount clearing, and "
-    "expected distribution timing. Never report pending funds as "
-    "collected.\n\n"
-
-    "TENANT NOTES:\n"
-    "If recent tenant notes are provided (last 45 days), summarize any "
-    "relevant context that adds value for the owner. Do not quote verbatim — "
-    "weave key points into the narrative. Only include if the note contains "
-    "actionable or notable information.\n\n"
-
-    "PIPELINE PROCESSES:\n"
-    "Write in Vesta's voice — never mention LeadSimple by name. Only include "
-    "active records.\n\n"
-
-    "Tone: warm, direct, and transparent. Every problem is paired with what is "
-    "being done about it. Owners are investors — be clear and do not bury "
-    "important information.\n\n"
-
-    "Never self-correct, revise, or show reasoning mid-note. If data appears "
-    "contradictory, use the figure from the most authoritative source "
-    "(RentVine financial data takes precedence) without any commentary or "
-    "correction language."
+    "If any collected rent is still processing, state the amount received, "
+    "the amount clearing, and expected distribution timing. Never report "
+    "pending funds as collected."
 )
 
 
@@ -326,6 +312,18 @@ def _collect_multi_unit_data(property_obj, owner, month_start, month_end, all_de
     return data
 
 
+def _has_overdue_balance(prop: dict) -> bool:
+    """Check if a property (single or multi-unit) has any all-time overdue balance."""
+    if prop.get("is_multi_unit"):
+        if (prop.get("property_financials") or {}).get("all_time_overdue", 0) > 0:
+            return True
+        for unit in prop.get("units", []):
+            if (unit.get("financials") or {}).get("all_time_overdue", 0) > 0:
+                return True
+        return False
+    return (prop.get("financials") or {}).get("all_time_overdue", 0) > 0
+
+
 def collect_property_data(property_obj, owner, month_start, month_end, all_deals: list) -> dict:
     """
     Call all data sources for a property. Dispatches to multi-unit or single-unit
@@ -334,9 +332,14 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
     if property_obj.is_multi_unit:
         active_unit_count = property_obj.units.filter(is_active=True).count()
         if active_unit_count > 1:
-            return _collect_multi_unit_data(property_obj, owner, month_start, month_end, all_deals)
+            data = _collect_multi_unit_data(property_obj, owner, month_start, month_end, all_deals)
+        else:
+            data = _collect_single_unit_data(property_obj, owner, month_start, month_end, all_deals)
+    else:
+        data = _collect_single_unit_data(property_obj, owner, month_start, month_end, all_deals)
 
-    return _collect_single_unit_data(property_obj, owner, month_start, month_end, all_deals)
+    data["force_include"] = _has_overdue_balance(data)
+    return data
 
 
 def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: list) -> dict:
@@ -437,6 +440,8 @@ _MELD_CLOSED_STATUSES = {
     "CLOSED",
     "MAINTENANCE_COULD_NOT_COMPLETE",
     "VENDOR_COULD_NOT_COMPLETE",
+    "MANAGER_CANCELED",
+    "TENANT_CANCELED",
 }
 
 
@@ -448,6 +453,33 @@ def _classify_melds(melds: list) -> tuple[list, list]:
     open_melds = [m for m in melds if m.get("status", "").upper() not in _MELD_CLOSED_STATUSES]
     completed_melds = [m for m in melds if m.get("status", "").upper() in _MELD_CLOSED_STATUSES]
     return open_melds, completed_melds
+
+
+def _filter_meld_list(melds: list, cutoff_date: date) -> list:
+    """Keep open melds that are high-priority or were created before cutoff_date."""
+    result = []
+    for m in melds:
+        if m.get("status", "").upper() in _MELD_CLOSED_STATUSES:
+            continue
+        if (m.get("priority") or "").upper() == "HIGH":
+            result.append(m)
+            continue
+        created = m.get("created_at")
+        if created and date.fromisoformat(created) <= cutoff_date:
+            result.append(m)
+    return result
+
+
+def _filter_reportable_melds(properties: list, period_end: date):
+    """Strip completed and non-urgent short-lived melds before prompt build."""
+    cutoff_date = period_end - timedelta(days=14)
+    for prop in properties:
+        if prop.get("is_multi_unit"):
+            for unit in prop.get("units", []):
+                unit["melds"] = _filter_meld_list(unit.get("melds", []), cutoff_date)
+            prop["melds"] = _filter_meld_list(prop.get("melds", []), cutoff_date)
+        else:
+            prop["melds"] = _filter_meld_list(prop.get("melds", []), cutoff_date)
 
 
 def _format_meld(m: dict) -> str:
@@ -590,6 +622,8 @@ def _format_melds(melds: list, lines: list):
 def _format_single_unit_property(prop: dict, lines: list):
     """Format a single-unit property section in the prompt."""
     lines.append(f"\n=== {prop['address']} ===")
+    if prop.get("force_include"):
+        lines.append("⚠ OVERDUE — must include in note body, never in closing line")
 
     al = prop.get("active_lease")
     fin = prop.get("financials")
@@ -608,6 +642,8 @@ def _format_single_unit_property(prop: dict, lines: list):
 def _format_multi_unit_property(prop: dict, lines: list):
     """Format a multi-unit property section in the prompt."""
     lines.append(f"\n=== {prop['address']} (multi-unit) ===")
+    if prop.get("force_include"):
+        lines.append("⚠ OVERDUE — must include in note body, never in closing line")
 
     # Property-level financials fallback
     pf = prop.get("property_financials")
@@ -662,6 +698,23 @@ def _format_multi_unit_property(prop: dict, lines: list):
     _format_pipeline(prop.get("pipeline") or {}, lines)
 
 
+def _strip_distant_lease_dates(properties: list, period_end: date):
+    """Remove lease end_date from any lease ending more than 90 days after period_end."""
+    cutoff = period_end + timedelta(days=90)
+    for prop in properties:
+        if prop.get("is_multi_unit"):
+            for unit in prop.get("units", []):
+                al = unit.get("active_lease")
+                if al and al.get("end_date"):
+                    if date.fromisoformat(al["end_date"]) > cutoff:
+                        al["end_date"] = None
+        else:
+            al = prop.get("active_lease")
+            if al and al.get("end_date"):
+                if date.fromisoformat(al["end_date"]) > cutoff:
+                    al["end_date"] = None
+
+
 def build_prompt(payload: dict) -> str:
     """Build the user-turn message from the collected portfolio payload."""
     properties = payload["properties"]
@@ -670,6 +723,8 @@ def build_prompt(payload: dict) -> str:
 
     ms = date.fromisoformat(month_start_str)
     me = date.fromisoformat(month_end_str)
+    _strip_distant_lease_dates(properties, me)
+    _filter_reportable_melds(properties, me)
     period_start = f"{ms.strftime('%B')} {ms.day}, {ms.year}"
     period_end = f"{me.strftime('%B')} {me.day}, {me.year}"
 
@@ -713,8 +768,14 @@ def build_prompt(payload: dict) -> str:
             _format_single_unit_property(prop, lines)
 
     # ── CLOSING INSTRUCTION ───────────────────────────────────────────────────
-    property_addresses = [p["address"] for p in properties]
-    addr_list = ", ".join(property_addresses)
+    property_names = []
+    for p in properties:
+        if p.get("is_multi_unit"):
+            for unit in p.get("units", []):
+                property_names.append(unit["unit_name"])
+        else:
+            property_names.append(p["address"])
+    addr_list = ", ".join(property_names)
     lines.append(
         f"\nWrite the owner note for: {addr_list}. "
         f"Follow all formatting rules: start with the property address on its own line, "
@@ -734,7 +795,7 @@ def generate_note(payload: dict) -> str:
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=800,
+        max_tokens=600,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_prompt(payload)}],
     )
