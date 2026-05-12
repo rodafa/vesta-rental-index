@@ -21,7 +21,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var dryRunCheck       = document.getElementById('dry-run-check');
   var runBtn            = document.getElementById('run-btn');
   var runAllBtn         = document.getElementById('run-all-btn');
+  var approveAllBtn     = document.getElementById('approve-all-btn');
   var sendAllBtn        = document.getElementById('send-all-btn');
+  var deleteAllBtn      = document.getElementById('delete-all-btn');
   var statusBar         = document.getElementById('status-bar');
   var noteList          = document.getElementById('note-list');
   var noteDetail        = document.getElementById('note-detail');
@@ -375,6 +377,73 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // ── Approve all pending ───────────────────────────────────────────────────
+  function approveAllPending() {
+    var month = derivedMonth();
+    if (!month) { VestaAPI.toast('Select a date range first.', 'error'); return; }
+
+    var pendingCount = 0;
+    for (var i = 0; i < notes.length; i++) {
+      if (notes[i].status === 'pending' || notes[i].status === 'success') pendingCount++;
+    }
+    if (pendingCount === 0) {
+      VestaAPI.toast('No pending notes to approve for this month.', 'warn');
+      return;
+    }
+
+    if (!confirm('Approve all ' + pendingCount + ' pending note(s) for this month?')) return;
+
+    approveAllBtn.disabled = true;
+    setStatus('running', 'Approving all pending notes\u2026');
+
+    VestaAPI.post('/reports/owner-notes/approve-all?month=' + month, {}).then(function (resp) {
+      approveAllBtn.disabled = false;
+      setStatus('done', 'Done \u2014 ' + resp.approved + ' note(s) approved.');
+      VestaAPI.toast(resp.approved + ' note(s) approved.', 'success');
+      loadNotes();
+    }).catch(function () {
+      approveAllBtn.disabled = false;
+      setStatus('error', 'Approve-all request failed.');
+      VestaAPI.toast('Approve-all failed.', 'error');
+    });
+  }
+
+  // ── Delete all notes ──────────────────────────────────────────────────────
+  function deleteAllNotes() {
+    var month = derivedMonth();
+    if (!month) { VestaAPI.toast('Select a date range first.', 'error'); return; }
+
+    var deletableCount = 0;
+    for (var i = 0; i < notes.length; i++) {
+      var s = notes[i].status;
+      if (s === 'pending' || s === 'approved' || s === 'failed' || s === 'skipped') deletableCount++;
+    }
+    if (deletableCount === 0) {
+      VestaAPI.toast('No deletable notes for this month.', 'warn');
+      return;
+    }
+
+    if (!confirm('Delete all ' + deletableCount + ' note(s) for this month? This cannot be undone.')) return;
+
+    deleteAllBtn.disabled = true;
+    setStatus('running', 'Deleting all notes\u2026');
+
+    VestaAPI.post('/reports/owner-notes/delete-all?month=' + month, {}).then(function (resp) {
+      deleteAllBtn.disabled = false;
+      setStatus('done', 'Done \u2014 ' + resp.deleted + ' note(s) deleted.');
+      VestaAPI.toast(resp.deleted + ' note(s) deleted.', 'success');
+      _activeNoteId = null;
+      _dirty = false;
+      noteDetail.style.display = 'none';
+      detailPlaceholder.style.display = 'flex';
+      loadNotes();
+    }).catch(function () {
+      deleteAllBtn.disabled = false;
+      setStatus('error', 'Delete-all request failed.');
+      VestaAPI.toast('Delete-all failed.', 'error');
+    });
+  }
+
   // ── Run generation ─────────────────────────────────────────────────────────
   function runGeneration() {
     var startDate = startDateInput.value;
@@ -518,7 +587,9 @@ document.addEventListener('DOMContentLoaded', function () {
   approveBtn.addEventListener('click', function () { if (_activeNoteId) approveNote(_activeNoteId); });
   noteSendBtn.addEventListener('click', function () { if (_activeNoteId) sendNote(_activeNoteId); });
   deleteBtn.addEventListener('click', function () { if (_activeNoteId) deleteNote(_activeNoteId); });
+  approveAllBtn.addEventListener('click', approveAllPending);
   sendAllBtn.addEventListener('click', sendAllApproved);
+  deleteAllBtn.addEventListener('click', deleteAllNotes);
 
   noteTextarea.addEventListener('input', function () {
     _dirty = true;

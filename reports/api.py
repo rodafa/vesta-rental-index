@@ -150,6 +150,55 @@ def generate_notes(request, payload: GenerateSchema):
     return {"ok": True, "month": month_str}
 
 
+@router.post("/owner-notes/approve-all")
+def approve_all_pending(request, month: Optional[str] = None):
+    """
+    Approve all reports with status='pending' (or 'success') for a given month.
+    Pass ?month=YYYY-MM to restrict to a single month (recommended from the UI).
+    Returns {"approved": N, "total": N}.
+    """
+    from reports.services.send_owner_report import approve_owner_report
+
+    qs = OwnerReportLog.objects.filter(status__in=["pending", "success"])
+    if month:
+        try:
+            year, mon = int(month[:4]), int(month[5:7])
+            qs = qs.filter(report_month__year=year, report_month__month=mon)
+        except (ValueError, IndexError):
+            pass
+
+    approved_count = 0
+    for report in qs:
+        try:
+            approve_owner_report(report.id)
+            approved_count += 1
+        except Exception:
+            pass
+
+    return {"approved": approved_count, "total": approved_count}
+
+
+@router.post("/owner-notes/delete-all")
+def delete_all_notes(request, month: Optional[str] = None):
+    """
+    Hard-delete all non-sent notes for a given month.
+    Pass ?month=YYYY-MM to restrict to a single month (recommended from the UI).
+    Returns {"deleted": N}.
+    """
+    deletable = ["pending", "approved", "failed", "skipped"]
+    qs = OwnerReportLog.objects.filter(status__in=deletable)
+    if month:
+        try:
+            year, mon = int(month[:4]), int(month[5:7])
+            qs = qs.filter(report_month__year=year, report_month__month=mon)
+        except (ValueError, IndexError):
+            pass
+
+    count = qs.count()
+    qs.delete()
+    return {"deleted": count}
+
+
 @router.post("/owner-notes/send-all")
 def send_all_approved(request, month: Optional[str] = None):
     """
