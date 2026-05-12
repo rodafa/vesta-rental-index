@@ -348,6 +348,160 @@ def get_tenant_notes(lease, since_days: int = 45) -> list:
         return []
 
 
+def get_active_lease_for_unit(unit_obj):
+    """Return the most recent active lease (primary_lease_status=2) for a specific unit."""
+    from leasing.models import Lease
+
+    return (
+        Lease.objects.filter(
+            unit=unit_obj,
+            primary_lease_status=2,  # Active
+        )
+        .prefetch_related("tenants")
+        .order_by("-start_date")
+        .first()
+    )
+
+
+def get_upcoming_lease_for_unit(unit_obj):
+    """Return a pending/future lease (primary_lease_status=1) for a specific unit."""
+    from leasing.models import Lease
+
+    return (
+        Lease.objects.filter(
+            unit=unit_obj,
+            primary_lease_status=1,  # Pending
+        )
+        .prefetch_related("tenants")
+        .order_by("-start_date")
+        .first()
+    )
+
+
+def get_financial_summary_by_unit(property_obj, month_start, month_end) -> dict | None:
+    """
+    Fetch lease charges and payments from RentVine API for this property,
+    then partition results by unit using the nested unit object in each transaction.
+
+    Returns:
+        {unit_rentvine_id: {total_income, total_collected, outstanding, all_time_overdue, has_data}}
+        or None if the API response lacks unit info (caller should fall back to property-level).
+    """
+    from properties.models import Unit
+
+    if not property_obj.rentvine_id:
+        return None
+
+    try:
+        from integrations.rentvine.client import RentvineClient
+
+        client = RentvineClient()
+        month_end_inclusive = (month_end - timedelta(days=1)).isoformat()
+
+        # Period transactions
+        response = client.get(
+            "accounting/transactions/search",
+            params={
+                "propertyID": property_obj.rentvine_id,
+                "datePostedMin": month_start.isoformat(),
+                "datePostedMax": month_end_inclusive,
+                "pageSize": 500,
+            },
+        )
+        txns = _extract_transactions(response)
+
+        # Check if any transaction has unit info
+        has_unit_info = any(
+            txn.get("unit", {}).get("unitID") for txn in txns if isinstance(txn, dict)
+        )
+        if not has_unit_info:
+            return None
+
+        # Partition transactions by unitID
+        unit_txns = {}
+        for txn in txns:
+            unit_id = None
+            if isinstance(txn, dict):
+                unit_id = txn.get("unit", {}).get("unitID")
+            if unit_id:
+                unit_txns.setdefault(unit_id, []).append(txn)
+
+        # All-time transactions for overdue calculation
+        all_response = client.get(
+            "accounting/transactions/search",
+            params={
+                "propertyID": property_obj.rentvine_id,
+                "pageSize": 1000,
+            },
+        )
+        all_txns = _extract_transactions(all_response)
+
+        all_unit_txns = {}
+        for txn in all_txns:
+            unit_id = None
+            if isinstance(txn, dict):
+                unit_id = txn.get("unit", {}).get("unitID")
+            if unit_id:
+                all_unit_txns.setdefault(unit_id, []).append(txn)
+
+        # Build per-unit financial summaries
+        # Get all active unit rentvine_ids for this property
+        active_unit_ids = set(
+            Unit.objects.filter(property=property_obj, is_active=True)
+            .values_list("rentvine_id", flat=True)
+        )
+
+        result = {}
+        for unit_id in active_unit_ids | set(unit_txns.keys()):
+            if unit_id is None:
+                continue
+            charged, paid = _sum_charges_and_payments(unit_txns.get(unit_id, []))
+            all_charged, all_paid = _sum_charges_and_payments(all_unit_txns.get(unit_id, []))
+            result[unit_id] = {
+                "total_income": charged,
+                "total_collected": paid,
+                "outstanding": max(charged - paid, 0),
+                "all_time_overdue": max(all_charged - all_paid, 0),
+                "has_data": charged > 0 or paid > 0,
+            }
+
+        return result
+
+    except Exception:
+        logger.warning(
+            "Could not fetch unit-level financial summary for property %s",
+            property_obj.pk,
+            exc_info=True,
+        )
+        return None
+
+
+def get_vacancy_status_for_unit(unit_obj) -> str:
+    """
+    Check the most recent DailyUnitSnapshot for a specific unit.
+
+    Returns:
+        'active'     — unit is actively being marketed
+        'make_ready' — unit is in make-ready
+        'vacant'     — vacant with no snapshot data
+    """
+    from market.models import DailyUnitSnapshot
+
+    latest_status = (
+        DailyUnitSnapshot.objects
+        .filter(unit=unit_obj)
+        .order_by("-snapshot_date")
+        .values_list("status", flat=True)
+        .first()
+    )
+
+    if latest_status == "active":
+        return "active"
+    elif latest_status == "make_ready":
+        return "make_ready"
+    return "vacant"
+
+
 def get_vacancy_status(property_obj) -> str:
     """
     Check the most recent DailyUnitSnapshot for this property's units to

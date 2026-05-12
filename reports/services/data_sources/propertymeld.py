@@ -94,6 +94,50 @@ def get_melds_for_period(property_obj, month_start, month_end) -> list:
             "scheduled_date": m.scheduled_date.isoformat() if m.scheduled_date else None,
             "created_at": m.source_created_at.date().isoformat() if m.source_created_at else None,
             "completed_date": m.completed_date.isoformat() if m.completed_date else None,
+            "unit_ref": m.unit_ref or None,
         })
 
     return results
+
+
+def match_melds_to_units(melds: list, units) -> dict:
+    """
+    Match melds to units based on the meld's unit_ref field.
+
+    Builds a lookup from each unit's name and address_line_2 (normalized),
+    then matches each meld's unit_ref against the lookup.
+
+    Args:
+        melds: list of meld dicts (with 'unit_ref' key)
+        units: queryset or list of Unit model instances
+
+    Returns:
+        {unit_pk: [melds], None: [unmatched_melds]}
+    """
+    # Build lookup: normalized key -> unit.pk
+    lookup = {}
+    for unit in units:
+        for raw in [unit.name, unit.address_line_2]:
+            key = _normalize_address(raw)
+            if key:
+                lookup[key] = unit.pk
+
+    result = {}
+    for meld in melds:
+        unit_ref = meld.get("unit_ref")
+        if not unit_ref:
+            result.setdefault(None, []).append(meld)
+            continue
+
+        normalized_ref = _normalize_address(unit_ref)
+        matched_pk = lookup.get(normalized_ref)
+        if matched_pk is None:
+            # Try partial matching: check if the ref is contained in any key or vice versa
+            for key, pk in lookup.items():
+                if normalized_ref in key or key in normalized_ref:
+                    matched_pk = pk
+                    break
+
+        result.setdefault(matched_pk, []).append(meld)
+
+    return result

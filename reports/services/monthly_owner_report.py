@@ -42,6 +42,14 @@ SYSTEM_PROMPT = (
     "- Reserve status only if the balance is below minimum\n"
     "- One sentence framing the month overall\n\n"
 
+    "MULTI-UNIT PROPERTIES:\n"
+    "When a property has multiple units, always identify the specific unit "
+    "(e.g. \"Unit A\", \"Unit B\") when reporting financials, lease details, "
+    "or maintenance. Never report these at the property level when unit-level "
+    "data is available. Group information under each unit label within the "
+    "property section. Pipeline processes (applications, move-ins, etc.) "
+    "apply to the property as a whole — no unit attribution needed.\n\n"
+
     "TIER 2 — Property details (only when something is notable):\n"
     "Only include a section for a property if at least one of these is true:\n"
     "- Outstanding balance > $0 (billed but not yet collected)\n"
@@ -140,10 +148,40 @@ def _month_bounds(month: date):
     return month_start, month_end
 
 
-def collect_property_data(property_obj, owner, month_start, month_end, all_deals: list) -> dict:
-    """Call all three data sources; each section is wrapped in its own try/except."""
+def _serialize_lease(lease_obj) -> dict:
+    """Convert a Lease model instance into a serializable dict."""
+    return {
+        "rentvine_id": lease_obj.rentvine_id,
+        "tenant_names": [t.name for t in lease_obj.tenants.all()],
+        "rent_amount": float(lease_obj.rent_amount or 0),
+        "pet_rent_amount": float(lease_obj.pet_rent_amount or 0),
+        "start_date": lease_obj.start_date.isoformat() if lease_obj.start_date else None,
+        "end_date": lease_obj.end_date.isoformat() if lease_obj.end_date else None,
+        "notice_date": lease_obj.notice_date.isoformat() if lease_obj.notice_date else None,
+        "expected_move_out": (
+            lease_obj.expected_move_out_date.isoformat()
+            if lease_obj.expected_move_out_date else None
+        ),
+        "move_out_status": lease_obj.move_out_status,
+    }
+
+
+def _serialize_upcoming_lease(lease_obj) -> dict:
+    """Convert an upcoming Lease model instance into a serializable dict."""
+    return {
+        "rentvine_id": lease_obj.rentvine_id,
+        "tenant_names": [t.name for t in lease_obj.tenants.all()],
+        "rent_amount": float(lease_obj.rent_amount or 0),
+        "move_in_date": lease_obj.move_in_date.isoformat() if lease_obj.move_in_date else None,
+        "start_date": lease_obj.start_date.isoformat() if lease_obj.start_date else None,
+    }
+
+
+def _collect_single_unit_data(property_obj, owner, month_start, month_end, all_deals: list) -> dict:
+    """Collect data for a single-unit property (original logic)."""
     data = {
         "address": property_obj.address_line_1,
+        "is_multi_unit": False,
         "active_lease": None,
         "upcoming_lease": None,
         "financials": None,
@@ -156,20 +194,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
     try:
         active_lease = rv_source.get_active_lease(property_obj)
         if active_lease:
-            data["active_lease"] = {
-                "rentvine_id": active_lease.rentvine_id,
-                "tenant_names": [t.name for t in active_lease.tenants.all()],
-                "rent_amount": float(active_lease.rent_amount or 0),
-                "pet_rent_amount": float(active_lease.pet_rent_amount or 0),
-                "start_date": active_lease.start_date.isoformat() if active_lease.start_date else None,
-                "end_date": active_lease.end_date.isoformat() if active_lease.end_date else None,
-                "notice_date": active_lease.notice_date.isoformat() if active_lease.notice_date else None,
-                "expected_move_out": (
-                    active_lease.expected_move_out_date.isoformat()
-                    if active_lease.expected_move_out_date else None
-                ),
-                "move_out_status": active_lease.move_out_status,
-            }
+            data["active_lease"] = _serialize_lease(active_lease)
     except Exception:
         logger.warning("Failed to fetch active lease for property %s", property_obj.pk, exc_info=True)
 
@@ -188,13 +213,7 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
     try:
         upcoming_lease = rv_source.get_upcoming_lease(property_obj)
         if upcoming_lease:
-            data["upcoming_lease"] = {
-                "rentvine_id": upcoming_lease.rentvine_id,
-                "tenant_names": [t.name for t in upcoming_lease.tenants.all()],
-                "rent_amount": float(upcoming_lease.rent_amount or 0),
-                "move_in_date": upcoming_lease.move_in_date.isoformat() if upcoming_lease.move_in_date else None,
-                "start_date": upcoming_lease.start_date.isoformat() if upcoming_lease.start_date else None,
-            }
+            data["upcoming_lease"] = _serialize_upcoming_lease(upcoming_lease)
     except Exception:
         logger.warning("Failed to fetch upcoming lease for property %s", property_obj.pk, exc_info=True)
 
@@ -214,6 +233,110 @@ def collect_property_data(property_obj, owner, month_start, month_end, all_deals
         logger.warning("Failed to fetch pipeline context for property %s", property_obj.pk, exc_info=True)
 
     return data
+
+
+def _collect_multi_unit_data(property_obj, owner, month_start, month_end, all_deals: list) -> dict:
+    """Collect per-unit data for a multi-unit property."""
+    active_units = list(property_obj.units.filter(is_active=True))
+
+    data = {
+        "address": property_obj.address_line_1,
+        "is_multi_unit": True,
+        "units": [],
+        "pipeline": None,
+        "property_financials": None,
+        "melds": [],  # unmatched melds
+    }
+
+    # Try unit-level financials; fall back to property-level
+    unit_financials = None
+    try:
+        unit_financials = rv_source.get_financial_summary_by_unit(property_obj, month_start, month_end)
+    except Exception:
+        logger.warning("Failed to fetch unit-level financials for property %s", property_obj.pk, exc_info=True)
+
+    if unit_financials is None:
+        try:
+            data["property_financials"] = rv_source.get_financial_summary(property_obj, month_start, month_end)
+        except Exception:
+            logger.warning("Failed to fetch property financials for property %s", property_obj.pk, exc_info=True)
+
+    # Get all melds and partition by unit
+    all_melds = []
+    try:
+        all_melds = pm_source.get_melds_for_period(property_obj, month_start, month_end)
+    except Exception:
+        logger.warning("Failed to fetch melds for property %s", property_obj.pk, exc_info=True)
+
+    melds_by_unit = pm_source.match_melds_to_units(all_melds, active_units)
+    data["melds"] = melds_by_unit.get(None, [])  # unmatched
+
+    # Pipeline stays property-level
+    try:
+        data["pipeline"] = ls_source.get_property_pipeline_context(property_obj, all_deals)
+    except Exception:
+        logger.warning("Failed to fetch pipeline context for property %s", property_obj.pk, exc_info=True)
+
+    # Per-unit data
+    for unit in active_units:
+        unit_data = {
+            "unit_name": unit.display_address,
+            "unit_rentvine_id": unit.rentvine_id,
+            "active_lease": None,
+            "upcoming_lease": None,
+            "financials": None,
+            "melds": melds_by_unit.get(unit.pk, []),
+            "tenant_notes": [],
+            "vacancy_status": None,
+        }
+
+        active_lease = None
+        try:
+            active_lease = rv_source.get_active_lease_for_unit(unit)
+            if active_lease:
+                unit_data["active_lease"] = _serialize_lease(active_lease)
+        except Exception:
+            logger.warning("Failed to fetch active lease for unit %s", unit.pk, exc_info=True)
+
+        if not active_lease:
+            try:
+                unit_data["vacancy_status"] = rv_source.get_vacancy_status_for_unit(unit)
+            except Exception:
+                logger.warning("Failed to fetch vacancy status for unit %s", unit.pk, exc_info=True)
+                unit_data["vacancy_status"] = "vacant"
+
+        try:
+            unit_data["tenant_notes"] = rv_source.get_tenant_notes(active_lease)
+        except Exception:
+            logger.warning("Failed to fetch tenant notes for unit %s", unit.pk, exc_info=True)
+
+        try:
+            upcoming_lease = rv_source.get_upcoming_lease_for_unit(unit)
+            if upcoming_lease:
+                unit_data["upcoming_lease"] = _serialize_upcoming_lease(upcoming_lease)
+        except Exception:
+            logger.warning("Failed to fetch upcoming lease for unit %s", unit.pk, exc_info=True)
+
+        # Assign unit-level financials from partitioned data
+        if unit_financials and unit.rentvine_id:
+            unit_data["financials"] = unit_financials.get(unit.rentvine_id)
+
+        data["units"].append(unit_data)
+
+    return data
+
+
+def collect_property_data(property_obj, owner, month_start, month_end, all_deals: list) -> dict:
+    """
+    Call all data sources for a property. Dispatches to multi-unit or single-unit
+    collection based on property.is_multi_unit and number of active units.
+    """
+    if property_obj.is_multi_unit:
+        active_unit_count = property_obj.units.filter(is_active=True).count()
+        if active_unit_count > 1:
+            return _collect_multi_unit_data(property_obj, owner, month_start, month_end, all_deals)
+
+    return _collect_single_unit_data(property_obj, owner, month_start, month_end, all_deals)
 
 
 def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: list) -> dict:
@@ -265,19 +388,45 @@ def collect_portfolio_data(portfolio, owner, month_start, month_end, all_deals: 
     }
 
 
-def has_sufficient_data(payload: dict) -> bool:
-    """Return False only if there is truly nothing to write about across all properties."""
-    return any(
-        prop.get("active_lease")
-        or prop.get("upcoming_lease")
-        or (prop.get("financials") or {}).get("has_data")
-        or prop.get("melds")
-        or any(
+def _has_property_data(prop: dict) -> bool:
+    """Check if a single property dict has any reportable data."""
+    if prop.get("is_multi_unit"):
+        # Multi-unit: check if any unit has data
+        for unit in prop.get("units", []):
+            if (
+                unit.get("active_lease")
+                or unit.get("upcoming_lease")
+                or (unit.get("financials") or {}).get("has_data")
+                or unit.get("melds")
+            ):
+                return True
+        # Also check property-level pipeline and unmatched melds
+        if prop.get("melds"):
+            return True
+        if any(
             (prop.get("pipeline") or {}).get(k)
             for k in ("applications", "move_ins", "renewals", "late_rent", "move_outs", "issues", "other")
+        ):
+            return True
+        if (prop.get("property_financials") or {}).get("has_data"):
+            return True
+        return False
+    else:
+        return bool(
+            prop.get("active_lease")
+            or prop.get("upcoming_lease")
+            or (prop.get("financials") or {}).get("has_data")
+            or prop.get("melds")
+            or any(
+                (prop.get("pipeline") or {}).get(k)
+                for k in ("applications", "move_ins", "renewals", "late_rent", "move_outs", "issues", "other")
+            )
         )
-        for prop in payload["properties"]
-    )
+
+
+def has_sufficient_data(payload: dict) -> bool:
+    """Return False only if there is truly nothing to write about across all properties."""
+    return any(_has_property_data(prop) for prop in payload["properties"])
 
 
 # Statuses that indicate a work order is resolved/closed (not cancelled — those
@@ -315,6 +464,202 @@ def _format_meld(m: dict) -> str:
     if m.get("completed_date"):
         parts.append(f"completed: {m['completed_date']}")
     return ", ".join(parts)
+
+
+def _format_lease_financials(al: dict, fin: dict, lines: list):
+    """Format lease and financial data lines (shared between single/multi-unit)."""
+    rent_due = al["rent_amount"]
+    pet_rent = al["pet_rent_amount"]
+    total_income = fin["total_income"] if fin else 0.0
+    total_collected = fin["total_collected"] if fin else 0.0
+    prop_outstanding = fin.get("outstanding", 0.0) if fin else 0.0
+    all_time_overdue = fin.get("all_time_overdue", 0.0) if fin else 0.0
+
+    lease_line = f"Lease ends {al['end_date'] or 'unknown date'}. "
+    if pet_rent > 0:
+        lease_line += (
+            f"Total rent due: ${rent_due:,.2f}/mo (includes ${pet_rent:,.2f} pet rent). "
+        )
+    else:
+        lease_line += f"Total rent due: ${rent_due:,.2f}/mo. "
+    lease_line += f"Total billed: ${total_income:,.2f}. Collected: ${total_collected:,.2f}."
+    lines.append(lease_line)
+
+    if prop_outstanding > 0:
+        lines.append(
+            f"Outstanding this period: ${prop_outstanding:,.2f} "
+            "(flag — billed but not yet collected)"
+        )
+
+    if all_time_overdue > 0:
+        lines.append(
+            f"Current overdue balance: ${all_time_overdue:,.2f} "
+            "(flag this; cross-reference any active late rent pipeline process)"
+        )
+
+    if al.get("notice_date"):
+        lines.append(f"Notice to vacate given: {al['notice_date']}")
+    if al.get("expected_move_out"):
+        lines.append(f"Expected move-out: {al['expected_move_out']}")
+
+
+def _format_tenant_notes(tenant_notes: list, lines: list):
+    """Format tenant notes lines."""
+    if tenant_notes:
+        lines.append(
+            "Recent tenant notes from the management portal (last 45 days) — "
+            "summarize relevant context, do not quote verbatim:"
+        )
+        for tn in tenant_notes:
+            lines.append(f"  - [{tn['created_at']}] {tn['note_text']}")
+
+
+def _format_vacancy(vacancy_status: str, lines: list):
+    """Format vacancy status lines."""
+    if vacancy_status == "active":
+        lines.append(
+            "No active lease — currently vacant and actively being marketed. "
+            "Report in leasing/vacancy section (section 6)."
+        )
+    else:
+        lines.append(
+            "No active lease — currently vacant. "
+            "No active marketing at this time."
+        )
+
+
+def _format_upcoming_lease(ul: dict, lines: list):
+    """Format upcoming lease lines."""
+    if ul:
+        tenants = ", ".join(ul["tenant_names"]) or "unknown"
+        lines.append(f"Upcoming lease — tenant: {tenants}")
+        if ul.get("move_in_date"):
+            lines.append(f"  Move-in date: {ul['move_in_date']}")
+        if ul.get("rent_amount"):
+            lines.append(f"  New rent: ${ul['rent_amount']:,.2f}/mo")
+
+
+def _format_pipeline(pipe: dict, lines: list):
+    """Format pipeline process lines."""
+    pipeline_items = []
+    for key, label in [
+        ("applications", "Application in progress"),
+        ("move_ins", "Move-in in progress"),
+        ("renewals", "Lease renewal in progress"),
+        ("late_rent", "Late rent / delinquency"),
+        ("move_outs", "Move-out in progress"),
+        ("issues", "Active issue"),
+    ]:
+        for deal in pipe.get(key, []):
+            item = (
+                f"  - {label}: {deal['name']} "
+                f"(stage: {deal['stage_name']}, since: {deal['created_at']})"
+            )
+            if deal.get("comments"):
+                item += f"\n    notes: {str(deal['comments'])[:200]}"
+            pipeline_items.append(item)
+
+    if pipeline_items:
+        lines.append(
+            "Active pipeline processes (write in Vesta's voice — never mention LeadSimple):"
+        )
+        lines.extend(pipeline_items)
+
+
+def _format_melds(melds: list, lines: list):
+    """Format maintenance/meld lines."""
+    if melds:
+        open_melds, completed_melds = _classify_melds(melds)
+        total = len(melds)
+        if total > 4:
+            lines.append(
+                f"Maintenance — {total} work orders were active during this period "
+                f"({len(open_melds)} still open, {len(completed_melds)} completed). "
+                "Summarize the pattern briefly, then close with a pointer to PropertyMeld:"
+            )
+            for m in (open_melds + completed_melds)[:6]:
+                lines.append(_format_meld(m))
+        else:
+            lines.append(
+                f"Maintenance — {total} work order(s) active during this period:"
+            )
+            for m in open_melds + completed_melds:
+                lines.append(_format_meld(m))
+
+
+def _format_single_unit_property(prop: dict, lines: list):
+    """Format a single-unit property section in the prompt."""
+    lines.append(f"\n=== {prop['address']} ===")
+
+    al = prop.get("active_lease")
+    fin = prop.get("financials")
+
+    if al:
+        _format_lease_financials(al, fin, lines)
+        _format_tenant_notes(prop.get("tenant_notes") or [], lines)
+    else:
+        _format_vacancy(prop.get("vacancy_status", "vacant"), lines)
+
+    _format_upcoming_lease(prop.get("upcoming_lease"), lines)
+    _format_pipeline(prop.get("pipeline") or {}, lines)
+    _format_melds(prop.get("melds") or [], lines)
+
+
+def _format_multi_unit_property(prop: dict, lines: list):
+    """Format a multi-unit property section in the prompt."""
+    lines.append(f"\n=== {prop['address']} (multi-unit) ===")
+
+    # Property-level financials fallback
+    pf = prop.get("property_financials")
+    if pf and pf.get("has_data"):
+        lines.append(
+            f"Property-level financials (unit-level breakdown unavailable): "
+            f"Total billed: ${pf['total_income']:,.2f}. "
+            f"Collected: ${pf['total_collected']:,.2f}."
+        )
+        if pf.get("outstanding", 0) > 0:
+            lines.append(
+                f"Outstanding this period: ${pf['outstanding']:,.2f} "
+                "(flag — billed but not yet collected)"
+            )
+        if pf.get("all_time_overdue", 0) > 0:
+            lines.append(
+                f"Current overdue balance: ${pf['all_time_overdue']:,.2f}"
+            )
+
+    # Per-unit sections
+    for unit in prop.get("units", []):
+        # Extract unit label from display_address (e.g. "11 Chestnut - Unit A" -> "Unit A")
+        unit_name = unit["unit_name"]
+        # Use just the suffix if the address contains the property address
+        prop_addr = prop["address"]
+        if unit_name.startswith(prop_addr) and " - " in unit_name:
+            unit_label = unit_name.split(" - ", 1)[1]
+        else:
+            unit_label = unit_name
+        lines.append(f"\n--- {unit_label} ---")
+
+        al = unit.get("active_lease")
+        fin = unit.get("financials")
+
+        if al:
+            _format_lease_financials(al, fin, lines)
+            _format_tenant_notes(unit.get("tenant_notes") or [], lines)
+        else:
+            _format_vacancy(unit.get("vacancy_status") or "vacant", lines)
+
+        _format_upcoming_lease(unit.get("upcoming_lease"), lines)
+        _format_melds(unit.get("melds") or [], lines)
+
+    # Unmatched melds (property-level)
+    unmatched_melds = prop.get("melds") or []
+    if unmatched_melds:
+        lines.append("\nMaintenance (could not assign to a specific unit):")
+        for m in unmatched_melds:
+            lines.append(_format_meld(m))
+
+    # Pipeline is property-level
+    _format_pipeline(prop.get("pipeline") or {}, lines)
 
 
 def build_prompt(payload: dict) -> str:
@@ -362,124 +707,10 @@ def build_prompt(payload: dict) -> str:
 
     # ── PER PROPERTY ──────────────────────────────────────────────────────────
     for prop in properties:
-        lines.append(f"\n=== {prop['address']} ===")
-
-        # ── 2. PER-LEASE FINANCIALS ───────────────────────────────────────────
-        al = prop.get("active_lease")
-        fin = prop.get("financials")
-
-        if al:
-            rent_due = al["rent_amount"]
-            pet_rent = al["pet_rent_amount"]
-            total_income = fin["total_income"] if fin else 0.0
-            total_collected = fin["total_collected"] if fin else 0.0
-            prop_outstanding = fin.get("outstanding", 0.0) if fin else 0.0
-            all_time_overdue = fin.get("all_time_overdue", 0.0) if fin else 0.0
-
-            lease_line = f"Lease ends {al['end_date'] or 'unknown date'}. "
-            if pet_rent > 0:
-                lease_line += (
-                    f"Total rent due: ${rent_due:,.2f}/mo (includes ${pet_rent:,.2f} pet rent). "
-                )
-            else:
-                lease_line += f"Total rent due: ${rent_due:,.2f}/mo. "
-            lease_line += f"Total billed: ${total_income:,.2f}. Collected: ${total_collected:,.2f}."
-            lines.append(lease_line)
-
-            if prop_outstanding > 0:
-                lines.append(
-                    f"Outstanding this period: ${prop_outstanding:,.2f} "
-                    "(flag — billed but not yet collected)"
-                )
-
-            if all_time_overdue > 0:
-                lines.append(
-                    f"Current overdue balance: ${all_time_overdue:,.2f} "
-                    "(flag this; cross-reference any active late rent pipeline process)"
-                )
-
-            if al.get("notice_date"):
-                lines.append(f"Notice to vacate given: {al['notice_date']}")
-            if al.get("expected_move_out"):
-                lines.append(f"Expected move-out: {al['expected_move_out']}")
-
-            # ── 3a. TENANT NOTES ─────────────────────────────────────────
-            tenant_notes = prop.get("tenant_notes") or []
-            if tenant_notes:
-                lines.append(
-                    "Recent tenant notes from the management portal (last 45 days) — "
-                    "summarize relevant context, do not quote verbatim:"
-                )
-                for tn in tenant_notes:
-                    lines.append(f"  - [{tn['created_at']}] {tn['note_text']}")
+        if prop.get("is_multi_unit"):
+            _format_multi_unit_property(prop, lines)
         else:
-            vacancy_status = prop.get("vacancy_status", "vacant")
-            if vacancy_status == "active":
-                lines.append(
-                    "No active lease — property is currently vacant and actively being marketed. "
-                    "Report in leasing/vacancy section (section 6)."
-                )
-            else:
-                lines.append(
-                    "No active lease — property is currently vacant. "
-                    "No active marketing at this time."
-                )
-
-        ul = prop.get("upcoming_lease")
-        if ul:
-            tenants = ", ".join(ul["tenant_names"]) or "unknown"
-            lines.append(f"Upcoming lease — tenant: {tenants}")
-            if ul.get("move_in_date"):
-                lines.append(f"  Move-in date: {ul['move_in_date']}")
-            if ul.get("rent_amount"):
-                lines.append(f"  New rent: ${ul['rent_amount']:,.2f}/mo")
-
-        # ── 3. LEADSIMPLE PIPELINE ────────────────────────────────────────────
-        pipe = prop.get("pipeline") or {}
-        pipeline_items = []
-        for key, label in [
-            ("applications", "Application in progress"),
-            ("move_ins", "Move-in in progress"),
-            ("renewals", "Lease renewal in progress"),
-            ("late_rent", "Late rent / delinquency"),
-            ("move_outs", "Move-out in progress"),
-            ("issues", "Active issue"),
-        ]:
-            for deal in pipe.get(key, []):
-                item = (
-                    f"  - {label}: {deal['name']} "
-                    f"(stage: {deal['stage_name']}, since: {deal['created_at']})"
-                )
-                if deal.get("comments"):
-                    item += f"\n    notes: {str(deal['comments'])[:200]}"
-                pipeline_items.append(item)
-
-        if pipeline_items:
-            lines.append(
-                "Active pipeline processes (write in Vesta's voice — never mention LeadSimple):"
-            )
-            lines.extend(pipeline_items)
-
-        # ── 4. MAINTENANCE ────────────────────────────────────────────────────
-        melds = prop.get("melds") or []
-        if melds:
-            open_melds, completed_melds = _classify_melds(melds)
-            total = len(melds)
-            if total > 4:
-                lines.append(
-                    f"Maintenance — {total} work orders were active during this period "
-                    f"({len(open_melds)} still open, {len(completed_melds)} completed). "
-                    "Summarize the pattern briefly, then close with a pointer to PropertyMeld:"
-                )
-                for m in (open_melds + completed_melds)[:6]:
-                    lines.append(_format_meld(m))
-            else:
-                lines.append(
-                    f"Maintenance — {total} work order(s) active during this period:"
-                )
-                for m in open_melds + completed_melds:
-                    lines.append(_format_meld(m))
-        # If no melds: omit the maintenance section — do not say "no maintenance to report"
+            _format_single_unit_property(prop, lines)
 
     # ── CLOSING INSTRUCTION ───────────────────────────────────────────────────
     property_addresses = [p["address"] for p in properties]
@@ -631,15 +862,38 @@ def run_monthly_report(
                     print(f"  Portfolio outstanding:     ${pf_debug.get('outstanding', 0):,.2f}")
                     for prop in payload["properties"]:
                         addr = prop.get("address", "?")
-                        fin = prop.get("financials") or {}
-                        al = prop.get("active_lease") or {}
-                        rent_due = al.get("rent_amount", 0) + al.get("pet_rent_amount", 0)
-                        print(f"  [{addr}]")
-                        print(f"    rent_due (lease):     ${rent_due:,.2f}")
-                        print(f"    total_income (period):  ${fin.get('total_income', 0):,.2f}")
-                        print(f"    total_collected (period): ${fin.get('total_collected', 0):,.2f}")
-                        print(f"    outstanding (period):   ${fin.get('outstanding', 0):,.2f}")
-                        print(f"    all_time_overdue:       ${fin.get('all_time_overdue', 0):,.2f}")
+                        if prop.get("is_multi_unit"):
+                            print(f"  [{addr}] (multi-unit)")
+                            pf_fallback = prop.get("property_financials") or {}
+                            if pf_fallback:
+                                print(f"    property-level fallback financials:")
+                                print(f"      total_income:  ${pf_fallback.get('total_income', 0):,.2f}")
+                                print(f"      total_collected: ${pf_fallback.get('total_collected', 0):,.2f}")
+                                print(f"      outstanding:   ${pf_fallback.get('outstanding', 0):,.2f}")
+                            for unit in prop.get("units", []):
+                                unit_fin = unit.get("financials") or {}
+                                unit_al = unit.get("active_lease") or {}
+                                unit_rent = unit_al.get("rent_amount", 0) + unit_al.get("pet_rent_amount", 0)
+                                print(f"    [{unit.get('unit_name', '?')}]")
+                                print(f"      rent_due (lease):       ${unit_rent:,.2f}")
+                                print(f"      total_income (period):  ${unit_fin.get('total_income', 0):,.2f}")
+                                print(f"      total_collected (period): ${unit_fin.get('total_collected', 0):,.2f}")
+                                print(f"      outstanding (period):   ${unit_fin.get('outstanding', 0):,.2f}")
+                                print(f"      all_time_overdue:       ${unit_fin.get('all_time_overdue', 0):,.2f}")
+                                print(f"      melds: {len(unit.get('melds', []))}")
+                            unmatched = prop.get("melds", [])
+                            if unmatched:
+                                print(f"    unmatched melds: {len(unmatched)}")
+                        else:
+                            fin = prop.get("financials") or {}
+                            al = prop.get("active_lease") or {}
+                            rent_due = al.get("rent_amount", 0) + al.get("pet_rent_amount", 0)
+                            print(f"  [{addr}]")
+                            print(f"    rent_due (lease):     ${rent_due:,.2f}")
+                            print(f"    total_income (period):  ${fin.get('total_income', 0):,.2f}")
+                            print(f"    total_collected (period): ${fin.get('total_collected', 0):,.2f}")
+                            print(f"    outstanding (period):   ${fin.get('outstanding', 0):,.2f}")
+                            print(f"    all_time_overdue:       ${fin.get('all_time_overdue', 0):,.2f}")
                     print(f"{'─' * 60}")
 
                 if not has_sufficient_data(payload):
