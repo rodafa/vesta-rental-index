@@ -81,7 +81,7 @@ def list_notes(request, month: str):
     qs = OwnerReportLog.objects.filter(
         report_month__year=year,
         report_month__month=mon,
-    ).order_by("owner_name", "portfolio_name", "-created_at")
+    ).order_by("portfolio_name", "owner_name", "-created_at")
 
     # Return only the latest entry per owner+portfolio so re-runs don't duplicate
     seen = set()

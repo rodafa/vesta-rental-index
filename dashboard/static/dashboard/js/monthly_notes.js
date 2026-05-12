@@ -1,6 +1,6 @@
 /**
- * Monthly Owner Notes — generate, review, approve, and send AI-drafted notes.
- * Left panel: owner/portfolio list with status badges and approve/send actions.
+ * Monthly Portfolio Notes — generate, review, approve, and send AI-drafted notes.
+ * Left panel: portfolio list with status badges and approve/send actions.
  * Right panel: editable note textarea, financial summary, copy/save/approve/send.
  * Auto-refreshes every 60s (edit guard prevents re-render while typing).
  */
@@ -133,8 +133,8 @@ document.addEventListener('DOMContentLoaded', function () {
       var n = notes[i];
       var activeClass = (n.id === _activeNoteId) ? ' active' : '';
       html += '<div class="mn-row' + activeClass + '" data-id="' + n.id + '">';
-      html += '<div class="mn-row-name">' + n.owner_name + '</div>';
-      html += '<div class="mn-row-meta">' + n.portfolio_name + ' ' + statusBadge(n.status) + '</div>';
+      html += '<div class="mn-row-name">' + n.portfolio_name + '</div>';
+      html += '<div class="mn-row-meta">' + n.owner_name + ' ' + statusBadge(n.status) + '</div>';
       if (n.status === 'pending' || n.status === 'approved' || n.status === 'sent' || n.status === 'success') {
         html += '<div class="mn-row-words">' + n.word_count + ' words</div>';
       }
@@ -234,7 +234,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Populate right panel
-    noteTitle.textContent = note.owner_name + ' — ' + note.portfolio_name;
+    noteTitle.textContent = note.portfolio_name + ' — ' + note.owner_name;
     detailPlaceholder.style.display = 'none';
     noteDetail.style.display = 'flex';
 
@@ -327,7 +327,7 @@ document.addEventListener('DOMContentLoaded', function () {
   // ── Delete note ────────────────────────────────────────────────────────────
   function deleteNote(id) {
     var note = _noteById(id);
-    var label = note ? (note.owner_name + ' — ' + note.portfolio_name) : ('note #' + id);
+    var label = note ? (note.portfolio_name + ' — ' + note.owner_name) : ('note #' + id);
     if (!confirm('Delete "' + label + '"? This cannot be undone.')) return;
 
     VestaAPI.delete('/reports/owner-notes/' + id).then(function () {

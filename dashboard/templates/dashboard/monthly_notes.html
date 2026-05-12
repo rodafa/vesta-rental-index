@@ -2,8 +2,8 @@
 {% load static %}
 
 {% block nav_monthly_notes %}active{% endblock %}
-{% block title %}Monthly Notes{% endblock %}
-{% block topbar_title %}Monthly Owner Notes{% endblock %}
+{% block title %}Monthly Portfolio Notes{% endblock %}
+{% block topbar_title %}Monthly Portfolio Notes{% endblock %}
 
 {% block content %}
 <style>
@@ -104,7 +104,7 @@
   .mn-badge-failed   { background: #fee2e2; color: #991b1b; }
 </style>
 
-<h1 class="page-title">Monthly Owner Notes</h1>
+<h1 class="page-title">Monthly Portfolio Notes</h1>
 
 <!-- Controls -->
 <div class="mn-controls">
@@ -160,7 +160,7 @@
 <div class="mn-layout">
   <!-- Left: entry list -->
   <div class="mn-left">
-    <div class="mn-left-header">Owners</div>
+    <div class="mn-left-header">Portfolios</div>
     <div class="mn-list" id="note-list">
       <div class="mn-empty">Select a month and run generation, or choose a past month to review existing notes.</div>
     </div>
@@ -168,7 +168,7 @@
 
   <!-- Right: note editor -->
   <div class="mn-right" id="note-right">
-    <div class="mn-right-placeholder" id="detail-placeholder">Select an owner to view or edit their note.</div>
+    <div class="mn-right-placeholder" id="detail-placeholder">Select a portfolio to view or edit its note.</div>
     <div class="mn-detail" id="note-detail">
       <div class="mn-detail-title" id="note-title"></div>
 
@@ -210,5 +210,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=7"></script>
+<script src="{% static 'dashboard/js/monthly_notes.js' %}?v=8"></script>
 {% endblock %}
