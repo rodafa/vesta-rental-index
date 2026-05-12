@@ -76,12 +76,15 @@ def run_status(request, month: str):
 
 
 @router.get("/owner-notes")
-def list_notes(request, month: str):
+def list_notes(request, month: str, status: str = None):
     year, mon = int(month[:4]), int(month[5:7])
     qs = OwnerReportLog.objects.filter(
         report_month__year=year,
         report_month__month=mon,
-    ).order_by("portfolio_name", "owner_name", "-created_at")
+    )
+    if status:
+        qs = qs.filter(status=status)
+    qs = qs.order_by("portfolio_name", "owner_name", "-created_at")
 
     # Return only the latest entry per owner+portfolio so re-runs don't duplicate
     seen = set()
