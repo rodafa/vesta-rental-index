@@ -256,7 +256,88 @@ def run_audit():
     }
 
 
-def post_audit_summary(audit_result):
+def _format_sample_sections(audit_result):
+    """Build sample anomaly sections for Slack output."""
+    anomalies = audit_result["anomalies"]
+    lines = []
+
+    MAX_SAMPLES = 5
+
+    # Stale links
+    stale = anomalies.get("stale_link", [])
+    if stale:
+        show = stale[:MAX_SAMPLES]
+        lines.append("")
+        lines.append(
+            f"*Sample stale links (showing {len(show)} of {len(stale)}):*"
+        )
+        for a in show:
+            lines.append(
+                f"\u2022 Local Unit {a['local_unit_id']} "
+                f"({a['local_unit_address']}) "
+                f"\u2192 was linked to RE unit {a['rentengine_unit_id']} "
+                f"(no longer exists)"
+            )
+
+    # Unlinked on our side
+    unlinked = anomalies.get("unlinked_on_our_side", [])
+    if unlinked:
+        show = unlinked[:MAX_SAMPLES]
+        lines.append("")
+        lines.append(
+            f"*Sample unlinked on our side "
+            f"(showing {len(show)} of {len(unlinked)}):*"
+        )
+        for a in show:
+            if a["suggested_local_unit_id"]:
+                lines.append(
+                    f"\u2022 RE unit {a['rentengine_unit_id']} "
+                    f"({a['rentengine_address']}) "
+                    f"\u2192 suggested local Unit "
+                    f"{a['suggested_local_unit_id']} "
+                    f"({a['suggested_local_unit_address']}) "
+                    f"\u2014 postal+street match"
+                )
+            else:
+                lines.append(
+                    f"\u2022 RE unit {a['rentengine_unit_id']} "
+                    f"({a['rentengine_address']}) "
+                    f"\u2192 no candidate found"
+                )
+
+    # Address drift
+    drift = anomalies.get("address_drift", [])
+    if drift:
+        show = drift[:MAX_SAMPLES]
+        lines.append("")
+        lines.append(
+            f"*Sample address drift "
+            f"(showing {len(show)} of {len(drift)}):*"
+        )
+        for a in show:
+            lines.append(
+                f"\u2022 Local Unit {a['local_unit_id']} "
+                f"({a['local_unit_address']}): "
+                f"\"{a['local_unit_address']}\" "
+                f"\u2194 RE: \"{a['rentengine_address']}\""
+            )
+
+    # Multi-unit ambiguity
+    multi = anomalies.get("multi_unit_ambiguity", [])
+    if multi:
+        show = multi[:MAX_SAMPLES]
+        lines.append("")
+        lines.append(
+            f"*Sample multi-unit ambiguity "
+            f"(showing {len(show)} of {len(multi)}):*"
+        )
+        for a in show:
+            lines.append(f"\u2022 {a['notes']}")
+
+    return lines
+
+
+def post_audit_summary(audit_result, include_samples=False):
     """Post a formatted audit summary to Slack."""
     webhook_url = settings.SLACK_LEASING_WEBHOOK_URL
     if not webhook_url:
@@ -327,6 +408,9 @@ def post_audit_summary(audit_result):
                     f"\u2192 Local {a['suggested_local_unit_id']}: "
                     f"{a['suggested_local_unit_address']}"
                 )
+
+        if include_samples:
+            lines.extend(_format_sample_sections(audit_result))
 
         text = "\n".join(lines)
 

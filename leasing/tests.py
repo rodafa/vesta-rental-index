@@ -260,6 +260,62 @@ class PostAuditSummaryTests(TestCase):
         self.assertIn("showing first 5", posted_text)
 
 
+    @override_settings(SLACK_LEASING_WEBHOOK_URL="https://hooks.slack.com/test")
+    @patch("leasing.services.unit_matching_audit.requests.post")
+    def test_post_audit_summary_include_samples_false_unchanged(self, mock_post):
+        """include_samples=False produces no 'Sample' sections (regression)."""
+        anomalies = {
+            "stale_link": [],
+            "unlinked_on_our_side": [],
+            "address_drift": [
+                {"anomaly_class": "address_drift", "rentengine_unit_id": 1,
+                 "rentengine_address": "200 Oak Ave", "local_unit_id": 1,
+                 "local_unit_address": "100 Main St",
+                 "suggested_local_unit_id": "",
+                 "suggested_local_unit_address": "", "notes": "drift"}
+            ],
+            "multi_unit_ambiguity": [],
+            "missing_rentengine_address": [],
+        }
+        result = self._make_result(anomalies)
+
+        post_audit_summary(result, include_samples=False)
+
+        posted_text = mock_post.call_args[1]["json"]["text"]
+        self.assertNotIn("Sample", posted_text)
+
+    @override_settings(SLACK_LEASING_WEBHOOK_URL="https://hooks.slack.com/test")
+    @patch("leasing.services.unit_matching_audit.requests.post")
+    def test_post_audit_summary_sample_true_includes_drift_examples(self, mock_post):
+        """include_samples=True appends sample drift section with truncation."""
+        drift = []
+        for i in range(10):
+            drift.append({
+                "anomaly_class": "address_drift",
+                "rentengine_unit_id": 300 + i,
+                "rentengine_address": f"{i} Oak Ave",
+                "local_unit_id": 400 + i,
+                "local_unit_address": f"{i} Oak Avenue",
+                "suggested_local_unit_id": "",
+                "suggested_local_unit_address": "",
+                "notes": "drift",
+            })
+        anomalies = {
+            "stale_link": [],
+            "unlinked_on_our_side": [],
+            "address_drift": drift,
+            "multi_unit_ambiguity": [],
+            "missing_rentengine_address": [],
+        }
+        result = self._make_result(anomalies)
+
+        post_audit_summary(result, include_samples=True)
+
+        posted_text = mock_post.call_args[1]["json"]["text"]
+        self.assertIn("Sample address drift", posted_text)
+        self.assertIn("showing 5 of 10", posted_text)
+
+
 @override_settings(VESTA_API_KEY="test-secret-key")
 class AuditMatchingAPITests(TestCase):
     """Tests for the POST /leasing/directory/audit-matching endpoint."""
@@ -287,3 +343,33 @@ class AuditMatchingAPITests(TestCase):
         from leasing.api import _run_audit_matching
         self.assertEqual(call_kwargs[1]["target"], _run_audit_matching)
         mock_thread.start.assert_called_once()
+
+    @patch("leasing.api.threading.Thread")
+    def test_api_endpoint_sample_true_passes_include_samples(self, MockThread):
+        """POST with ?sample=true passes include_samples=True to thread."""
+        mock_thread = MagicMock()
+        MockThread.return_value = mock_thread
+
+        resp = self.client.post(
+            "/api/leasing/directory/audit-matching?sample=true",
+            HTTP_X_API_KEY="test-secret-key",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        call_kwargs = MockThread.call_args[1]
+        self.assertEqual(call_kwargs["kwargs"], {"include_samples": True})
+
+    @patch("leasing.api.threading.Thread")
+    def test_api_endpoint_no_sample_param_defaults_false(self, MockThread):
+        """POST without ?sample passes include_samples=False to thread."""
+        mock_thread = MagicMock()
+        MockThread.return_value = mock_thread
+
+        resp = self.client.post(
+            "/api/leasing/directory/audit-matching",
+            HTTP_X_API_KEY="test-secret-key",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        call_kwargs = MockThread.call_args[1]
+        self.assertEqual(call_kwargs["kwargs"], {"include_samples": False})

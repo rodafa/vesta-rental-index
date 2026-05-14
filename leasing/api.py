@@ -162,11 +162,11 @@ def _run_leasing_ingest():
         logger.exception("Error running leasing directory ingest")
 
 
-def _run_audit_matching():
+def _run_audit_matching(include_samples=False):
     """Run unit matching audit + Slack summary in a background thread."""
     try:
         result = run_audit()
-        post_audit_summary(result)
+        post_audit_summary(result, include_samples=include_samples)
     except Exception:
         logger.exception("Error running unit matching audit")
 
@@ -179,7 +179,11 @@ def trigger_leasing_ingest(request):
 
 
 @router.post("/directory/audit-matching")
-def trigger_audit_matching(request):
+def trigger_audit_matching(request, sample: bool = False):
     """Trigger unit matching audit with Slack summary."""
-    threading.Thread(target=_run_audit_matching, daemon=True).start()
+    threading.Thread(
+        target=_run_audit_matching,
+        kwargs={"include_samples": sample},
+        daemon=True,
+    ).start()
     return {"status": "audit_started"}
