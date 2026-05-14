@@ -146,11 +146,15 @@ def get_application(request, application_id: int):
 # --- Leasing Directory ---
 
 
+import logging
+
+from leasing.services.unit_matching_audit import post_audit_summary, run_audit
+
+logger = logging.getLogger(__name__)
+
+
 def _run_leasing_ingest():
     """Run ingest + summary in a background thread."""
-    import logging
-
-    logger = logging.getLogger(__name__)
     try:
         call_command("ingest_leasing_metrics")
         call_command("post_leasing_summary")
@@ -158,8 +162,24 @@ def _run_leasing_ingest():
         logger.exception("Error running leasing directory ingest")
 
 
+def _run_audit_matching():
+    """Run unit matching audit + Slack summary in a background thread."""
+    try:
+        result = run_audit()
+        post_audit_summary(result)
+    except Exception:
+        logger.exception("Error running unit matching audit")
+
+
 @router.post("/directory/ingest")
 def trigger_leasing_ingest(request):
     """Trigger daily leasing metrics ingest + Slack summary for yesterday."""
     threading.Thread(target=_run_leasing_ingest, daemon=True).start()
     return {"status": "started", "message": "Leasing ingest + summary started"}
+
+
+@router.post("/directory/audit-matching")
+def trigger_audit_matching(request):
+    """Trigger unit matching audit with Slack summary."""
+    threading.Thread(target=_run_audit_matching, daemon=True).start()
+    return {"status": "audit_started"}
