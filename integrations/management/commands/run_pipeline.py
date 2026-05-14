@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 # Pipeline steps in dependency order.
 # Each entry: (label, management_command, args, kwargs)
 PIPELINE = [
+    ("Backfill catchup", "backfill_pipeline", [], {}),
     ("RentVine sync", "sync_rentvine_all", [], {}),
     ("RentEngine sync", "sync_rentengine_all", [], {}),
     ("BoomPay sync", "sync_boompay_all", [], {}),
@@ -34,7 +35,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip",
             nargs="+",
-            choices=["rentvine", "rentengine", "boompay", "aggregate", "links"],
+            choices=["backfill", "rentvine", "rentengine", "boompay", "aggregate", "links"],
             default=[],
             help="Skip specific pipeline steps.",
         )
@@ -44,6 +45,7 @@ class Command(BaseCommand):
         include_reports = options["include_reports"]
 
         skip_map = {
+            "backfill": "Backfill catchup",
             "rentvine": "RentVine sync",
             "rentengine": "RentEngine sync",
             "boompay": "BoomPay sync",

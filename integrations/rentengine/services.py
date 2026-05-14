@@ -74,9 +74,9 @@ class UnitSyncService(_BaseSyncService):
 
     endpoint = "units"
 
-    def sync(self, dry_run=False):
+    def sync(self, dry_run=False, target_date=None):
         log = self._create_log()
-        today = timezone.now().date()
+        today = target_date or timezone.now().date()
 
         try:
             records = self.client.get_all("/units")
@@ -274,9 +274,9 @@ class LeasingPerformanceSyncService(_BaseSyncService):
 
     endpoint = "reporting/leasing-performance"
 
-    def sync(self, dry_run=False):
+    def sync(self, dry_run=False, target_date=None):
         log = self._create_log()
-        today = timezone.now().date()
+        today = target_date or timezone.now().date()
         today_str = today.isoformat()
         # Query the full year to capture cumulative leasing stats
         from datetime import timedelta
