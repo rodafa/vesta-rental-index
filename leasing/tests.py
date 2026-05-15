@@ -53,7 +53,12 @@ def _make_map_re_unit_side_effect(records):
 
 
 class RunAuditTests(TestCase):
-    """Tests for the run_audit() service function."""
+    """Tests for the run_audit() service function.
+
+    Fixtures match actual prod data shape: Units have address_line_1 but
+    NO city/state/postal (RentVine's unit endpoint doesn't return those).
+    City/state/postal live on Property only.
+    """
 
     def setUp(self):
         self.prop = Property.objects.create(
@@ -68,15 +73,13 @@ class RunAuditTests(TestCase):
     @patch("leasing.services.unit_matching_audit.RentEngineClient")
     def test_run_audit_returns_correct_shape(self, MockClient, mock_mapper):
         """Result dict contains all expected keys."""
-        u1 = Unit.objects.create(
+        Unit.objects.create(
             property=self.prop, rentengine_id=1,
-            address_line_1="100 Main St", city="Nashville",
-            state="TN", postal_code="37201",
+            address_line_1="100 Main St",
         )
-        u2 = Unit.objects.create(
+        Unit.objects.create(
             property=self.prop, rentengine_id=2,
-            address_line_1="200 Oak Ave", city="Nashville",
-            state="TN", postal_code="37201",
+            address_line_1="200 Oak Ave",
         )
 
         re_records = [
@@ -105,8 +108,7 @@ class RunAuditTests(TestCase):
         """Local Unit pointing to RE id that doesn't exist in RE inventory."""
         Unit.objects.create(
             property=self.prop, rentengine_id=999,
-            address_line_1="100 Main St", city="Nashville",
-            state="TN", postal_code="37201",
+            address_line_1="100 Main St",
         )
 
         re_records = [
@@ -126,11 +128,9 @@ class RunAuditTests(TestCase):
     @patch("leasing.services.unit_matching_audit.RentEngineClient")
     def test_run_audit_detects_unlinked(self, MockClient, mock_mapper):
         """RE unit exists but no local Unit is linked to it."""
-        # No local unit with rentengine_id=50
         Unit.objects.create(
             property=self.prop, rentengine_id=1,
-            address_line_1="100 Main St", city="Nashville",
-            state="TN", postal_code="37201",
+            address_line_1="100 Main St",
         )
 
         re_records = [
@@ -151,14 +151,13 @@ class RunAuditTests(TestCase):
     @patch("leasing.services.unit_matching_audit.map_re_unit")
     @patch("leasing.services.unit_matching_audit.RentEngineClient")
     def test_run_audit_detects_address_drift(self, MockClient, mock_mapper):
-        """Linked pair whose addresses disagree."""
+        """Linked pair whose street addresses genuinely disagree."""
         Unit.objects.create(
             property=self.prop, rentengine_id=1,
-            address_line_1="100 Main St", city="Nashville",
-            state="TN", postal_code="37201",
+            address_line_1="100 Main St",
         )
 
-        # RE has a different address for the same unit
+        # RE has a completely different street address
         re_records = [
             _make_re_record(1, "200 Oak Ave", "Nashville", "TN", "37201"),
         ]
@@ -171,6 +170,29 @@ class RunAuditTests(TestCase):
         self.assertEqual(
             result["anomalies"]["address_drift"][0]["rentengine_unit_id"], 1
         )
+
+    @patch("leasing.services.unit_matching_audit.map_re_unit")
+    @patch("leasing.services.unit_matching_audit.RentEngineClient")
+    def test_run_audit_no_drift_for_suffix_variation(self, MockClient, mock_mapper):
+        """Suffix abbreviation difference (Road vs Rd) is NOT flagged as drift."""
+        Unit.objects.create(
+            property=self.prop, rentengine_id=1,
+            address_line_1="130 Reems Creek Road",
+            address_line_2="2",
+        )
+
+        # RE has abbreviated suffix + unit indicator + geo tail
+        re_records = [
+            _make_re_record(1, "130 Reems Creek Rd", "Weaverville", "NC", "28787",
+                            unit_number="2"),
+        ]
+        MockClient.return_value.get_all.return_value = re_records
+        mock_mapper.side_effect = _make_map_re_unit_side_effect(re_records)
+
+        result = run_audit()
+
+        self.assertEqual(result["totals"]["address_drift"], 0,
+                         "Suffix variation should not be flagged as drift")
 
 
 class PostAuditSummaryTests(TestCase):

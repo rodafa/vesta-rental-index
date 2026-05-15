@@ -37,37 +37,29 @@ def _format_re_address(defaults):
 
 def _addresses_match(re_defaults, local_unit):
     """
-    Compare addresses with normalization tolerance.
+    Compare addresses via normalized street address only.
 
-    Uses normalize_address for address_line_1 (handles suffix abbreviations,
-    unit indicator formats, geo tails). City/state/postal compared with
-    simple casefold/strip since those don't have formatting variations.
+    Local Units don't have city/state/postal populated (RentVine's unit
+    endpoint doesn't return those fields — they live on Property). Comparing
+    those would false-positive on every unit. The normalized street address
+    is sufficient: units are already linked by rentengine_id, so we're only
+    checking whether the street addresses agree.
     """
-    def norm(val):
-        return (val or "").strip().lower().replace(",", "").replace(".", "")
-
     # Build full RE address with unit number for normalization
     re_addr = re_defaults.get("address_line_1", "") or ""
     re_unit_num = (re_defaults.get("unit_number") or "").strip()
     if re_unit_num:
         re_addr = f"{re_addr} Unit {re_unit_num}"
 
-    # Build full local address with unit designator for normalization
+    # Build full local address with unit designator for normalization.
+    # address_line_2 is a bare designator ("2", "B") — prefix with "Unit"
+    # so normalize_address() treats it the same as RE's "Unit 2".
     local_addr = local_unit.address_line_1 or ""
     local_line2 = (local_unit.address_line_2 or "").strip()
     if local_line2:
-        local_addr = f"{local_addr} {local_line2}"
+        local_addr = f"{local_addr} Unit {local_line2}"
 
-    if normalize_address(re_addr) != normalize_address(local_addr):
-        return False
-
-    # City, state, postal — simple normalization
-    simple_fields = [
-        (re_defaults.get("city", ""), local_unit.city or ""),
-        (re_defaults.get("state", ""), local_unit.state or ""),
-        (re_defaults.get("postal_code", ""), local_unit.postal_code or ""),
-    ]
-    return all(norm(a) == norm(b) for a, b in simple_fields)
+    return normalize_address(re_addr) == normalize_address(local_addr)
 
 
 def _suggest_candidate(defaults, all_local_units_by_postal):
