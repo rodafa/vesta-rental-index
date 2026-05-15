@@ -15,6 +15,7 @@ from django.conf import settings
 from integrations.rentengine.client import RentEngineClient
 from integrations.rentengine.mappers import map_re_unit
 from properties.models import Unit
+from properties.utils.address import normalize_address
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +37,37 @@ def _format_re_address(defaults):
 
 def _addresses_match(re_defaults, local_unit):
     """
-    Compare addresses with casefold/strip tolerance.
-    Returns True if they're close enough to not flag as drift.
+    Compare addresses with normalization tolerance.
+
+    Uses normalize_address for address_line_1 (handles suffix abbreviations,
+    unit indicator formats, geo tails). City/state/postal compared with
+    simple casefold/strip since those don't have formatting variations.
     """
     def norm(val):
         return (val or "").strip().lower().replace(",", "").replace(".", "")
 
-    fields = [
-        (re_defaults.get("address_line_1", ""), local_unit.address_line_1 or ""),
+    # Build full RE address with unit number for normalization
+    re_addr = re_defaults.get("address_line_1", "") or ""
+    re_unit_num = (re_defaults.get("unit_number") or "").strip()
+    if re_unit_num:
+        re_addr = f"{re_addr} Unit {re_unit_num}"
+
+    # Build full local address with unit designator for normalization
+    local_addr = local_unit.address_line_1 or ""
+    local_line2 = (local_unit.address_line_2 or "").strip()
+    if local_line2:
+        local_addr = f"{local_addr} {local_line2}"
+
+    if normalize_address(re_addr) != normalize_address(local_addr):
+        return False
+
+    # City, state, postal — simple normalization
+    simple_fields = [
         (re_defaults.get("city", ""), local_unit.city or ""),
         (re_defaults.get("state", ""), local_unit.state or ""),
         (re_defaults.get("postal_code", ""), local_unit.postal_code or ""),
     ]
-    return all(norm(a) == norm(b) for a, b in fields)
+    return all(norm(a) == norm(b) for a, b in simple_fields)
 
 
 def _suggest_candidate(defaults, all_local_units_by_postal):
