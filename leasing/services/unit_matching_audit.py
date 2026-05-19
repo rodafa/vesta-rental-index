@@ -15,7 +15,7 @@ from django.conf import settings
 from integrations.rentengine.client import RentEngineClient
 from integrations.rentengine.mappers import map_re_unit
 from properties.models import Unit
-from properties.utils.address import normalize_address
+from properties.utils.address import base_street, normalize_address
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,13 @@ def _format_re_address(defaults):
 
 def _addresses_match(re_defaults, local_unit):
     """
-    Compare addresses via normalized street address only.
+    Compare addresses via normalized street address.
 
-    Local Units don't have city/state/postal populated (RentVine's unit
-    endpoint doesn't return those fields — they live on Property). Comparing
-    those would false-positive on every unit. The normalized street address
-    is sufficient: units are already linked by rentengine_id, so we're only
-    checking whether the street addresses agree.
+    First tries a full comparison (street + unit designator). If that fails
+    and one side has a unit designator while the other doesn't, falls back
+    to comparing base street addresses only. This handles single-family
+    properties where RentVine has a unit designator (address_line_2) but
+    RentEngine treats the property as a single unit with no unit number.
     """
     # Build full RE address with unit number for normalization
     re_addr = re_defaults.get("address_line_1", "") or ""
@@ -59,7 +59,23 @@ def _addresses_match(re_defaults, local_unit):
     if local_line2:
         local_addr = f"{local_addr} Unit {local_line2}"
 
-    return normalize_address(re_addr) == normalize_address(local_addr)
+    norm_re = normalize_address(re_addr)
+    norm_local = normalize_address(local_addr)
+
+    if norm_re == norm_local:
+        return True
+
+    # Fallback: if one side has a unit designator and the other doesn't,
+    # compare base street addresses only. This handles cases like local
+    # "68 Greeley St Unit A" vs RE "68 Greeley St" (no unit in RE).
+    base_re = base_street(norm_re)
+    base_local = base_street(norm_local)
+    re_has_unit = base_re != norm_re
+    local_has_unit = base_local != norm_local
+    if re_has_unit != local_has_unit:
+        return base_re == base_local
+
+    return False
 
 
 def _suggest_candidate(defaults, all_local_units_by_postal):

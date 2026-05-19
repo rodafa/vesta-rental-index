@@ -194,6 +194,28 @@ class RunAuditTests(TestCase):
         self.assertEqual(result["totals"]["address_drift"], 0,
                          "Suffix variation should not be flagged as drift")
 
+    @patch("leasing.services.unit_matching_audit.map_re_unit")
+    @patch("leasing.services.unit_matching_audit.RentEngineClient")
+    def test_run_audit_no_drift_when_local_has_unit_re_does_not(self, MockClient, mock_mapper):
+        """Local has unit designator, RE doesn't — base streets match, no drift."""
+        Unit.objects.create(
+            property=self.prop, rentengine_id=1,
+            address_line_1="68 Greeley Street",
+            address_line_2="Unit A - Upstairs Unit",
+        )
+
+        # RE has no unit number — just the street address
+        re_records = [
+            _make_re_record(1, "68 Greeley St", "Asheville", "NC", "28806"),
+        ]
+        MockClient.return_value.get_all.return_value = re_records
+        mock_mapper.side_effect = _make_map_re_unit_side_effect(re_records)
+
+        result = run_audit()
+
+        self.assertEqual(result["totals"]["address_drift"], 0,
+                         "Unit mismatch with matching base street should not be drift")
+
 
 class PostAuditSummaryTests(TestCase):
     """Tests for the post_audit_summary() Slack posting function."""

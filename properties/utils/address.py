@@ -42,8 +42,10 @@ _GEO_TAIL = re.compile(
 # Hash/pound with optional space before unit id: "# B" → "#b"
 _HASH_NORMALIZE = re.compile(r"#\s*")
 
-# Hyphen-separated unit designator: "123 Main St - A" → "123 main st #a"
-_HYPHEN_UNIT = re.compile(r"\s+-\s+(\w+)\s*$")
+# Hyphen-separated unit designator: handles single token ("- A") and
+# multi-token ("- Apt B", "- Unit 8") by stripping the hyphen separator
+# and letting downstream unit-token normalization handle the rest.
+_HYPHEN_UNIT = re.compile(r"\s+-\s+")
 
 # Duplicate unit designator: "#2 #2" → "#2" (RE often has "#2 Unit 2")
 _DUPE_UNIT = re.compile(r"(#\w+)\s+\1\b")
@@ -72,8 +74,9 @@ def normalize_address(address: str) -> str:
     # Remove periods and commas
     s = s.replace(".", "").replace(",", "")
 
-    # Normalize hyphen-separated unit designator ("123 Main St - A" → "123 main st #a")
-    s = _HYPHEN_UNIT.sub(r" #\1", s)
+    # Replace " - " separators with " " so unit tokens can be normalized
+    # downstream. "123 Main St - Apt B" → "123 main st apt b" → "123 main st #b"
+    s = _HYPHEN_UNIT.sub(" ", s)
 
     # Normalize unit indicator tokens to "#"
     s = _UNIT_TOKENS.sub("#", s)
@@ -91,3 +94,34 @@ def normalize_address(address: str) -> str:
     s = _DUPE_UNIT.sub(r"\1", s)
 
     return s
+
+
+def base_street(normalized: str) -> str:
+    """Extract the base street address, stripping any unit designator.
+
+    Takes the output of normalize_address() and strips everything from
+    the first '#' onward, plus any trailing descriptive tokens that
+    follow a recognized street suffix.
+
+    Examples:
+        "68 greeley st #a upstairs #" → "68 greeley st"
+        "3 penley ave #b"             → "3 penley ave"
+        "588 ray hill rd a"           → "588 ray hill rd"
+        "130 reems creek rd"          → "130 reems creek rd"
+    """
+    if not normalized:
+        return ""
+
+    # Strip from first "#" onward
+    idx = normalized.find("#")
+    if idx > 0:
+        return normalized[:idx].strip()
+
+    # Strip trailing tokens after a known street suffix abbreviation
+    all_suffixes = set(_SUFFIX_MAP.values())
+    words = normalized.split()
+    for i in range(len(words) - 1, 0, -1):
+        if words[i] in all_suffixes:
+            return " ".join(words[: i + 1])
+
+    return normalized
