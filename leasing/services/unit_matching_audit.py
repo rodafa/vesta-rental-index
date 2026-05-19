@@ -62,6 +62,31 @@ def _addresses_match(re_defaults, local_unit):
     norm_re = normalize_address(re_addr)
     norm_local = normalize_address(local_addr)
 
+    # --- DIAGNOSTIC: temporary logging for drift investigation ---
+    if norm_re != norm_local:
+        base_re = base_street(norm_re)
+        base_local = base_street(norm_local)
+        re_has_unit = base_re != norm_re
+        local_has_unit = base_local != norm_local
+        logger.warning(
+            "DRIFT_DIAG unit_id=%s re_id=%s | "
+            "raw_re=%r raw_local_addr1=%r raw_local_addr2=%r raw_local_name=%r | "
+            "built_re=%r built_local=%r | "
+            "norm_re=%r norm_local=%r | "
+            "base_re=%r base_local=%r | "
+            "re_has_unit=%s local_has_unit=%s fallback_eligible=%s fallback_match=%s",
+            local_unit.id, re_defaults.get("rentengine_id", "?"),
+            re_addr, local_unit.address_line_1, local_unit.address_line_2,
+            local_unit.name,
+            re_addr, local_addr,
+            norm_re, norm_local,
+            base_re, base_local,
+            re_has_unit, local_has_unit,
+            re_has_unit != local_has_unit,
+            base_re == base_local if re_has_unit != local_has_unit else "N/A",
+        )
+    # --- END DIAGNOSTIC ---
+
     if norm_re == norm_local:
         return True
 
