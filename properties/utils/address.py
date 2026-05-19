@@ -42,10 +42,19 @@ _GEO_TAIL = re.compile(
 # Hash/pound with optional space before unit id: "# B" → "#b"
 _HASH_NORMALIZE = re.compile(r"#\s*")
 
-# Hyphen-separated unit designator: handles single token ("- A") and
-# multi-token ("- Apt B", "- Unit 8") by stripping the hyphen separator
-# and letting downstream unit-token normalization handle the rest.
-_HYPHEN_UNIT = re.compile(r"\s+-\s+")
+# Hyphen-separated unit designator: captures the first token after " - ".
+# "- Apt B" / "- Unit 8" → strips hyphen, downstream unit-token step adds "#"
+# "- 2" / "- D" / "- A" → bare designator, inserts "#" directly
+_HYPHEN_UNIT = re.compile(r"\s+-\s+(\S+)")
+_HYPHEN_UNIT_KEYWORDS = {"apt", "apartment", "unit", "suite", "ste"}
+
+
+def _replace_hyphen_unit(m: re.Match) -> str:
+    """Replace hyphen-separated unit designator intelligently."""
+    token = m.group(1)
+    if token.lower() in _HYPHEN_UNIT_KEYWORDS:
+        return f" {token}"
+    return f" #{token}"
 
 # Duplicate unit designator: "#2 #2" → "#2" (RE often has "#2 Unit 2")
 _DUPE_UNIT = re.compile(r"(#\w+)\s+\1\b")
@@ -74,9 +83,11 @@ def normalize_address(address: str) -> str:
     # Remove periods and commas
     s = s.replace(".", "").replace(",", "")
 
-    # Replace " - " separators with " " so unit tokens can be normalized
-    # downstream. "123 Main St - Apt B" → "123 main st apt b" → "123 main st #b"
-    s = _HYPHEN_UNIT.sub(" ", s)
+    # Replace " - X" separators: bare designators get "#" prefix,
+    # unit keywords keep their token for downstream normalization.
+    # "123 Main St - Apt B" → "123 main st apt b" → "123 main st #b"
+    # "130 Reems Creek Rd - 2" → "130 reems creek rd #2"
+    s = _HYPHEN_UNIT.sub(_replace_hyphen_unit, s)
 
     # Normalize unit indicator tokens to "#"
     s = _UNIT_TOKENS.sub("#", s)

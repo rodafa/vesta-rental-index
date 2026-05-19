@@ -40,6 +40,20 @@ class NormalizeAddressTests(SimpleTestCase):
             normalize_address("26 Reid St #8 Unit 8, Marion, NC, 28752"),
         )
 
+    def test_hyphen_bare_digit(self):
+        """'- 2' bare digit after hyphen normalizes to '#2' (Reems Creek case)."""
+        self.assertEqual(
+            normalize_address("130 Reems Creek Road - 2"),
+            normalize_address("130 Reems Creek Rd #2 Unit 2, Weaverville, NC, 28787"),
+        )
+
+    def test_hyphen_bare_letter(self):
+        """'- D' bare letter after hyphen normalizes to '#d' (Ray Hill case)."""
+        self.assertEqual(
+            normalize_address("588 Ray Hill Road - D"),
+            normalize_address("588 Ray Hill Rd #D Unit D, Mills River, NC, 28759"),
+        )
+
     def test_real_world_drift_cases(self):
         """Real drift pairs from the audit should normalize to matching values.
 
