@@ -173,15 +173,14 @@ class RunAuditTests(TestCase):
 
     @patch("leasing.services.unit_matching_audit.map_re_unit")
     @patch("leasing.services.unit_matching_audit.RentEngineClient")
-    def test_run_audit_no_drift_for_suffix_variation(self, MockClient, mock_mapper):
-        """Suffix abbreviation difference (Road vs Rd) is NOT flagged as drift."""
+    def test_run_audit_no_drift_for_suffix_with_bare_designator(self, MockClient, mock_mapper):
+        """Bare address_line_2 ("2") matches RE unit_number="2"."""
         Unit.objects.create(
             property=self.prop, rentengine_id=1,
             address_line_1="130 Reems Creek Road",
             address_line_2="2",
         )
 
-        # RE has abbreviated suffix + unit indicator + geo tail
         re_records = [
             _make_re_record(1, "130 Reems Creek Rd", "Weaverville", "NC", "28787",
                             unit_number="2"),
@@ -192,7 +191,51 @@ class RunAuditTests(TestCase):
         result = run_audit()
 
         self.assertEqual(result["totals"]["address_drift"], 0,
-                         "Suffix variation should not be flagged as drift")
+                         "Bare designator should match RE unit number")
+
+    @patch("leasing.services.unit_matching_audit.map_re_unit")
+    @patch("leasing.services.unit_matching_audit.RentEngineClient")
+    def test_run_audit_no_drift_for_prefixed_unit_designator(self, MockClient, mock_mapper):
+        """Prefixed address_line_2 ("Unit 8") matches RE unit_number="8"."""
+        Unit.objects.create(
+            property=self.prop, rentengine_id=1,
+            address_line_1="26 Reid St",
+            address_line_2="Unit 8",
+        )
+
+        re_records = [
+            _make_re_record(1, "26 Reid St", "Marion", "NC", "28752",
+                            unit_number="8"),
+        ]
+        MockClient.return_value.get_all.return_value = re_records
+        mock_mapper.side_effect = _make_map_re_unit_side_effect(re_records)
+
+        result = run_audit()
+
+        self.assertEqual(result["totals"]["address_drift"], 0,
+                         "Prefixed 'Unit 8' should match RE unit_number='8'")
+
+    @patch("leasing.services.unit_matching_audit.map_re_unit")
+    @patch("leasing.services.unit_matching_audit.RentEngineClient")
+    def test_run_audit_no_drift_for_apt_designator(self, MockClient, mock_mapper):
+        """Prefixed address_line_2 ("Apt B") matches RE unit_number="B"."""
+        Unit.objects.create(
+            property=self.prop, rentengine_id=1,
+            address_line_1="3 Penley Avenue",
+            address_line_2="Apt B",
+        )
+
+        re_records = [
+            _make_re_record(1, "3 Penley Ave", "Asheville", "NC", "28804",
+                            unit_number="B"),
+        ]
+        MockClient.return_value.get_all.return_value = re_records
+        mock_mapper.side_effect = _make_map_re_unit_side_effect(re_records)
+
+        result = run_audit()
+
+        self.assertEqual(result["totals"]["address_drift"], 0,
+                         "Prefixed 'Apt B' should match RE unit_number='B'")
 
     @patch("leasing.services.unit_matching_audit.map_re_unit")
     @patch("leasing.services.unit_matching_audit.RentEngineClient")

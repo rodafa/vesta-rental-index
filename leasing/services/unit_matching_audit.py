@@ -6,6 +6,7 @@ posts a summary to Slack.
 """
 
 import logging
+import re
 from collections import defaultdict
 from datetime import date
 
@@ -35,6 +36,34 @@ def _format_re_address(defaults):
     return ", ".join(p for p in [line1, parts[1], parts[2], parts[3]] if p)
 
 
+_UNIT_PREFIX_RE = re.compile(
+    r"^(unit|apt|apartment|suite|ste|#)\b", re.IGNORECASE
+)
+
+
+def _has_unit_prefix(value):
+    """Check if a string already starts with a unit indicator token."""
+    return bool(_UNIT_PREFIX_RE.match(value))
+
+
+def _build_local_address(unit):
+    """Build a full local address string from address_line_1 + address_line_2.
+
+    Only prepends "Unit" to address_line_2 if it doesn't already start
+    with a unit indicator token (Unit, Apt, Suite, Ste, #). Prod data
+    has both bare designators ("2", "B") and prefixed ones ("Unit 8",
+    "Apt B", "Unit A - Upstairs Unit").
+    """
+    addr = unit.address_line_1 or ""
+    line2 = (unit.address_line_2 or "").strip()
+    if line2:
+        if _has_unit_prefix(line2):
+            addr = f"{addr} {line2}"
+        else:
+            addr = f"{addr} Unit {line2}"
+    return addr
+
+
 def _addresses_match(re_defaults, local_unit):
     """
     Compare addresses via normalized street address.
@@ -51,41 +80,10 @@ def _addresses_match(re_defaults, local_unit):
     if re_unit_num:
         re_addr = f"{re_addr} Unit {re_unit_num}"
 
-    # Build full local address with unit designator for normalization.
-    # address_line_2 is a bare designator ("2", "B") — prefix with "Unit"
-    # so normalize_address() treats it the same as RE's "Unit 2".
-    local_addr = local_unit.address_line_1 or ""
-    local_line2 = (local_unit.address_line_2 or "").strip()
-    if local_line2:
-        local_addr = f"{local_addr} Unit {local_line2}"
+    local_addr = _build_local_address(local_unit)
 
     norm_re = normalize_address(re_addr)
     norm_local = normalize_address(local_addr)
-
-    # --- DIAGNOSTIC: temporary logging for drift investigation ---
-    if norm_re != norm_local:
-        base_re = base_street(norm_re)
-        base_local = base_street(norm_local)
-        re_has_unit = base_re != norm_re
-        local_has_unit = base_local != norm_local
-        logger.warning(
-            "DRIFT_DIAG unit_id=%s re_id=%s | "
-            "raw_re=%r raw_local_addr1=%r raw_local_addr2=%r raw_local_name=%r | "
-            "built_re=%r built_local=%r | "
-            "norm_re=%r norm_local=%r | "
-            "base_re=%r base_local=%r | "
-            "re_has_unit=%s local_has_unit=%s fallback_eligible=%s fallback_match=%s",
-            local_unit.id, re_defaults.get("rentengine_id", "?"),
-            re_addr, local_unit.address_line_1, local_unit.address_line_2,
-            local_unit.name,
-            re_addr, local_addr,
-            norm_re, norm_local,
-            base_re, base_local,
-            re_has_unit, local_has_unit,
-            re_has_unit != local_has_unit,
-            base_re == base_local if re_has_unit != local_has_unit else "N/A",
-        )
-    # --- END DIAGNOSTIC ---
 
     if norm_re == norm_local:
         return True
