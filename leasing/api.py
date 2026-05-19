@@ -164,10 +164,17 @@ def _run_leasing_ingest():
 
 def _run_audit_matching(include_samples=False):
     """Run unit matching audit + Slack summary in a background thread."""
+    import sys
+    import traceback
+
     try:
+        print("[audit] Thread started", file=sys.stderr, flush=True)
         result = run_audit()
+        print(f"[audit] run_audit complete: {result['totals']}", file=sys.stderr, flush=True)
         post_audit_summary(result, include_samples=include_samples)
+        print("[audit] Slack posted", file=sys.stderr, flush=True)
     except Exception:
+        traceback.print_exc(file=sys.stderr)
         logger.exception("Error running unit matching audit")
 
 
