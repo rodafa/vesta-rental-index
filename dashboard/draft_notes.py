@@ -17,6 +17,7 @@ from reports.services.data_sources.leadsimple import (
     fetch_all_active_deals,
     match_deals_to_address,
 )
+from weekly_reports.services.voice_guide import load_voice_guide
 
 logger = logging.getLogger(__name__)
 
@@ -24,21 +25,13 @@ logger = logging.getLogger(__name__)
 def _build_prompt(unit_data):
     """Build the Claude prompt for a single unit."""
     u = unit_data
-    lines = [
-        "You are a leasing coordinator at Vesta PM writing a weekly update note for a property owner.",
-        "",
-        "VOICE RULES:",
-        "- Always use 'We', never 'I'",
-        "- Conversational but professional. Like a trusted advisor, not a corporate report.",
-        "- Honest and direct. Do not sugarcoat slow weeks.",
-        "- No bullet points. Flowing prose only.",
-        "- NEVER use dashes (-- or em dashes) or hyphens to connect or separate ideas.",
-        "- 2-3 short paragraphs max; 1 paragraph is fine for a quiet week",
-        "- If showing feedback is available, summarise the theme and say what we are doing about it",
-        "- Close with either what Vesta is doing next OR a question for the owner",
-        "- Target 50 to 60 words. Hard cap at 70 words. No padding, no filler phrases.",
-        "- Every sentence must add new information.",
-        "",
+    voice_guide = load_voice_guide()
+
+    lines = []
+    if voice_guide:
+        lines += [voice_guide, ""]
+
+    lines += [
         "PROPERTY:",
         f"  Address: {u['address']}",
         f"  Beds/Baths: {u['beds']}BR / {u['baths']}BA",
@@ -81,7 +74,7 @@ def _call_claude(prompt):
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=150,
+        max_tokens=300,
         messages=[{"role": "user", "content": prompt}],
     )
     return msg.content[0].text.strip()

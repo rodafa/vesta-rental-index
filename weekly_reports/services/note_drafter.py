@@ -123,7 +123,7 @@ def _call_claude(prompt):
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=150,
+        max_tokens=300,
         messages=[{"role": "user", "content": prompt}],
     )
     return msg.content[0].text.strip()

@@ -212,6 +212,26 @@ def unapprove_note(request, note_id: int):
     return _note_to_dict(note)
 
 
+@router.delete("/property-notes/{note_id}")
+def delete_note(request, note_id: int):
+    """Hard-delete a PropertyWeeklyNote."""
+    from dashboard.models import PropertyWeeklyNote
+
+    note = get_object_or_404(PropertyWeeklyNote, id=note_id)
+    username = _get_username(request)
+
+    logger.info(
+        "Note %d deleted by %s (unit=%s, week_date=%s)",
+        note_id,
+        username,
+        note.unit_id,
+        note.week_date.isoformat(),
+    )
+    note.delete()
+
+    return {"ok": True, "deleted": note_id}
+
+
 # ---------------------------------------------------------------------------
 # View data endpoints (power the dashboard UI)
 # ---------------------------------------------------------------------------

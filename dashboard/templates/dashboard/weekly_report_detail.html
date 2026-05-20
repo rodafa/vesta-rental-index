@@ -146,6 +146,7 @@ function _renderNotes(notes) {
       actions = '<button class="btn btn-primary btn-sm" onclick="_approveAsIs(' + n.id + ')">Approve</button>' +
         ' <button class="btn btn-secondary btn-sm" id="save-btn-' + n.id + '" style="display:none;" onclick="_saveEdit(' + n.id + ')">Save &amp; Approve</button>';
     }
+    actions += ' <button class="btn btn-danger btn-sm" onclick="_confirmDelete(' + n.id + ')">Delete</button>';
 
     return '<tr>' +
       '<td style="white-space:nowrap;">' + weekLabel + '</td>' +
@@ -193,6 +194,15 @@ function _unapprove(noteId) {
     VestaAPI.toast('Note un-approved', 'success');
     _loadDetail();
   });
+}
+
+function _confirmDelete(noteId) {
+  if (confirm('Delete this note? This cannot be undone.')) {
+    VestaAPI.delete('/reports/weekly-update/property-notes/' + noteId).then(function() {
+      VestaAPI.toast('Note deleted', 'success');
+      _loadDetail();
+    });
+  }
 }
 
 function _weekLabel(isoDate) {
