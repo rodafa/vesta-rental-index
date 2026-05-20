@@ -1467,53 +1467,7 @@ def owner_report_detail(
 
     # ── Batch queries ────────────────────────────────────────────────────
     # All leasing counts come from DailyLeasingSummary (cumulative delta).
-
-    def _dls_delta(unit_ids, date_gte, date_lte):
-        """DailyLeasingSummary cumulative delta for a period, per unit."""
-        cur_qs = DailyLeasingSummary.objects.filter(
-            unit_id__in=unit_ids, summary_date__gte=date_gte, summary_date__lte=date_lte,
-        )
-        current = {}
-        for row in cur_qs.values("unit_id").annotate(
-            leads=Coalesce(Max("leads_count"), 0),
-            showings=Coalesce(Max("showings_completed_count"), 0),
-            missed=Coalesce(Max("showings_missed_count"), 0),
-            apps=Coalesce(Max("applications_count"), 0),
-        ):
-            current[row["unit_id"]] = row
-
-        prior = {}
-        for row in DailyLeasingSummary.objects.filter(
-            unit_id__in=unit_ids, summary_date__lt=date_gte,
-        ).values("unit_id").annotate(
-            leads=Coalesce(Max("leads_count"), 0),
-            showings=Coalesce(Max("showings_completed_count"), 0),
-            missed=Coalesce(Max("showings_missed_count"), 0),
-            apps=Coalesce(Max("applications_count"), 0),
-        ):
-            prior[row["unit_id"]] = row
-
-        # For units with no prior data, use min-in-window as baseline
-        min_in_window = {}
-        for row in cur_qs.values("unit_id").annotate(
-            leads=Coalesce(Min("leads_count"), 0),
-            showings=Coalesce(Min("showings_completed_count"), 0),
-            missed=Coalesce(Min("showings_missed_count"), 0),
-            apps=Coalesce(Min("applications_count"), 0),
-        ):
-            min_in_window[row["unit_id"]] = row
-
-        result = {}
-        for uid, cur in current.items():
-            prv = prior.get(uid) or min_in_window.get(uid, {})
-            result[uid] = {
-                "unit_id": uid,
-                "leads": max(cur["leads"] - prv.get("leads", 0), 0),
-                "showings": max(cur["showings"] - prv.get("showings", 0), 0),
-                "missed": max(cur["missed"] - prv.get("missed", 0), 0),
-                "apps": max(cur["apps"] - prv.get("apps", 0), 0),
-            }
-        return result
+    from market.services.leasing_queries import dls_delta as _dls_delta
 
     def _dls_alltime(unit_ids):
         """All-time leasing counts: sum of per-unit max cumulative values."""
@@ -1663,6 +1617,7 @@ def owner_report_detail(
             "week_date": note.week_date.isoformat(),
             "author": note.author,
             "note_text": note.note_text,
+            "approved": note.approved,
         })
 
     # Price history: PriceDrop records for last 180 days
@@ -1729,17 +1684,20 @@ def owner_report_detail(
         # Showing feedback — prefer actual Showing records, fall back to weekly note text
         fb_list = _summarize_feedback(feedback_by_unit.get(unit.id, []))
         if not fb_list:
-            # Fall back to most recent PropertyWeeklyNote for this unit as feedback proxy
+            # Fall back to most recent approved PropertyWeeklyNote as feedback proxy
             fb_note = notes_map.get(unit.id)
+            if fb_note and not getattr(fb_note, "approved", True):
+                fb_note = None  # skip unapproved drafts
             if not fb_note:
                 pn_list = prev_notes_map.get(unit.id, [])
-                if pn_list:
-                    fb_note_data = pn_list[0]  # most recent prev note
-                    fb_list = [{
-                        "date": fb_note_data["week_date"],
-                        "prospect_name": "",
-                        "feedback_summary": fb_note_data["note_text"],
-                    }]
+                for pn_data in pn_list:
+                    if pn_data.get("approved", True):
+                        fb_list = [{
+                            "date": pn_data["week_date"],
+                            "prospect_name": "",
+                            "feedback_summary": pn_data["note_text"],
+                        }]
+                        break
             if fb_note and not fb_list:
                 fb_list = [{
                     "date": week_date.isoformat(),
@@ -1804,6 +1762,7 @@ def owner_report_detail(
             "zillow_url": _zillow_url(address, city, state, zc),
             "property_note": note.note_text if note else "",
             "property_note_author": note.author if note else "",
+            "property_note_approved": note.approved if note else None,
             "prev_notes": prev_notes_map.get(unit.id, []),
         })
 

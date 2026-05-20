@@ -6,6 +6,7 @@ from ninja import Field, FilterSchema, ModelSchema
 from leasing.models import (
     Applicant,
     Application,
+    DailyLeasingMetric,
     Lease,
     LeasingEvent,
     Prospect,
@@ -358,3 +359,41 @@ class ApplicationSchema(ModelSchema):
 class ApplicationFilterSchema(FilterSchema):
     primary_status: Optional[int] = None
     unit_id: Optional[int] = None
+
+
+# --- DailyLeasingMetric ---
+
+
+class DailyLeasingMetricSchema(ModelSchema):
+    class Meta:
+        model = DailyLeasingMetric
+        fields = [
+            "id",
+            "unit",
+            "date",
+            "new_prospects",
+            "showings_completed",
+            "applications_submitted",
+            "showings_missed_or_failed",
+            "days_on_market",
+            "property_health",
+            "benchmark_leads_since_last_price_change",
+            "showings_scheduled",
+            "applications_requested",
+            "active_prospects",
+            "upcoming_showings",
+            "outbound_texts",
+            "total_calls",
+            "showing_feedback_summary",
+            "source",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class DailyLeasingMetricFilterSchema(FilterSchema):
+    unit_id: Optional[int] = None
+    date_from: Optional[date] = Field(None, q="date__gte")
+    date_to: Optional[date] = Field(None, q="date__lte")
+    property_health: Optional[str] = None
+    source: Optional[str] = None

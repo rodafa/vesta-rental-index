@@ -8,6 +8,7 @@ from ninja.pagination import LimitOffsetPagination, paginate
 
 from leasing.models import (
     Application,
+    DailyLeasingMetric,
     Lease,
     LeasingEvent,
     Prospect,
@@ -18,6 +19,8 @@ from leasing.schemas import (
     ApplicationFilterSchema,
     ApplicationListSchema,
     ApplicationSchema,
+    DailyLeasingMetricFilterSchema,
+    DailyLeasingMetricSchema,
     LeaseFilterSchema,
     LeaseListSchema,
     LeaseSchema,
@@ -140,6 +143,24 @@ def get_application(request, application_id: int):
             "applicants"
         ),
         id=application_id,
+    )
+
+
+# --- Daily Leasing Metrics ---
+
+
+@router.get("/daily-metrics", response=list[DailyLeasingMetricSchema])
+@paginate(LimitOffsetPagination)
+def list_daily_metrics(request, filters: Query[DailyLeasingMetricFilterSchema]):
+    qs = DailyLeasingMetric.objects.select_related("unit")
+    return filters.filter(qs)
+
+
+@router.get("/daily-metrics/{metric_id}", response=DailyLeasingMetricSchema)
+def get_daily_metric(request, metric_id: int):
+    return get_object_or_404(
+        DailyLeasingMetric.objects.select_related("unit"),
+        id=metric_id,
     )
 
 

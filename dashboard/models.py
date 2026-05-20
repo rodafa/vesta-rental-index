@@ -73,6 +73,10 @@ class PropertyWeeklyNote(models.Model):
     author = models.CharField(max_length=100)
     note_text = models.TextField()
 
+    approved = models.BooleanField(default=False)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.CharField(max_length=255, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

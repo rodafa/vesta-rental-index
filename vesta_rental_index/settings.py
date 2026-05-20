@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     "dashboard",
     "onboarding",
     "reports",
+    "weekly_reports",
 ]
 
 MIDDLEWARE = [

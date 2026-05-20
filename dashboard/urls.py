@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
@@ -15,4 +16,8 @@ urlpatterns = [
     path("maintenance-emails/", views.maintenance_emails, name="maintenance_emails"),
     path("owner-notes/", views.owner_notes, name="owner_notes"),
     path("monthly-notes/", views.monthly_notes, name="monthly_notes"),
+    path("weekly-reports/", views.weekly_reports, name="weekly_reports"),
+    path("weekly-reports/<int:unit_id>/", views.weekly_report_detail, name="weekly_report_detail"),
+    # Redirect old bookmark
+    path("weekly-sheets/", RedirectView.as_view(pattern_name="dashboard:weekly_reports", permanent=True), name="weekly_sheets"),
 ]

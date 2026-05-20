@@ -6,7 +6,10 @@ from ninja import Router, Schema
 
 from reports.models import OwnerReportLog
 
+from weekly_reports.api import router as weekly_update_router
+
 router = Router(tags=["Reports"])
+router.add_router("/weekly-update/", weekly_update_router)
 
 # Module-level state for background generation jobs.
 # Key: "YYYY-MM" string. Fine for single-worker deployments (Railway).

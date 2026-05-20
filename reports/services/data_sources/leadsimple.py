@@ -1,7 +1,10 @@
 """
-LeadSimple data source for monthly owner reports.
+LeadSimple pipeline data source.
+
 Fetches pipeline deals via the live API, then matches to properties by address.
+Used by monthly owner reports, dashboard draft notes, and weekly reports.
 """
+
 import logging
 import re
 
@@ -38,15 +41,33 @@ def _extract_street_key(addr: str) -> str:
 
 
 def fetch_all_active_deals() -> list:
-    """
-    Fetch all active LeadSimple processes. Returns [] on any error.
-    """
+    """Fetch all active LeadSimple processes. Returns [] on any error."""
     try:
         from integrations.leadsimple.client import LeadSimpleClient
 
         return LeadSimpleClient().get_active_processes()
     except Exception:
         logger.warning("LeadSimple: could not fetch active processes", exc_info=True)
+        return []
+
+
+def fetch_all_deals(include_closed_since=None) -> list:
+    """Fetch all processes, optionally including recently-closed ones.
+
+    Args:
+        include_closed_since: Optional date. Include processes closed on or after
+            this date. If None, only returns open processes.
+
+    Returns [] on any error.
+    """
+    try:
+        from integrations.leadsimple.client import LeadSimpleClient
+
+        return LeadSimpleClient().fetch_all_processes(
+            include_closed_since=include_closed_since
+        )
+    except Exception:
+        logger.warning("LeadSimple: could not fetch processes", exc_info=True)
         return []
 
 
@@ -59,33 +80,19 @@ def classify_deal(deal: dict) -> str:
     return "other"
 
 
-def get_property_pipeline_context(property_obj, all_deals: list) -> dict:
+def match_deals_to_address(address, all_deals):
+    """Match deals to an address string using street-key comparison.
+
+    Args:
+        address: Property address string (e.g. "123 Main St").
+        all_deals: List of deal dicts from fetch_all_active_deals() or fetch_all_deals().
+
+    Returns list of matched deal dicts with 'pipeline_type' added.
     """
-    Match deals from all_deals to property_obj using normalized street
-    number + street name comparison.
-    Groups matched deals by pipeline type.
+    if not address:
+        return []
 
-    Returns:
-        {
-            applications: [...],
-            move_ins: [...],
-            renewals: [...],
-            late_rent: [...],
-            move_outs: [...],
-            other: [...],
-        }
-    """
-    street = (property_obj.address_line_1 or "").strip()
-    if not street:
-        return _empty_context()
-
-    property_street_key = _extract_street_key(street)
-
-    logger.debug(
-        "LeadSimple address match: property %s (%s), street_key=%s",
-        property_obj.pk, street, property_street_key,
-    )
-
+    property_street_key = _extract_street_key(address)
     matched = []
     for deal in all_deals:
         deal_address = deal.get("address") or deal.get("name") or ""
@@ -97,29 +104,87 @@ def get_property_pipeline_context(property_obj, all_deals: list) -> dict:
                 "name": deal.get("name", ""),
                 "stage_name": deal.get("stage_name", ""),
                 "created_at": deal.get("created_at", ""),
+                "closed_at": deal.get("closed_at", ""),
                 "comments": deal.get("comments", ""),
                 "pipeline_type": pipeline_type,
             })
+    return matched
+
+
+def get_property_pipeline_context(property_obj, all_deals: list,
+                                  pipeline_types=None) -> dict:
+    """Match deals to property_obj, grouped by pipeline type.
+
+    Args:
+        property_obj: Object with .address_line_1 attribute.
+        all_deals: List of deal dicts.
+        pipeline_types: Optional set/list of types to include (e.g. {"application",
+            "move_in"}). If None, all types are included.
+
+    Returns dict with keys: applications, move_ins, renewals, late_rent,
+    move_outs, issues, other.
+    """
+    street = (property_obj.address_line_1 or "").strip()
+    if not street:
+        return _empty_context()
+
+    logger.debug(
+        "LeadSimple address match: property %s (%s), street_key=%s",
+        property_obj.pk, street, _extract_street_key(street),
+    )
+
+    matched = match_deals_to_address(street, all_deals)
 
     context = _empty_context()
+    type_to_key = {
+        "application": "applications",
+        "move_in": "move_ins",
+        "renewal": "renewals",
+        "late_rent": "late_rent",
+        "move_out": "move_outs",
+        "issues": "issues",
+        "other": "other",
+    }
+
     for deal in matched:
         pt = deal["pipeline_type"]
-        if pt == "application":
-            context["applications"].append(deal)
-        elif pt == "move_in":
-            context["move_ins"].append(deal)
-        elif pt == "renewal":
-            context["renewals"].append(deal)
-        elif pt == "late_rent":
-            context["late_rent"].append(deal)
-        elif pt == "move_out":
-            context["move_outs"].append(deal)
-        elif pt == "issues":
-            context["issues"].append(deal)
-        else:
-            context["other"].append(deal)
+        if pipeline_types and pt not in pipeline_types:
+            continue
+        key = type_to_key.get(pt, "other")
+        context[key].append(deal)
 
     return context
+
+
+def get_resolved_for_property(property_obj, all_deals, week_start, week_end):
+    """Return deals matched to property that were closed within [week_start, week_end].
+
+    Args:
+        property_obj: Object with .address_line_1 attribute.
+        all_deals: List of deal dicts (should come from fetch_all_deals with
+            include_closed_since=week_start).
+        week_start: date — inclusive start.
+        week_end: date — inclusive end.
+
+    Returns list of matched deal dicts that have a closed_at within range.
+    """
+    from datetime import date as date_type
+
+    street = (property_obj.address_line_1 or "").strip()
+    matched = match_deals_to_address(street, all_deals)
+
+    resolved = []
+    for deal in matched:
+        closed_str = deal.get("closed_at", "")
+        if not closed_str:
+            continue
+        try:
+            closed_date = date_type.fromisoformat(closed_str)
+        except (ValueError, TypeError):
+            continue
+        if week_start <= closed_date <= week_end:
+            resolved.append(deal)
+    return resolved
 
 
 def _empty_context() -> dict:

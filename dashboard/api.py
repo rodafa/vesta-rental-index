@@ -49,6 +49,9 @@ def _prop_note_to_dict(note):
         "week_date": note.week_date.isoformat(),
         "author": note.author,
         "note_text": note.note_text,
+        "approved": note.approved,
+        "approved_at": note.approved_at.isoformat() if note.approved_at else None,
+        "approved_by": note.approved_by,
         "created_at": note.created_at.isoformat(),
         "updated_at": note.updated_at.isoformat(),
     }
@@ -67,7 +70,7 @@ def _render_owner_email(owner, report_data, note):
     # Gather property notes for this week
     unit_ids = [u["unit_id"] for u in report_data.get("units", [])]
     notes_map = {}
-    for pn in PropertyWeeklyNote.objects.filter(unit_id__in=unit_ids, week_date=week_date):
+    for pn in PropertyWeeklyNote.objects.filter(unit_id__in=unit_ids, week_date=week_date, approved=True):
         notes_map[pn.unit_id] = pn.note_text
 
     # Attach notes, WoW deltas, and avg/wk for the template
@@ -364,6 +367,9 @@ class PropertyWeeklyNoteSchema(Schema):
     id: int
     unit_id: int
     week_date: str
+    approved: bool = False
+    approved_at: Optional[str] = None
+    approved_by: str = ""
     author: str
     note_text: str
     created_at: str
@@ -375,6 +381,7 @@ class PropertyWeeklyNoteCreateSchema(Schema):
     week_date: date
     author: str
     note_text: str
+    approved: bool = False
 
 
 @router.get("/property-notes", response=list[PropertyWeeklyNoteSchema])
@@ -408,15 +415,27 @@ def draft_property_notes(request, data: PropertyNoteDraftSchema):
 def create_property_note(request, data: PropertyWeeklyNoteCreateSchema):
     # Use logged-in user as author when available
     author = data.author
+    username = ""
     if hasattr(request, "user") and request.user.is_authenticated:
         author = request.user.get_full_name() or request.user.username
+        username = request.user.username
+
+    defaults = {
+        "author": author,
+        "note_text": data.note_text,
+        "approved": data.approved,
+    }
+    if data.approved:
+        defaults["approved_at"] = timezone.now()
+        defaults["approved_by"] = username or author
+    else:
+        defaults["approved_at"] = None
+        defaults["approved_by"] = ""
+
     note, _ = PropertyWeeklyNote.objects.update_or_create(
         unit_id=data.unit_id,
         week_date=data.week_date,
-        defaults={
-            "author": author,
-            "note_text": data.note_text,
-        },
+        defaults=defaults,
     )
     return _prop_note_to_dict(note)
 

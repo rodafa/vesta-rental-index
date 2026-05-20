@@ -62,6 +62,16 @@ def monthly_notes(request):
     return render(request, "dashboard/monthly_notes.html")
 
 
+@login_required
+def weekly_reports(request):
+    return render(request, "dashboard/weekly_reports.html")
+
+
+@login_required
+def weekly_report_detail(request, unit_id):
+    return render(request, "dashboard/weekly_report_detail.html", {"unit_id": unit_id})
+
+
 class PasswordChangeCompleteView(View):
     """Clear the must_change_password flag and redirect to dashboard."""
 
