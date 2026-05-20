@@ -1467,19 +1467,8 @@ def owner_report_detail(
 
     # ── Batch queries ────────────────────────────────────────────────────
     # All leasing counts come from DailyLeasingSummary (cumulative delta).
+    from market.services.leasing_queries import dls_alltime as _dls_alltime
     from market.services.leasing_queries import dls_delta as _dls_delta
-
-    def _dls_alltime(unit_ids):
-        """All-time leasing counts: sum of per-unit max cumulative values."""
-        result = {}
-        for row in DailyLeasingSummary.objects.filter(unit_id__in=unit_ids).values("unit_id").annotate(
-            leads=Coalesce(Max("leads_count"), 0),
-            showings=Coalesce(Max("showings_completed_count"), 0),
-            missed=Coalesce(Max("showings_missed_count"), 0),
-            apps=Coalesce(Max("applications_count"), 0),
-        ):
-            result[row["unit_id"]] = row
-        return result
 
     # This week — all counts from DLS delta
     wk_leasing = _dls_delta(unit_ids, week_start, week_end)

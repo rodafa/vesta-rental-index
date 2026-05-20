@@ -95,6 +95,24 @@ def get_showing_feedback(unit_id, week_start, week_end):
     return texts
 
 
+def dls_alltime(unit_ids):
+    """All-time cumulative totals per unit from DailyLeasingSummary.
+
+    Returns dict keyed by unit_id with keys: leads, showings, missed, apps.
+    """
+    result = {}
+    for row in DailyLeasingSummary.objects.filter(
+        unit_id__in=unit_ids
+    ).values("unit_id").annotate(
+        leads=Coalesce(Max("leads_count"), 0),
+        showings=Coalesce(Max("showings_completed_count"), 0),
+        missed=Coalesce(Max("showings_missed_count"), 0),
+        apps=Coalesce(Max("applications_count"), 0),
+    ):
+        result[row["unit_id"]] = row
+    return result
+
+
 def get_latest_snapshots(unit_ids=None, status=None):
     """Return the latest DailyUnitSnapshot for each unit, optionally filtered.
 

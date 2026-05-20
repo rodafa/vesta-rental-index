@@ -68,26 +68,38 @@ def get_recent_history(unit_ids, before_date, num_weeks=3):
 
 
 def get_portfolio_benchmark(unit_ids, start_date, end_date):
-    """Compute average leads/showings/apps across active units for the period.
+    """Compute portfolio-level benchmarks across active units for the period.
 
-    Returns dict: {avg_leads, avg_showings, avg_apps, unit_count}.
+    Returns dict: {avg_leads, avg_showings, avg_apps, avg_dom,
+                   active_vacancy_count, lead_to_showing_pct,
+                   showing_to_app_pct, unit_count}.
     """
+    base = {
+        "avg_leads": 0, "avg_showings": 0, "avg_apps": 0, "avg_dom": 0,
+        "active_vacancy_count": 0, "lead_to_showing_pct": 0,
+        "showing_to_app_pct": 0, "unit_count": 0,
+    }
     if not unit_ids:
-        return {"avg_leads": 0, "avg_showings": 0, "avg_apps": 0, "unit_count": 0}
+        return base
 
     deltas = dls_delta(unit_ids, start_date, end_date)
+    snapshots, _ = get_latest_snapshots(unit_ids, status="active")
 
-    if not deltas:
-        return {"avg_leads": 0, "avg_showings": 0, "avg_apps": 0, "unit_count": len(unit_ids)}
-
+    n = len(deltas) or len(unit_ids)
     total_leads = sum(d.get("leads", 0) for d in deltas.values())
     total_showings = sum(d.get("showings", 0) for d in deltas.values())
     total_apps = sum(d.get("apps", 0) for d in deltas.values())
-    n = len(deltas)
+
+    dom_values = [s.get("days_on_market", 0) for s in snapshots.values() if s.get("days_on_market")]
+    avg_dom = round(sum(dom_values) / len(dom_values), 1) if dom_values else 0
 
     return {
         "avg_leads": round(total_leads / n, 1) if n else 0,
         "avg_showings": round(total_showings / n, 1) if n else 0,
         "avg_apps": round(total_apps / n, 1) if n else 0,
+        "avg_dom": avg_dom,
+        "active_vacancy_count": len(snapshots),
+        "lead_to_showing_pct": round(total_showings / total_leads * 100, 1) if total_leads else 0,
+        "showing_to_app_pct": round(total_apps / total_showings * 100, 1) if total_showings else 0,
         "unit_count": n,
     }

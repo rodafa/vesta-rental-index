@@ -40,6 +40,10 @@ const VestaAPI = (() => {
     return request(path, { method: 'PUT', body: JSON.stringify(body) });
   }
 
+  function patch(path, body) {
+    return request(path, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
   function del(path) {
     return request(path, { method: 'DELETE' });
   }
@@ -113,5 +117,5 @@ const VestaAPI = (() => {
     return el;
   }
 
-  return { get, post, put, delete: del, list, $, $dec, pct, num, dateStr, daysAgo, today, toast, render };
+  return { get, post, put, patch, delete: del, list, $, $dec, pct, num, dateStr, daysAgo, today, toast, render };
 })();

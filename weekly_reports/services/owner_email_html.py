@@ -1,0 +1,67 @@
+"""
+Build rendered HTML for owner weekly leasing emails.
+"""
+
+from django.conf import settings
+from django.template.loader import render_to_string
+
+
+def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
+    """Render the owner email HTML template.
+
+    Args:
+        owner: Owner model instance.
+        units_data: List of dicts with unit info (from marketing report rows).
+        benchmarks: Portfolio benchmark dict.
+        week_start: Start date of reporting week.
+        week_end: End date of reporting week.
+
+    Returns:
+        Rendered HTML string.
+    """
+    # Prepare per-unit template data with WoW deltas
+    units = []
+    total_leads = 0
+    total_showings = 0
+    total_apps = 0
+
+    for u in units_data:
+        total_leads += u.get("leads", 0)
+        total_showings += u.get("showings", 0)
+        total_apps += u.get("apps", 0)
+
+        units.append({
+            "address": u["address"],
+            "beds": u.get("beds", 0),
+            "baths": u.get("baths", 0),
+            "listed_price": u.get("listed_price", 0),
+            "dom": u.get("dom", 0),
+            "leads": u.get("leads", 0),
+            "showings": u.get("showings", 0),
+            "apps": u.get("apps", 0),
+            "lead_delta": u.get("leads", 0) - u.get("prev_leads", 0),
+            "showing_delta": u.get("showings", 0) - u.get("prev_showings", 0),
+            "app_delta": u.get("apps", 0) - u.get("prev_apps", 0),
+            "alltime_leads": u.get("alltime_leads", 0),
+            "alltime_showings": u.get("alltime_showings", 0),
+            "alltime_apps": u.get("alltime_apps", 0),
+            "zillow_url": u.get("zillow_url", ""),
+            "note_text": u.get("note_text", ""),
+        })
+
+    context = {
+        "owner_name": owner.first_name or owner.name,
+        "units": units,
+        "unit_count": len(units),
+        "benchmarks": benchmarks,
+        "portfolio_totals": {
+            "leads": total_leads,
+            "showings": total_showings,
+            "apps": total_apps,
+        },
+        "week_start": week_start,
+        "week_end": week_end,
+        "logo_url": getattr(settings, "VESTA_LOGO_URL", ""),
+    }
+
+    return render_to_string("weekly_reports/owner_email.html", context)

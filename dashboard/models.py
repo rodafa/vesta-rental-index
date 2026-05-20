@@ -68,7 +68,12 @@ class PropertyWeeklyNote(models.Model):
         related_name="weekly_notes",
     )
     week_date = models.DateField(
-        db_index=True, help_text="Monday of the report week"
+        db_index=True,
+        help_text=(
+            "Monday of the ISO calendar week containing the period's Tuesday start "
+            "(i.e. the day before a Tue–Mon reporting window opens). "
+            "Join key only; never shown to owners."
+        ),
     )
     author = models.CharField(max_length=100)
     note_text = models.TextField()

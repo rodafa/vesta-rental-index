@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Leasing Update</title>
+<style>
+  body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background: #EFF5F9; color: #1E3D58; }
+  .wrapper { max-width: 640px; margin: 0 auto; padding: 20px; }
+  .header { background: #1E3D58; padding: 28px 24px; text-align: center; border-radius: 8px 8px 0 0; }
+  .header h1 { color: #fff; font-size: 22px; margin: 0; font-weight: 700; }
+  .header p { color: #6EA5CD; font-size: 13px; margin: 6px 0 0; }
+  .body-wrap { background: #fff; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #dce4ec; border-top: none; }
+  .greeting { font-size: 15px; margin-bottom: 18px; line-height: 1.5; }
+  .unit-card { border: 1px solid #dce4ec; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
+  .unit-header { background: #f6f9fc; padding: 10px 14px; border-bottom: 1px solid #dce4ec; }
+  .unit-header h3 { margin: 0; font-size: 14px; color: #1E3D58; }
+  .unit-header .meta { font-size: 12px; color: #6b8299; margin-top: 2px; }
+  .unit-body { padding: 12px 14px; }
+  .note-text { font-size: 13px; line-height: 1.6; color: #334155; margin-bottom: 12px; }
+  .metrics-grid { display: table; width: 100%; border-collapse: collapse; }
+  .metrics-row { display: table-row; }
+  .metrics-row > div { display: table-cell; padding: 6px 8px; font-size: 12px; border-top: 1px solid #eef2f6; }
+  .m-label { color: #6b8299; width: 40%; }
+  .m-val { font-weight: 600; text-align: right; }
+  .m-val.up { color: #39B54A; }
+  .m-val.down { color: #D67011; }
+  .zillow-btn { display: inline-block; margin-top: 8px; padding: 6px 14px; background: #6EA5CD; color: #fff; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .zillow-btn:hover { background: #5a92b8; }
+  .context-section { background: #f6f9fc; border-radius: 6px; padding: 14px; margin-top: 16px; }
+  .context-section h4 { margin: 0 0 8px; font-size: 13px; color: #1E3D58; }
+  .ctx-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
+  .ctx-row .ctx-label { color: #6b8299; }
+  .ctx-row .ctx-val { font-weight: 600; }
+  .totals-section { margin-top: 16px; padding: 12px 14px; background: #1E3D58; border-radius: 6px; color: #fff; }
+  .totals-section h4 { margin: 0 0 8px; font-size: 13px; }
+  .totals-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; color: #c0d4e4; }
+  .totals-row .t-val { color: #fff; font-weight: 600; }
+  .footer { text-align: center; padding: 20px; font-size: 11px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    {% if logo_url %}<img src="{{ logo_url }}" alt="Vesta" style="height:32px;margin-bottom:8px;">{% endif %}
+    <h1>Weekly Leasing Update</h1>
+    <p>{{ week_start|date:"M j" }} &ndash; {{ week_end|date:"M j, Y" }}</p>
+  </div>
+  <div class="body-wrap">
+    <div class="greeting">Hi {{ owner_name }},</div>
+    <p style="font-size:13px;color:#475569;margin-bottom:18px;">
+      Here's your weekly leasing performance summary for your {{ unit_count }} active listing{{ unit_count|pluralize }}.
+    </p>
+
+    {% for unit in units %}
+    <div class="unit-card">
+      <div class="unit-header">
+        <h3>{{ unit.address }}</h3>
+        <div class="meta">{{ unit.beds }}bd / {{ unit.baths }}ba &middot; Listed at ${{ unit.listed_price|floatformat:0 }} &middot; {{ unit.dom }} days on market</div>
+      </div>
+      <div class="unit-body">
+        {% if unit.note_text %}
+        <div class="note-text">{{ unit.note_text }}</div>
+        {% endif %}
+
+        <div class="metrics-grid">
+          <div class="metrics-row">
+            <div class="m-label">Leads (this week)</div>
+            <div class="m-val">{{ unit.leads }}{% if unit.lead_delta > 0 %} <span class="up">&uarr;{{ unit.lead_delta }}</span>{% elif unit.lead_delta < 0 %} <span class="down">&darr;{{ unit.lead_delta|cut:"-" }}</span>{% endif %}</div>
+          </div>
+          <div class="metrics-row">
+            <div class="m-label">Showings (this week)</div>
+            <div class="m-val">{{ unit.showings }}{% if unit.showing_delta > 0 %} <span class="up">&uarr;{{ unit.showing_delta }}</span>{% elif unit.showing_delta < 0 %} <span class="down">&darr;{{ unit.showing_delta|cut:"-" }}</span>{% endif %}</div>
+          </div>
+          <div class="metrics-row">
+            <div class="m-label">Applications (this week)</div>
+            <div class="m-val">{{ unit.apps }}{% if unit.app_delta > 0 %} <span class="up">&uarr;{{ unit.app_delta }}</span>{% elif unit.app_delta < 0 %} <span class="down">&darr;{{ unit.app_delta|cut:"-" }}</span>{% endif %}</div>
+          </div>
+          <div class="metrics-row">
+            <div class="m-label">All-time leads</div>
+            <div class="m-val">{{ unit.alltime_leads }}</div>
+          </div>
+          <div class="metrics-row">
+            <div class="m-label">All-time showings</div>
+            <div class="m-val">{{ unit.alltime_showings }}</div>
+          </div>
+          <div class="metrics-row">
+            <div class="m-label">All-time applications</div>
+            <div class="m-val">{{ unit.alltime_apps }}</div>
+          </div>
+        </div>
+
+        {% if unit.zillow_url %}
+        <a href="{{ unit.zillow_url }}" class="zillow-btn" target="_blank">View on Zillow</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+    <!-- Market Context -->
+    <div class="context-section">
+      <h4>Market Context</h4>
+      <div class="ctx-row"><span class="ctx-label">Active vacancies</span><span class="ctx-val">{{ benchmarks.active_vacancy_count }}</span></div>
+      <div class="ctx-row"><span class="ctx-label">Avg days on market</span><span class="ctx-val">{{ benchmarks.avg_dom }}d</span></div>
+      <div class="ctx-row"><span class="ctx-label">Lead &rarr; showing rate</span><span class="ctx-val">{{ benchmarks.lead_to_showing_pct }}%</span></div>
+      <div class="ctx-row"><span class="ctx-label">Showing &rarr; app rate</span><span class="ctx-val">{{ benchmarks.showing_to_app_pct }}%</span></div>
+    </div>
+
+    <!-- Portfolio Totals -->
+    {% if portfolio_totals %}
+    <div class="totals-section">
+      <h4>Your Portfolio This Week</h4>
+      <div class="totals-row"><span>Total leads</span><span class="t-val">{{ portfolio_totals.leads }}</span></div>
+      <div class="totals-row"><span>Total showings</span><span class="t-val">{{ portfolio_totals.showings }}</span></div>
+      <div class="totals-row"><span>Total applications</span><span class="t-val">{{ portfolio_totals.apps }}</span></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="footer">
+    Vesta Property Management &middot; Weekly Leasing Report<br>
+    This email was generated automatically. Please reply to your property manager with any questions.
+  </div>
+</div>
+</body>
+</html>

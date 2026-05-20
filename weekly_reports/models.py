@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -37,3 +38,49 @@ class WeeklyReportRun(models.Model):
             f"WeeklyReportRun {self.start_date}..{self.end_date} "
             f"({self.status})"
         )
+
+
+class OwnerEmailSend(models.Model):
+    """Tracks owner email sends for weekly leasing reports.
+
+    week_date = Monday of the reporting week — must match
+    PropertyWeeklyNote.week_date (same Monday anchor).
+    """
+
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("sent", "Sent"),
+        ("failed", "Failed"),
+    ]
+
+    owner = models.ForeignKey(
+        "properties.Owner", on_delete=models.CASCADE, related_name="weekly_email_sends"
+    )
+    # Same anchor as PropertyWeeklyNote.week_date — see help_text there.
+    week_date = models.DateField(
+        help_text=(
+            "Monday of the ISO calendar week containing the period's Tuesday start "
+            "(i.e. the day before a Tue–Mon reporting window opens). "
+            "Must match PropertyWeeklyNote.week_date exactly."
+        ),
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True
+    )
+    sendgrid_message_id = models.CharField(max_length=200, blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    error_detail = models.TextField(blank=True, default="")
+    units_included = models.JSONField(default=list)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("owner", "week_date")]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Email to {self.owner} for week {self.week_date} ({self.status})"

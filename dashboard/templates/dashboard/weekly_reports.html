@@ -1,48 +1,38 @@
 {% extends "dashboard/_base.html" %}
 {% load static %}
 
-{% block title %}Weekly Reports{% endblock %}
+{% block title %}Marketing Report{% endblock %}
 {% block nav_weekly_reports %}active{% endblock %}
-{% block topbar_title %}Weekly Reports{% endblock %}
+{% block topbar_title %}Marketing Report{% endblock %}
 
 {% block content %}
-<!-- Trigger Panel -->
+<!-- Controls -->
 <div class="card" style="margin-bottom:1rem;">
   <div style="display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap;">
-    <div>
+    <div class="filter-group">
       <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">From</label>
-      <input type="date" id="wr-start" class="input" style="width:160px;">
+      <input type="date" id="mr-start" class="input" style="width:160px;">
     </div>
-    <div>
+    <div class="filter-group">
       <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">To</label>
-      <input type="date" id="wr-end" class="input" style="width:160px;">
+      <input type="date" id="mr-end" class="input" style="width:160px;">
     </div>
-    <button class="btn btn-primary" id="wr-trigger-btn" onclick="_triggerRun()">Run Weekly Update</button>
-    <span id="wr-trigger-status" style="font-size:.85rem;color:var(--text-secondary);"></span>
+    <button class="btn btn-primary" id="mr-load-btn" onclick="_loadReport()">Load Report</button>
+    <button class="btn btn-secondary" id="mr-gen-btn" onclick="_triggerGenerate()">Generate Notes</button>
+    <button class="btn btn-success" id="mr-send-btn" onclick="_confirmSendEmails()">Send Approved Emails</button>
+    <span id="mr-status" style="font-size:.85rem;color:var(--text-secondary);"></span>
   </div>
 </div>
 
-<!-- Run History -->
-<div class="card" style="margin-bottom:1rem;">
-  <div class="card-title">Recent Runs</div>
-  <table style="width:100%;font-size:.85rem;">
-    <thead>
-      <tr>
-        <th>ID</th><th>Period</th><th>Status</th>
-        <th>Processed</th><th>Drafted</th><th>Skipped</th><th>Errors</th>
-        <th>Triggered By</th><th>Started</th>
-      </tr>
-    </thead>
-    <tbody id="wr-runs-body"><tr><td colspan="9" style="text-align:center;">Loading...</td></tr></tbody>
-  </table>
-</div>
+<!-- Benchmark Bar -->
+<div class="benchmark-bar" id="mr-benchmarks" style="display:none;"></div>
 
-<!-- Filter Bar -->
+<!-- Filters -->
 <div class="card" style="margin-bottom:1rem;">
   <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
     <div class="filter-group">
       <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">Note Status</label>
-      <select id="wr-filter-status" class="input" onchange="_applyFilters()" style="width:150px;">
+      <select id="mr-filter-status" class="input" onchange="_applyFilters()" style="width:150px;">
         <option value="all">All</option>
         <option value="draft">Draft</option>
         <option value="approved">Approved</option>
@@ -51,47 +41,74 @@
     </div>
     <div class="filter-group">
       <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">Search</label>
-      <input type="text" id="wr-filter-search" class="input" placeholder="Address..." oninput="_applyFilters()" style="width:200px;">
+      <input type="text" id="mr-filter-search" class="input" placeholder="Address or owner..." oninput="_applyFilters()" style="width:220px;">
     </div>
+    <div style="margin-left:auto;font-size:.78rem;color:var(--text-muted);" id="mr-count"></div>
   </div>
 </div>
 
-<!-- Properties List -->
-<div class="card">
-  <div class="card-title">Properties</div>
-  <table style="width:100%;font-size:.85rem;">
+<!-- Marketing Report Table -->
+<div style="overflow-x:auto;">
+<table id="mr-table" style="min-width:1200px;">
+  <thead>
+    <tr>
+      <th rowspan="2" style="cursor:pointer;" onclick="_sortBy('address')">Property</th>
+      <th rowspan="2" style="cursor:pointer;" onclick="_sortBy('owner_names')">Owner</th>
+      <th rowspan="2" class="num" style="cursor:pointer;" onclick="_sortBy('dom')">DOM</th>
+      <th rowspan="2" class="num" style="cursor:pointer;" onclick="_sortBy('listed_price')">List Price</th>
+      <th colspan="3" class="th-group">This Week</th>
+      <th colspan="3" class="th-group">All-Time</th>
+      <th colspan="2" class="th-group">Avg / Week</th>
+      <th rowspan="2">Weekly Note</th>
+      <th rowspan="2">Zillow</th>
+      <th rowspan="2">Actions</th>
+    </tr>
+    <tr>
+      <th class="th-sub num">Leads</th>
+      <th class="th-sub num">Show.</th>
+      <th class="th-sub num">Apps</th>
+      <th class="th-sub num">Leads</th>
+      <th class="th-sub num">Show.</th>
+      <th class="th-sub num">Apps</th>
+      <th class="th-sub num">Leads</th>
+      <th class="th-sub num">Show.</th>
+    </tr>
+  </thead>
+  <tbody id="mr-body">
+    <tr><td colspan="15" style="text-align:center;">Loading...</td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- Send Log (Phase 3 placeholder) -->
+<div class="card" id="mr-send-log" style="display:none;">
+  <div class="card-title">Send Log</div>
+  <table class="send-log-table" style="width:100%;font-size:.82rem;">
     <thead>
-      <tr>
-        <th style="cursor:pointer;" onclick="_sortBy('address')">Address</th>
-        <th class="num" style="cursor:pointer;" onclick="_sortBy('dom')">DOM</th>
-        <th class="num" style="cursor:pointer;" onclick="_sortBy('price')">List Price</th>
-        <th class="num">Leads</th>
-        <th class="num">Showings</th>
-        <th class="num">Apps</th>
-        <th style="cursor:pointer;" onclick="_sortBy('status')">Note Status</th>
-        <th style="cursor:pointer;" onclick="_sortBy('updated')">Last Updated</th>
-      </tr>
+      <tr><th>Owner</th><th>Status</th><th>Units</th><th>Sent At</th><th>Error</th></tr>
     </thead>
-    <tbody id="wr-props-body"><tr><td colspan="8" style="text-align:center;">Loading...</td></tr></tbody>
+    <tbody id="mr-send-log-body"></tbody>
   </table>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-var ALL_PROPS = [];
-var SORT_KEY = 'status';
+var ALL_ROWS = [];
+var BENCHMARKS = {};
+var SORT_KEY = 'note_status';
 var SORT_ASC = true;
+var EDITING_NOTE = null; // note_id currently being edited
 
 document.addEventListener('DOMContentLoaded', function() {
   _setDefaultDates();
-  _loadRuns();
-  _loadProperties();
+  _loadReport();
 });
+
+/* ── Date helpers ──────────────────────────────────────────────── */
 
 function _setDefaultDates() {
   var today = new Date();
-  // Most recent Tuesday (excluding today)
   var dow = today.getDay();
   var daysSinceTue = (dow - 2 + 7) % 7;
   if (daysSinceTue === 0) daysSinceTue = 7;
@@ -99,69 +116,94 @@ function _setDefaultDates() {
   start.setDate(today.getDate() - daysSinceTue);
   var end = new Date(start);
   end.setDate(start.getDate() + 6);
-  document.getElementById('wr-start').value = _isoDate(start);
-  document.getElementById('wr-end').value = _isoDate(end);
+  document.getElementById('mr-start').value = _iso(start);
+  document.getElementById('mr-end').value = _iso(end);
 }
 
-function _isoDate(d) {
+function _iso(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
-function _loadRuns() {
-  VestaAPI.get('/reports/weekly-update/runs').then(function(runs) {
-    var tb = document.getElementById('wr-runs-body');
-    if (!runs || !runs.length) { tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No runs yet</td></tr>'; return; }
-    tb.innerHTML = runs.map(function(r) {
-      var badge = r.status === 'success' ? 'badge-green' : r.status === 'failed' ? 'badge-red' : 'badge-yellow';
-      return '<tr>' +
-        '<td>' + r.id + '</td>' +
-        '<td>' + r.start_date + ' &ndash; ' + r.end_date + '</td>' +
-        '<td><span class="badge ' + badge + '">' + r.status + '</span></td>' +
-        '<td class="num">' + r.units_processed + '</td>' +
-        '<td class="num">' + r.notes_drafted + '</td>' +
-        '<td class="num">' + r.units_skipped + '</td>' +
-        '<td class="num">' + r.units_errored + '</td>' +
-        '<td>' + (r.dry_run ? '<em>dry-run</em> ' : '') + _esc(r.triggered_by || '') + '</td>' +
-        '<td>' + _shortDate(r.started_at) + '</td>' +
-      '</tr>';
-    }).join('');
+/* ── Load report data ──────────────────────────────────────────── */
+
+function _loadReport() {
+  var s = document.getElementById('mr-start').value;
+  var e = document.getElementById('mr-end').value;
+  var url = '/reports/weekly-update/marketing-report';
+  if (s && e) url += '?start=' + s + '&end=' + e;
+
+  document.getElementById('mr-body').innerHTML = '<tr><td colspan="15" style="text-align:center;">Loading...</td></tr>';
+
+  VestaAPI.get(url).then(function(data) {
+    if (data.ok === false) {
+      document.getElementById('mr-body').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);">' + _esc(data.error) + '</td></tr>';
+      return;
+    }
+    ALL_ROWS = (data.rows || []).map(function(r) {
+      // Compute note status for filtering/sorting
+      r._note_status = !r.note_id ? 'missing' : (r.note_approved ? 'approved' : 'draft');
+      return r;
+    });
+    BENCHMARKS = data.benchmarks || {};
+    _renderBenchmarks();
+    _applyFilters();
+    _loadSendLog();
+  }).catch(function(err) {
+    document.getElementById('mr-body').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);">Failed to load report</td></tr>';
   });
 }
 
-function _loadProperties() {
-  VestaAPI.get('/reports/weekly-update/properties').then(function(props) {
-    ALL_PROPS = props || [];
-    _applyFilters();
-  }).catch(function(e) {
-    document.getElementById('wr-props-body').innerHTML =
-      '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">Failed to load properties</td></tr>';
-  });
+/* ── Benchmarks bar ────────────────────────────────────────────── */
+
+function _renderBenchmarks() {
+  var b = BENCHMARKS;
+  if (!b || !b.unit_count) { document.getElementById('mr-benchmarks').style.display = 'none'; return; }
+  document.getElementById('mr-benchmarks').style.display = 'flex';
+  document.getElementById('mr-benchmarks').innerHTML =
+    _bmCard('Active Vacancies', b.active_vacancy_count) +
+    _bmCard('Avg DOM', b.avg_dom + 'd') +
+    _bmCard('Avg Leads', b.avg_leads) +
+    _bmCard('Avg Showings', b.avg_showings) +
+    _bmCard('Avg Apps', b.avg_apps) +
+    _bmCard('Lead &rarr; Showing', b.lead_to_showing_pct + '%') +
+    _bmCard('Showing &rarr; App', b.showing_to_app_pct + '%');
 }
+
+function _bmCard(label, value) {
+  return '<div class="benchmark-card"><div class="bm-label">' + label + '</div><div class="bm-value">' + value + '</div></div>';
+}
+
+/* ── Filtering & Sorting ──────────────────────────────────────── */
 
 function _applyFilters() {
-  var filterStatus = document.getElementById('wr-filter-status').value;
-  var filterSearch = document.getElementById('wr-filter-search').value.toLowerCase();
+  var filterStatus = document.getElementById('mr-filter-status').value;
+  var filterSearch = document.getElementById('mr-filter-search').value.toLowerCase();
 
-  var filtered = ALL_PROPS.filter(function(p) {
-    if (filterStatus !== 'all' && p.status !== filterStatus) return false;
-    if (filterSearch && p.address.toLowerCase().indexOf(filterSearch) === -1) return false;
+  var filtered = ALL_ROWS.filter(function(r) {
+    if (filterStatus !== 'all' && r._note_status !== filterStatus) return false;
+    if (filterSearch) {
+      var haystack = (r.address + ' ' + r.owner_names + ' ' + r.portfolio_name).toLowerCase();
+      if (haystack.indexOf(filterSearch) === -1) return false;
+    }
     return true;
   });
 
-  // Sort: drafts first by default
   filtered.sort(function(a, b) {
-    if (SORT_KEY === 'status') {
+    var va, vb, d;
+    if (SORT_KEY === 'note_status') {
       var order = {draft: 0, missing: 1, approved: 2};
-      var d = (order[a.status] || 1) - (order[b.status] || 1);
+      d = (order[a._note_status] || 1) - (order[b._note_status] || 1);
       if (d !== 0) return SORT_ASC ? d : -d;
-      return (b.updated || '').localeCompare(a.updated || '');
+      return (b.dom || 0) - (a.dom || 0);
     }
-    var va = a[SORT_KEY], vb = b[SORT_KEY];
-    if (typeof va === 'string') { var c = va.localeCompare(vb); return SORT_ASC ? c : -c; }
-    return SORT_ASC ? va - vb : vb - va;
+    va = a[SORT_KEY]; vb = b[SORT_KEY];
+    if (typeof va === 'string') { d = va.localeCompare(vb); return SORT_ASC ? d : -d; }
+    d = (va || 0) - (vb || 0);
+    return SORT_ASC ? d : -d;
   });
 
-  _renderProps(filtered);
+  document.getElementById('mr-count').textContent = filtered.length + ' of ' + ALL_ROWS.length + ' units';
+  _renderRows(filtered);
 }
 
 function _sortBy(key) {
@@ -170,36 +212,181 @@ function _sortBy(key) {
   _applyFilters();
 }
 
-function _renderProps(props) {
-  var tb = document.getElementById('wr-props-body');
-  if (!props.length) {
-    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No properties match filters</td></tr>';
+/* ── WoW pill helper ───────────────────────────────────────────── */
+
+function _pill(cur, prev) {
+  var delta = cur - prev;
+  if (delta > 0) return '<span class="pill up">&blacktriangle;' + delta + '</span>';
+  if (delta < 0) return '<span class="pill down">&blacktriangledown;' + Math.abs(delta) + '</span>';
+  return '<span class="pill flat">0</span>';
+}
+
+/* ── Render table rows ─────────────────────────────────────────── */
+
+function _renderRows(rows) {
+  var tb = document.getElementById('mr-body');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--text-muted);">No properties match filters</td></tr>';
     return;
   }
-  tb.innerHTML = props.map(function(p) {
-    var badgeCls = p.status === 'approved' ? 'badge-green' : p.status === 'draft' ? 'badge-red' : 'badge-gray';
-    return '<tr>' +
-      '<td><a href="/dashboard/weekly-reports/' + p.unit_id + '/">' + _esc(p.address) + '</a></td>' +
-      '<td class="num">' + p.dom + '</td>' +
-      '<td class="num">' + VestaAPI.$(p.price) + '</td>' +
-      '<td class="num">' + p.leads + '</td>' +
-      '<td class="num">' + p.showings + '</td>' +
-      '<td class="num">' + p.apps + '</td>' +
-      '<td><span class="badge ' + badgeCls + '">' + p.status.charAt(0).toUpperCase() + p.status.slice(1) + '</span></td>' +
-      '<td>' + _shortDate(p.updated) + '</td>' +
+  tb.innerHTML = rows.map(function(r) {
+    var rowCls = r.note_approved ? ' class="approved"' : '';
+    var domCls = r.dom >= 60 ? ' dom-stale' : '';
+    var statusBadge = r._note_status === 'approved' ? 'badge-green' :
+                      r._note_status === 'draft' ? 'badge-yellow' : 'badge-gray';
+
+    // Note cell
+    var noteHtml = '';
+    if (r.note_id) {
+      noteHtml = '<div class="note-text" onclick="_editNote(' + r.note_id + ', this)" title="Click to edit">' + _esc(r.note_text) + '</div>' +
+        '<span class="badge ' + statusBadge + '" style="margin-top:.2rem;">' + r._note_status + '</span>';
+    } else {
+      noteHtml = '<span class="badge badge-gray">No note</span>';
+    }
+
+    // Zillow cell
+    var zillowHtml = '<input class="zillow-input" value="' + _attr(r.zillow_url || '') + '" ' +
+      'placeholder="Zillow URL" ' +
+      'onblur="_saveZillow(' + r.unit_id + ', this)" ' +
+      'onkeydown="if(event.key===\'Enter\'){this.blur();}">';
+
+    // Action buttons
+    var actions = '<div class="action-btns">';
+    if (r.note_id) {
+      if (!r.note_approved) {
+        actions += '<button class="btn btn-success btn-xs" onclick="_approveNote(' + r.note_id + ')">Approve</button>';
+      } else {
+        actions += '<button class="btn btn-secondary btn-xs" onclick="_unapproveNote(' + r.note_id + ')">Undo</button>';
+      }
+      actions += '<button class="btn btn-danger btn-xs" onclick="_deleteNote(' + r.note_id + ')">Del</button>';
+    }
+    actions += '</div>';
+
+    return '<tr' + rowCls + '>' +
+      '<td><a href="/dashboard/weekly-reports/' + r.unit_id + '/">' + _esc(r.address) + '</a>' +
+        '<div style="font-size:.7rem;color:var(--text-muted);">' + r.beds + 'bd / ' + r.baths + 'ba</div></td>' +
+      '<td style="font-size:.78rem;">' + _esc(r.owner_names || '—') +
+        '<div style="font-size:.68rem;color:var(--text-muted);">' + _esc(r.portfolio_name || '') + '</div></td>' +
+      '<td class="num' + domCls + '">' + r.dom + '</td>' +
+      '<td class="num">' + VestaAPI.$(r.listed_price) + '</td>' +
+      // This week with WoW pills
+      '<td class="num"><span class="metric">' + r.leads + ' ' + _pill(r.leads, r.prev_leads) + '</span></td>' +
+      '<td class="num"><span class="metric">' + r.showings + ' ' + _pill(r.showings, r.prev_showings) + '</span></td>' +
+      '<td class="num"><span class="metric">' + r.apps + ' ' + _pill(r.apps, r.prev_apps) + '</span></td>' +
+      // All-time
+      '<td class="num">' + r.alltime_leads + '</td>' +
+      '<td class="num">' + r.alltime_showings + '</td>' +
+      '<td class="num">' + r.alltime_apps + '</td>' +
+      // Avg/week
+      '<td class="num">' + r.avg_leads_per_week + '</td>' +
+      '<td class="num">' + r.avg_showings_per_week + '</td>' +
+      // Note
+      '<td class="note-cell">' + noteHtml + '</td>' +
+      // Zillow
+      '<td>' + zillowHtml + '</td>' +
+      // Actions
+      '<td>' + actions + '</td>' +
     '</tr>';
   }).join('');
 }
 
-function _triggerRun() {
-  var btn = document.getElementById('wr-trigger-btn');
-  var status = document.getElementById('wr-trigger-status');
+/* ── Note actions ──────────────────────────────────────────────── */
+
+function _editNote(noteId, el) {
+  if (EDITING_NOTE === noteId) return;
+  EDITING_NOTE = noteId;
+  var row = ALL_ROWS.find(function(r) { return r.note_id === noteId; });
+  if (!row) return;
+  var cell = el.parentNode;
+  cell.innerHTML = '<textarea class="note-editor" id="note-editor-' + noteId + '">' + _esc(row.note_text) + '</textarea>' +
+    '<div style="display:flex;gap:.3rem;margin-top:.3rem;">' +
+    '<button class="btn btn-primary btn-xs" onclick="_saveNote(' + noteId + ', false)">Save</button>' +
+    '<button class="btn btn-success btn-xs" onclick="_saveNote(' + noteId + ', true)">Save &amp; Approve</button>' +
+    '<button class="btn btn-secondary btn-xs" onclick="_cancelEdit(' + noteId + ')">Cancel</button>' +
+    '</div>';
+  document.getElementById('note-editor-' + noteId).focus();
+}
+
+function _saveNote(noteId, approve) {
+  var text = document.getElementById('note-editor-' + noteId).value;
+  VestaAPI.patch('/reports/weekly-update/property-notes/' + noteId, {
+    note_text: text,
+    approve: approve
+  }).then(function(note) {
+    EDITING_NOTE = null;
+    // Update local data
+    var row = ALL_ROWS.find(function(r) { return r.note_id === noteId; });
+    if (row) {
+      row.note_text = note.note_text;
+      row.note_approved = note.approved;
+      row._note_status = note.approved ? 'approved' : 'draft';
+    }
+    _applyFilters();
+    VestaAPI.toast('Note saved');
+  }).catch(function(err) {
+    VestaAPI.toast('Failed to save note', 'error');
+  });
+}
+
+function _cancelEdit(noteId) {
+  EDITING_NOTE = null;
+  _applyFilters();
+}
+
+function _approveNote(noteId) {
+  VestaAPI.post('/reports/weekly-update/property-notes/' + noteId + '/approve').then(function(note) {
+    var row = ALL_ROWS.find(function(r) { return r.note_id === noteId; });
+    if (row) { row.note_approved = true; row._note_status = 'approved'; }
+    _applyFilters();
+    VestaAPI.toast('Note approved');
+  }).catch(function() { VestaAPI.toast('Failed to approve', 'error'); });
+}
+
+function _unapproveNote(noteId) {
+  VestaAPI.post('/reports/weekly-update/property-notes/' + noteId + '/unapprove').then(function(note) {
+    var row = ALL_ROWS.find(function(r) { return r.note_id === noteId; });
+    if (row) { row.note_approved = false; row._note_status = 'draft'; }
+    _applyFilters();
+    VestaAPI.toast('Note un-approved');
+  }).catch(function() { VestaAPI.toast('Failed to un-approve', 'error'); });
+}
+
+function _deleteNote(noteId) {
+  if (!confirm('Delete this note?')) return;
+  VestaAPI.delete('/reports/weekly-update/property-notes/' + noteId).then(function() {
+    var row = ALL_ROWS.find(function(r) { return r.note_id === noteId; });
+    if (row) { row.note_id = null; row.note_text = ''; row.note_approved = false; row._note_status = 'missing'; }
+    _applyFilters();
+    VestaAPI.toast('Note deleted');
+  }).catch(function() { VestaAPI.toast('Failed to delete', 'error'); });
+}
+
+/* ── Zillow URL save ───────────────────────────────────────────── */
+
+function _saveZillow(unitId, input) {
+  var row = ALL_ROWS.find(function(r) { return r.unit_id === unitId; });
+  if (row && row.zillow_url === input.value) return; // unchanged
+  VestaAPI.patch('/reports/weekly-update/properties/' + unitId + '/zillow-url', {
+    zillow_url: input.value
+  }).then(function() {
+    if (row) row.zillow_url = input.value;
+    VestaAPI.toast('Zillow URL saved');
+  }).catch(function() {
+    VestaAPI.toast('Failed to save Zillow URL', 'error');
+  });
+}
+
+/* ── Generate Notes trigger ────────────────────────────────────── */
+
+function _triggerGenerate() {
+  var btn = document.getElementById('mr-gen-btn');
+  var status = document.getElementById('mr-status');
   btn.disabled = true;
-  status.textContent = 'Starting...';
+  status.textContent = 'Starting note generation...';
 
   VestaAPI.post('/reports/weekly-update/trigger', {
-    start: document.getElementById('wr-start').value,
-    end: document.getElementById('wr-end').value,
+    start: document.getElementById('mr-start').value,
+    end: document.getElementById('mr-end').value
   }).then(function(resp) {
     if (!resp.ok) { status.textContent = resp.error; btn.disabled = false; return; }
     status.textContent = 'Running (ID: ' + resp.run_id + ')...';
@@ -214,28 +401,112 @@ function _pollRun(runId, btn, status) {
   setTimeout(function() {
     VestaAPI.get('/reports/weekly-update/runs/' + runId).then(function(r) {
       if (r.status === 'running') {
-        status.textContent = 'Running... (drafted ' + r.notes_drafted + ')';
+        status.textContent = 'Generating... (drafted ' + r.notes_drafted + ')';
         _pollRun(runId, btn, status);
       } else {
         status.textContent = r.status + ' — drafted ' + r.notes_drafted + ', skipped ' + r.units_skipped;
         btn.disabled = false;
-        _loadRuns();
-        _loadProperties();
+        _loadReport();
       }
     });
   }, 3000);
 }
 
-function _shortDate(iso) {
-  if (!iso) return '';
-  var d = new Date(iso);
-  return d.toLocaleDateString('en-US', {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+/* ── Send Emails ───────────────────────────────────────────────── */
+
+function _confirmSendEmails() {
+  var approved = ALL_ROWS.filter(function(r) { return r.note_approved; });
+  if (!approved.length) { VestaAPI.toast('No approved notes to send', 'error'); return; }
+
+  // Count unique owners
+  var owners = {};
+  approved.forEach(function(r) { if (r.owner_names) owners[r.owner_names] = true; });
+  var ownerCount = Object.keys(owners).length;
+  var weekEnd = document.getElementById('mr-end').value;
+
+  // Show confirmation dialog
+  var overlay = document.createElement('div');
+  overlay.className = 'dialog-overlay';
+  overlay.innerHTML =
+    '<div class="dialog-box">' +
+      '<h3>Send Weekly Emails</h3>' +
+      '<p>This will email <strong>' + ownerCount + '</strong> owner' + (ownerCount !== 1 ? 's' : '') +
+        ' covering <strong>' + approved.length + '</strong> properties for week ending <strong>' + weekEnd + '</strong>.</p>' +
+      '<div class="dialog-actions">' +
+        '<button class="btn btn-secondary" id="send-cancel">Cancel</button>' +
+        '<button class="btn btn-success" id="send-confirm">Send Emails</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  document.getElementById('send-cancel').onclick = function() { overlay.remove(); };
+  document.getElementById('send-confirm').onclick = function() {
+    overlay.remove();
+    _doSendEmails();
+  };
 }
 
+function _doSendEmails() {
+  var btn = document.getElementById('mr-send-btn');
+  var status = document.getElementById('mr-status');
+  btn.disabled = true;
+  status.textContent = 'Sending emails...';
+
+  VestaAPI.post('/reports/weekly-update/marketing-report/send-emails', {
+    start: document.getElementById('mr-start').value,
+    end: document.getElementById('mr-end').value,
+    dry_run: false
+  }).then(function(resp) {
+    btn.disabled = false;
+    if (resp.ok === false) { status.textContent = resp.error; return; }
+    status.textContent = 'Sent: ' + resp.sent + ', Skipped: ' + resp.skipped + ', Failed: ' + resp.failed;
+    VestaAPI.toast('Emails sent: ' + resp.sent);
+    _loadSendLog();
+  }).catch(function(err) {
+    btn.disabled = false;
+    status.textContent = 'Error: ' + err;
+    VestaAPI.toast('Failed to send emails', 'error');
+  });
+}
+
+function _loadSendLog() {
+  var s = document.getElementById('mr-start').value;
+  var e = document.getElementById('mr-end').value;
+  var url = '/reports/weekly-update/marketing-report/send-history';
+  if (s && e) url += '?start=' + s + '&end=' + e;
+
+  VestaAPI.get(url).then(function(sends) {
+    var logSection = document.getElementById('mr-send-log');
+    var logBody = document.getElementById('mr-send-log-body');
+    if (!sends || !sends.length) {
+      logSection.style.display = 'none';
+      return;
+    }
+    logSection.style.display = 'block';
+    logBody.innerHTML = sends.map(function(s) {
+      var badge = s.status === 'sent' ? 'badge-green' : s.status === 'failed' ? 'badge-red' : 'badge-yellow';
+      return '<tr>' +
+        '<td>' + _esc(s.owner_name) + ' <span style="color:var(--text-muted);font-size:.72rem;">' + _esc(s.owner_email) + '</span></td>' +
+        '<td><span class="badge ' + badge + '">' + s.status + '</span></td>' +
+        '<td>' + (s.units_included ? s.units_included.length : 0) + '</td>' +
+        '<td>' + (s.sent_at ? new Date(s.sent_at).toLocaleString() : '—') + '</td>' +
+        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(s.error_detail || '') + '</td>' +
+      '</tr>';
+    }).join('');
+  }).catch(function() {});
+}
+
+/* ── Escape helpers ────────────────────────────────────────────── */
+
 function _esc(s) {
+  if (!s) return '';
   var el = document.createElement('span');
   el.textContent = s;
   return el.innerHTML;
+}
+
+function _attr(s) {
+  return (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 </script>
 {% endblock %}

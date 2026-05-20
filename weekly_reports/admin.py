@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import WeeklyReportRun
+from .models import OwnerEmailSend, WeeklyReportRun
 
 
 @admin.register(WeeklyReportRun)
@@ -38,3 +38,19 @@ class WeeklyReportRunAdmin(admin.ModelAdmin):
                 triggered_by=f"admin:{request.user.username}",
             )
         self.message_user(request, f"Re-ran {queryset.count()} update(s).")
+
+
+@admin.register(OwnerEmailSend)
+class OwnerEmailSendAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "owner",
+        "week_date",
+        "status",
+        "sent_at",
+        "sent_by",
+        "sendgrid_message_id",
+    ]
+    list_filter = ["status", "week_date"]
+    search_fields = ["owner__name", "owner__email"]
+    readonly_fields = ["created_at", "updated_at", "units_included"]

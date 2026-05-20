@@ -36,6 +36,17 @@ class NoteEditSchema(Schema):
     approve: bool = True
 
 
+class ZillowUrlSchema(Schema):
+    zillow_url: str
+
+
+class SendEmailsSchema(Schema):
+    start: str
+    end: str
+    dry_run: bool = False
+    owner_filter: Optional[int] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -362,3 +373,128 @@ def get_property_detail(request, unit_id: int):
         "weekly_avgs": weekly_avgs,
         "notes": [_note_to_dict(n) for n in notes],
     }
+
+
+# ---------------------------------------------------------------------------
+# Marketing report endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/marketing-report")
+def get_marketing_report(request, start: str = None, end: str = None):
+    """Return full marketing report data for the week."""
+    from weekly_reports.services.marketing_report import build_marketing_report
+    from weekly_reports.services.weekly_update import default_date_range
+
+    if start and end:
+        try:
+            week_start = date.fromisoformat(start)
+            week_end = date.fromisoformat(end)
+        except ValueError as e:
+            return {"ok": False, "error": f"Invalid date format: {e}"}
+    else:
+        week_start, week_end = default_date_range()
+
+    data = build_marketing_report(week_start, week_end)
+    data["week_start"] = week_start.isoformat()
+    data["week_end"] = week_end.isoformat()
+    return data
+
+
+@router.patch("/properties/{unit_id}/zillow-url")
+def update_zillow_url(request, unit_id: int, payload: ZillowUrlSchema):
+    """Update a Unit's Zillow URL."""
+    from properties.models import Unit
+
+    unit = get_object_or_404(Unit, id=unit_id)
+    unit.zillow_url = payload.zillow_url
+    unit.save(update_fields=["zillow_url", "updated_at"])
+
+    logger.info("Unit %d zillow_url updated by %s", unit_id, _get_username(request))
+    return {"ok": True, "unit_id": unit_id, "zillow_url": unit.zillow_url}
+
+
+# ---------------------------------------------------------------------------
+# Email send endpoints (Phase 3)
+# ---------------------------------------------------------------------------
+
+@router.get("/marketing-report/email-preview")
+def email_preview(request, owner_id: int, start: str = None, end: str = None):
+    """Return rendered HTML preview of owner email."""
+    from properties.models import Owner
+
+    from weekly_reports.services.marketing_report import build_marketing_report
+    from weekly_reports.services.owner_email_html import build_owner_email_html
+    from weekly_reports.services.weekly_update import default_date_range
+
+    owner = get_object_or_404(Owner, id=owner_id)
+
+    if start and end:
+        week_start = date.fromisoformat(start)
+        week_end = date.fromisoformat(end)
+    else:
+        week_start, week_end = default_date_range()
+
+    report = build_marketing_report(week_start, week_end)
+    # Filter to this owner's units
+    owner_rows = [r for r in report["rows"] if owner.name in (r.get("owner_names") or "")]
+
+    html = build_owner_email_html(owner, owner_rows, report["benchmarks"], week_start, week_end)
+    return {"html": html, "owner_name": owner.name, "unit_count": len(owner_rows)}
+
+
+@router.post("/marketing-report/send-emails")
+def send_emails(request, payload: SendEmailsSchema):
+    """Send approved weekly leasing emails to owners. Staff-auth only."""
+    from weekly_reports.services.send_owner_emails import send_approved_emails
+
+    if not (hasattr(request, "user") and request.user.is_staff):
+        from ninja.errors import HttpError
+        raise HttpError(403, "Staff access required")
+
+    try:
+        week_start = date.fromisoformat(payload.start)
+        week_end = date.fromisoformat(payload.end)
+    except ValueError as e:
+        return {"ok": False, "error": f"Invalid date format: {e}"}
+
+    user = request.user if hasattr(request, "user") and request.user.is_authenticated else None
+    result = send_approved_emails(
+        week_start=week_start,
+        week_end=week_end,
+        user=user,
+        dry_run=payload.dry_run,
+    )
+    result["ok"] = True
+    return result
+
+
+@router.get("/marketing-report/send-history")
+def send_history(request, start: str = None, end: str = None):
+    """Return OwnerEmailSend records for the week."""
+    from datetime import timedelta
+
+    from weekly_reports.models import OwnerEmailSend
+    from weekly_reports.services.weekly_update import default_date_range
+
+    if start and end:
+        week_start = date.fromisoformat(start)
+    else:
+        week_start, _ = default_date_range()
+
+    monday = week_start - timedelta(days=week_start.weekday())
+
+    sends = OwnerEmailSend.objects.filter(week_date=monday).select_related("owner", "sent_by")
+    return [
+        {
+            "id": s.id,
+            "owner_name": s.owner.name,
+            "owner_email": s.owner.email,
+            "status": s.status,
+            "sent_at": s.sent_at.isoformat() if s.sent_at else None,
+            "sent_by": (s.sent_by.get_full_name() or s.sent_by.username) if s.sent_by else "",
+            "sendgrid_message_id": s.sendgrid_message_id,
+            "units_included": s.units_included,
+            "error_detail": s.error_detail,
+        }
+        for s in sends
+    ]

@@ -204,6 +204,9 @@ SG_OWNER_REPORT_TEMPLATE_ID = os.environ.get(
     "SG_OWNER_REPORT_TEMPLATE_ID", "d-3083295c8c354ccfb8365e9cec9760ae"
 )
 SG_OWNER_REPORT_CC = os.environ.get("SG_OWNER_REPORT_CC", "accounting@vestapm.com")
+SG_WEEKLY_LEASING_TEMPLATE_ID = os.environ.get(
+    "SG_WEEKLY_LEASING_TEMPLATE_ID", "d-9bba8b9ac55a4f66978807edd8155954"
+)
 if SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
     ANYMAIL = {"SENDGRID_API_KEY": SENDGRID_API_KEY}
