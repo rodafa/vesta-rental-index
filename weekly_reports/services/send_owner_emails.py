@@ -138,15 +138,13 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
             continue
 
         try:
-            template_id = getattr(settings, "SG_WEEKLY_LEASING_TEMPLATE_ID", "")
+            week_label = f"{week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}"
             msg = AnymailMessage(
+                subject=f"Weekly Leasing Update — {week_label}",
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=[owner.email],
             )
-            msg.template_id = template_id
-            msg.merge_global_data = {
-                "email_html": html,
-            }
+            msg.attach_alternative(html, "text/html")
             msg.send()
 
             if hasattr(msg, "anymail_status"):
