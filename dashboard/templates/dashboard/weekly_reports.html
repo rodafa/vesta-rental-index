@@ -100,6 +100,7 @@
 <script>
 var SHOW_OUTCOMES = {{ show_showing_outcomes|yesno:"true,false" }};
 var TOTAL_COLS = SHOW_OUTCOMES ? 17 : 15;
+var USER_EMAIL = "{{ user_email|escapejs }}";
 var ALL_ROWS = [];
 var BENCHMARKS = {};
 var SORT_KEY = 'note_status';
@@ -265,6 +266,12 @@ function _renderRows(rows) {
         actions += '<button class="btn btn-secondary btn-xs" onclick="_unapproveNote(' + r.note_id + ')">Undo</button>';
       }
       actions += '<button class="btn btn-danger btn-xs" onclick="_deleteNote(' + r.note_id + ')">Del</button>';
+    }
+    if (r.owner_ids && r.owner_ids.length) {
+      actions += '<button class="btn btn-primary btn-xs" onclick="_previewEmail(' + r.owner_ids[0] + ')" title="Preview owner email">Preview</button>';
+      if (USER_EMAIL) {
+        actions += '<button class="btn btn-secondary btn-xs" onclick="_testSendEmail(' + r.owner_ids[0] + ', \'' + _attr(r.owner_names) + '\')" title="Send test to ' + _esc(USER_EMAIL) + '">Test Send</button>';
+      }
     }
     actions += '</div>';
 
@@ -502,6 +509,35 @@ function _loadSendLog() {
       '</tr>';
     }).join('');
   }).catch(function() {});
+}
+
+/* ── Email preview / test send ────────────────────────────────── */
+
+function _previewEmail(ownerId) {
+  var s = document.getElementById('mr-start').value;
+  var e = document.getElementById('mr-end').value;
+  var url = '/api/reports/weekly-update/marketing-report/email-preview?owner_id=' + ownerId + '&format=html';
+  if (s && e) url += '&start=' + s + '&end=' + e;
+  window.open(url, '_blank');
+}
+
+function _testSendEmail(ownerId, ownerName) {
+  if (!confirm('Send a test copy of ' + ownerName + "'s email to " + USER_EMAIL + '?')) return;
+  var s = document.getElementById('mr-start').value;
+  var e = document.getElementById('mr-end').value;
+  VestaAPI.post('/reports/weekly-update/marketing-report/test-send', {
+    owner_id: ownerId,
+    start: s || null,
+    end: e || null
+  }).then(function(resp) {
+    if (resp.ok) {
+      VestaAPI.toast('Test email sent to ' + resp.sent_to);
+    } else {
+      VestaAPI.toast(resp.error || 'Failed to send', 'error');
+    }
+  }).catch(function(err) {
+    VestaAPI.toast('Failed to send test email', 'error');
+  });
 }
 
 /* ── Escape helpers ────────────────────────────────────────────── */

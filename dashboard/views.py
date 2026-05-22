@@ -68,6 +68,7 @@ def weekly_reports(request):
 
     return render(request, "dashboard/weekly_reports.html", {
         "show_showing_outcomes": getattr(django_settings, "SHOW_SHOWING_OUTCOMES", True),
+        "user_email": request.user.email if request.user.is_authenticated else "",
     })
 
 

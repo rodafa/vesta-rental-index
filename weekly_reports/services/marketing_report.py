@@ -123,6 +123,7 @@ def build_marketing_report(week_start, week_end):
             "address": u.display_address,
             "beds": u.bedrooms or 0,
             "baths": (u.full_bathrooms or 0) + (u.half_bathrooms or 0) * 0.5,
+            "owner_ids": [o.id for o in owners],
             "owner_names": owner_names,
             "owner_emails": owner_emails,
             "portfolio_name": portfolio_name,

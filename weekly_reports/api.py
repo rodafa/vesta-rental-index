@@ -47,6 +47,12 @@ class SendEmailsSchema(Schema):
     owner_filter: Optional[int] = None
 
 
+class TestSendSchema(Schema):
+    owner_id: int
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -418,8 +424,15 @@ def update_zillow_url(request, unit_id: int, payload: ZillowUrlSchema):
 # ---------------------------------------------------------------------------
 
 @router.get("/marketing-report/email-preview")
-def email_preview(request, owner_id: int, start: str = None, end: str = None):
-    """Return rendered HTML preview of owner email."""
+def email_preview(
+    request, owner_id: int, start: str = None, end: str = None, format: str = "json",
+):
+    """Return rendered HTML preview of owner email.
+
+    Pass ``format=html`` to get the raw rendered email for browser viewing.
+    """
+    from django.http import HttpResponse
+
     from properties.models import Owner
 
     from weekly_reports.services.marketing_report import build_marketing_report
@@ -439,7 +452,70 @@ def email_preview(request, owner_id: int, start: str = None, end: str = None):
     owner_rows = [r for r in report["rows"] if owner.name in (r.get("owner_names") or "")]
 
     html = build_owner_email_html(owner, owner_rows, report["benchmarks"], week_start, week_end)
+
+    if format == "html":
+        return HttpResponse(html, content_type="text/html")
+
     return {"html": html, "owner_name": owner.name, "unit_count": len(owner_rows)}
+
+
+@router.post("/marketing-report/test-send")
+def test_send_email(request, payload: TestSendSchema):
+    """Send a test copy of an owner's email to the logged-in staff user."""
+    from django.conf import settings as django_settings
+
+    from properties.models import Owner
+
+    from weekly_reports.services.marketing_report import build_marketing_report
+    from weekly_reports.services.owner_email_html import build_owner_email_html
+    from weekly_reports.services.weekly_update import default_date_range
+
+    if not (hasattr(request, "user") and request.user.is_staff):
+        from ninja.errors import HttpError
+
+        raise HttpError(403, "Staff access required")
+
+    if not request.user.email:
+        return {"ok": False, "error": "Your account has no email address set"}
+
+    owner = get_object_or_404(Owner, id=payload.owner_id)
+
+    if payload.start and payload.end:
+        week_start = date.fromisoformat(payload.start)
+        week_end = date.fromisoformat(payload.end)
+    else:
+        week_start, week_end = default_date_range()
+
+    report = build_marketing_report(week_start, week_end)
+    owner_rows = [r for r in report["rows"] if owner.name in (r.get("owner_names") or "")]
+
+    if not owner_rows:
+        return {"ok": False, "error": f"No active listings found for {owner.name}"}
+
+    html = build_owner_email_html(owner, owner_rows, report["benchmarks"], week_start, week_end)
+
+    try:
+        from anymail.message import AnymailMessage
+
+        week_label = (
+            f"{week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}"
+        )
+        msg = AnymailMessage(
+            subject=f"[TEST] Weekly Leasing Update — {week_label}",
+            from_email=django_settings.DEFAULT_FROM_EMAIL,
+            to=[request.user.email],
+        )
+        msg.attach_alternative(html, "text/html")
+        msg.send()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:500]}
+
+    return {
+        "ok": True,
+        "sent_to": request.user.email,
+        "owner_name": owner.name,
+        "unit_count": len(owner_rows),
+    }
 
 
 @router.post("/marketing-report/send-emails")
