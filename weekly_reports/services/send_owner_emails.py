@@ -19,7 +19,10 @@ from weekly_reports.services.owner_email_html import build_owner_email_html
 logger = logging.getLogger(__name__)
 
 
-def send_approved_emails(week_start, week_end, user=None, dry_run=False):
+def send_approved_emails(
+    week_start, week_end, user=None, dry_run=False,
+    test_recipient=None, owner_id=None,
+):
     """Send weekly leasing emails to all owners with approved notes.
 
     Args:
@@ -27,6 +30,10 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
         week_end: End date of reporting week.
         user: Optional User who triggered the send.
         dry_run: If True, log but don't actually send.
+        test_recipient: When set, deliver every email to this address
+            instead of the owner's, skip idempotency checks, and do
+            not write OwnerEmailSend records.  Used for test sends.
+        owner_id: When set, only process this owner ID.
 
     Returns:
         dict: {sent, skipped, failed, errors}.
@@ -80,11 +87,18 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
     failed = 0
     errors = []
 
-    for owner_id, data in owner_portfolios.items():
+    # Filter to a single owner when requested
+    if owner_id:
+        owner_portfolios = {
+            k: v for k, v in owner_portfolios.items() if k == owner_id
+        }
+
+    for oid, data in owner_portfolios.items():
         owner = data["owner"]
         units_data = data["units"]
 
-        if not owner.email:
+        # For test sends we don't need the owner's real address
+        if not test_recipient and not owner.email:
             logger.warning("Owner %s has no email — skipping", owner.name)
             skipped += 1
             continue
@@ -98,8 +112,8 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
                 unique_units.append(u)
         units_data = unique_units
 
-        # Idempotency: skip if already sent for this owner + week
-        if OwnerEmailSend.objects.filter(
+        # Idempotency: skip if already sent — unless this is a test send
+        if not test_recipient and OwnerEmailSend.objects.filter(
             owner=owner, week_date=monday, status="sent"
         ).exists():
             logger.info("Already sent to %s for week %s — skipping", owner.name, monday)
@@ -117,6 +131,9 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
         # Build HTML
         html = build_owner_email_html(owner, units_data, benchmarks, week_start, week_end)
 
+        # Determine recipient
+        recipient = test_recipient or owner.email
+
         # Send via AnymailMessage
         msg_id = ""
         try:
@@ -126,15 +143,16 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
             logger.error(error_msg)
             errors.append({"owner": owner.name, "error": error_msg})
             failed += 1
-            OwnerEmailSend.objects.update_or_create(
-                owner=owner, week_date=monday,
-                defaults={
-                    "status": "failed",
-                    "error_detail": error_msg,
-                    "units_included": [u["unit_id"] for u in units_data],
-                    "sent_by": user,
-                },
-            )
+            if not test_recipient:
+                OwnerEmailSend.objects.update_or_create(
+                    owner=owner, week_date=monday,
+                    defaults={
+                        "status": "failed",
+                        "error_detail": error_msg,
+                        "units_included": [u["unit_id"] for u in units_data],
+                        "sent_by": user,
+                    },
+                )
             continue
 
         try:
@@ -142,7 +160,7 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
             msg = AnymailMessage(
                 subject=f"Weekly Leasing Update — {week_label}",
                 from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[owner.email],
+                to=[recipient],
             )
             msg.attach_alternative(html, "text/html")
             msg.send()
@@ -150,37 +168,39 @@ def send_approved_emails(week_start, week_end, user=None, dry_run=False):
             if hasattr(msg, "anymail_status"):
                 msg_id = getattr(msg.anymail_status, "message_id", "") or ""
 
-            OwnerEmailSend.objects.update_or_create(
-                owner=owner, week_date=monday,
-                defaults={
-                    "status": "sent",
-                    "sendgrid_message_id": msg_id,
-                    "sent_at": timezone.now(),
-                    "sent_by": user,
-                    "error_detail": "",
-                    "units_included": [u["unit_id"] for u in units_data],
-                },
-            )
+            if not test_recipient:
+                OwnerEmailSend.objects.update_or_create(
+                    owner=owner, week_date=monday,
+                    defaults={
+                        "status": "sent",
+                        "sendgrid_message_id": msg_id,
+                        "sent_at": timezone.now(),
+                        "sent_by": user,
+                        "error_detail": "",
+                        "units_included": [u["unit_id"] for u in units_data],
+                    },
+                )
             sent += 1
             logger.info(
                 "Sent weekly email to %s (%s) — %d units, msg_id=%s",
-                owner.name, owner.email, len(units_data), msg_id,
+                owner.name, recipient, len(units_data), msg_id,
             )
 
         except Exception as exc:
             error_msg = str(exc)[:500]
-            logger.exception("Failed to send to %s (%s)", owner.name, owner.email)
+            logger.exception("Failed to send to %s (%s)", owner.name, recipient)
             errors.append({"owner": owner.name, "error": error_msg})
             failed += 1
-            OwnerEmailSend.objects.update_or_create(
-                owner=owner, week_date=monday,
-                defaults={
-                    "status": "failed",
-                    "error_detail": error_msg,
-                    "units_included": [u["unit_id"] for u in units_data],
-                    "sent_by": user,
-                },
-            )
+            if not test_recipient:
+                OwnerEmailSend.objects.update_or_create(
+                    owner=owner, week_date=monday,
+                    defaults={
+                        "status": "failed",
+                        "error_detail": error_msg,
+                        "units_included": [u["unit_id"] for u in units_data],
+                        "sent_by": user,
+                    },
+                )
 
     logger.info(
         "Send complete: sent=%d skipped=%d failed=%d",
