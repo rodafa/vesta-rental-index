@@ -10,9 +10,11 @@ from datetime import timedelta
 
 from dashboard.models import PropertyWeeklyNote
 from market.services.leasing_queries import (
+    dls_alltime,
     dls_delta,
     get_latest_snapshots,
     get_showing_feedback,
+    showing_outcome_counts,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,12 +74,18 @@ def get_portfolio_benchmark(unit_ids, start_date, end_date):
 
     Returns dict: {avg_leads, avg_showings, avg_apps, avg_dom,
                    active_vacancy_count, lead_to_showing_pct,
-                   showing_to_app_pct, unit_count}.
+                   showing_to_app_pct, unit_count,
+                   total_leads, total_showings, total_apps,
+                   total_canceled, total_missed,
+                   avg_leads_per_week, avg_showings_per_week}.
     """
     base = {
         "avg_leads": 0, "avg_showings": 0, "avg_apps": 0, "avg_dom": 0,
         "active_vacancy_count": 0, "lead_to_showing_pct": 0,
         "showing_to_app_pct": 0, "unit_count": 0,
+        "total_leads": 0, "total_showings": 0, "total_apps": 0,
+        "total_canceled": 0, "total_missed": 0,
+        "avg_leads_per_week": 0, "avg_showings_per_week": 0,
     }
     if not unit_ids:
         return base
@@ -93,6 +101,31 @@ def get_portfolio_benchmark(unit_ids, start_date, end_date):
     dom_values = [s.get("days_on_market", 0) for s in snapshots.values() if s.get("days_on_market")]
     avg_dom = round(sum(dom_values) / len(dom_values), 1) if dom_values else 0
 
+    # All-time cumulative totals and per-week rates
+    alltime = dls_alltime(unit_ids)
+    at_total_leads = sum(a.get("leads", 0) for a in alltime.values())
+    at_total_showings = sum(a.get("showings", 0) for a in alltime.values())
+    at_total_apps = sum(a.get("apps", 0) for a in alltime.values())
+
+    # All-time cancelled/missed from Showing model
+    at_outcomes = showing_outcome_counts(unit_ids)
+    at_total_canceled = sum(o.get("canceled", 0) for o in at_outcomes.values())
+    at_total_missed = sum(o.get("missed", 0) for o in at_outcomes.values())
+
+    # Per-unit avg rates: leads_per_week and showings_per_week using DOM → weeks_listed
+    leads_per_week_vals = []
+    showings_per_week_vals = []
+    for uid in unit_ids:
+        at = alltime.get(uid, {})
+        snap = snapshots.get(uid, {})
+        dom = snap.get("days_on_market") or 0
+        weeks_listed = max(dom / 7, 1)
+        leads_per_week_vals.append(at.get("leads", 0) / weeks_listed)
+        showings_per_week_vals.append(at.get("showings", 0) / weeks_listed)
+
+    avg_leads_pw = round(sum(leads_per_week_vals) / len(leads_per_week_vals), 1) if leads_per_week_vals else 0
+    avg_showings_pw = round(sum(showings_per_week_vals) / len(showings_per_week_vals), 1) if showings_per_week_vals else 0
+
     return {
         "avg_leads": round(total_leads / n, 1) if n else 0,
         "avg_showings": round(total_showings / n, 1) if n else 0,
@@ -102,4 +135,11 @@ def get_portfolio_benchmark(unit_ids, start_date, end_date):
         "lead_to_showing_pct": round(total_showings / total_leads * 100, 1) if total_leads else 0,
         "showing_to_app_pct": round(total_apps / total_showings * 100, 1) if total_showings else 0,
         "unit_count": n,
+        "total_leads": at_total_leads,
+        "total_showings": at_total_showings,
+        "total_apps": at_total_apps,
+        "total_canceled": at_total_canceled,
+        "total_missed": at_total_missed,
+        "avg_leads_per_week": avg_leads_pw,
+        "avg_showings_per_week": avg_showings_pw,
     }

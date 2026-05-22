@@ -14,6 +14,7 @@ from market.services.leasing_queries import (
     dls_alltime,
     dls_delta,
     get_latest_snapshots,
+    showing_outcome_counts,
 )
 from properties.models import Owner, Unit
 
@@ -61,6 +62,10 @@ def build_marketing_report(week_start, week_end):
     # 4. All-time totals
     alltime = dls_alltime(listed_ids)
 
+    # 4b. Cancelled/missed showing counts (from Showing model)
+    tw_outcomes = showing_outcome_counts(listed_ids, week_start, week_end)
+    pw_outcomes = showing_outcome_counts(listed_ids, prev_start, prev_end)
+
     # 5. Notes for this week
     notes_map = {}
     for n in PropertyWeeklyNote.objects.filter(unit_id__in=listed_ids, week_date=monday):
@@ -92,6 +97,8 @@ def build_marketing_report(week_start, week_end):
         tw = this_week.get(u.id, {})
         pw = prev_week.get(u.id, {})
         at = alltime.get(u.id, {})
+        tw_oc = tw_outcomes.get(u.id, {})
+        pw_oc = pw_outcomes.get(u.id, {})
         note = notes_map.get(u.id)
 
         dom = snap.get("days_on_market") or 0
@@ -126,10 +133,14 @@ def build_marketing_report(week_start, week_end):
             "leads": tw.get("leads", 0),
             "showings": tw.get("showings", 0),
             "apps": tw.get("apps", 0),
+            "canceled": tw_oc.get("canceled", 0),
+            "missed": tw_oc.get("missed", 0),
             # Prior week
             "prev_leads": pw.get("leads", 0),
             "prev_showings": pw.get("showings", 0),
             "prev_apps": pw.get("apps", 0),
+            "prev_canceled": pw_oc.get("canceled", 0),
+            "prev_missed": pw_oc.get("missed", 0),
             # All-time
             "alltime_leads": at_leads,
             "alltime_showings": at_showings,

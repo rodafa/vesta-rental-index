@@ -6,7 +6,7 @@ All functions query Django ORM models and return plain dicts.
 
 import logging
 
-from django.db.models import Max, Min
+from django.db.models import Count, Max, Min, Q
 from django.db.models.functions import Coalesce
 
 from leasing.models import Showing
@@ -110,6 +110,35 @@ def dls_alltime(unit_ids):
         apps=Coalesce(Max("applications_count"), 0),
     ):
         result[row["unit_id"]] = row
+    return result
+
+
+def showing_outcome_counts(unit_ids, start_date=None, end_date=None):
+    """Count canceled and missed Showing records per unit.
+
+    Args:
+        unit_ids: List of unit IDs.
+        start_date: Optional inclusive start date (filters on scheduled_at).
+        end_date: Optional inclusive end date (filters on scheduled_at).
+
+    Returns dict keyed by unit_id: {canceled: int, missed: int}.
+    """
+    qs = Showing.objects.filter(
+        unit_id__in=unit_ids,
+        status__in=["canceled", "missed"],
+    )
+    if start_date and end_date:
+        qs = qs.filter(scheduled_at__date__range=[start_date, end_date])
+
+    result = {}
+    for row in qs.values("unit_id").annotate(
+        canceled=Count("id", filter=Q(status="canceled")),
+        missed=Count("id", filter=Q(status="missed")),
+    ):
+        result[row["unit_id"]] = {
+            "canceled": row["canceled"],
+            "missed": row["missed"],
+        }
     return result
 
 
