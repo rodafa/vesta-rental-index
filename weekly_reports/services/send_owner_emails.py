@@ -134,30 +134,13 @@ def send_approved_emails(
         # Determine recipient
         recipient = test_recipient or owner.email
 
-        # Send via AnymailMessage
+        # Send via configured EMAIL_BACKEND (MailHog in dev, SendGrid in prod)
         msg_id = ""
         try:
-            from anymail.message import AnymailMessage
-        except ImportError:
-            error_msg = "SendGrid not configured (SENDGRID_API_KEY missing)"
-            logger.error(error_msg)
-            errors.append({"owner": owner.name, "error": error_msg})
-            failed += 1
-            if not test_recipient:
-                OwnerEmailSend.objects.update_or_create(
-                    owner=owner, week_date=monday,
-                    defaults={
-                        "status": "failed",
-                        "error_detail": error_msg,
-                        "units_included": [u["unit_id"] for u in units_data],
-                        "sent_by": user,
-                    },
-                )
-            continue
+            from django.core.mail import EmailMultiAlternatives
 
-        try:
             week_label = f"{week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}"
-            msg = AnymailMessage(
+            msg = EmailMultiAlternatives(
                 subject=f"Weekly Leasing Update — {week_label}",
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=[recipient],
