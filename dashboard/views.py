@@ -64,7 +64,11 @@ def monthly_notes(request):
 
 @login_required
 def weekly_reports(request):
-    return render(request, "dashboard/weekly_reports.html")
+    from django.conf import settings as django_settings
+
+    return render(request, "dashboard/weekly_reports.html", {
+        "show_showing_outcomes": getattr(django_settings, "SHOW_SHOWING_OUTCOMES", True),
+    })
 
 
 @login_required

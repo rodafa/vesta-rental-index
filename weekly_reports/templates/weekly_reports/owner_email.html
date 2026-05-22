@@ -1,137 +1,706 @@
-<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Weekly Leasing Update</title>
-<style>
-  body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background: #EFF5F9; color: #1E3D58; }
-  .wrapper { max-width: 640px; margin: 0 auto; padding: 20px; }
-  .header { background: #1E3D58; padding: 28px 24px; text-align: center; border-radius: 8px 8px 0 0; }
-  .header h1 { color: #fff; font-size: 22px; margin: 0; font-weight: 700; }
-  .header p { color: #6EA5CD; font-size: 13px; margin: 6px 0 0; }
-  .body-wrap { background: #fff; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #dce4ec; border-top: none; }
-  .greeting { font-size: 15px; margin-bottom: 18px; line-height: 1.5; }
-  .unit-card { border: 1px solid #dce4ec; border-radius: 6px; margin-bottom: 16px; overflow: hidden; }
-  .unit-header { background: #f6f9fc; padding: 10px 14px; border-bottom: 1px solid #dce4ec; }
-  .unit-header h3 { margin: 0; font-size: 14px; color: #1E3D58; }
-  .unit-header .meta { font-size: 12px; color: #6b8299; margin-top: 2px; }
-  .unit-body { padding: 12px 14px; }
-  .note-text { font-size: 13px; line-height: 1.6; color: #334155; margin-bottom: 12px; }
-  .metrics-grid { display: table; width: 100%; border-collapse: collapse; }
-  .metrics-row { display: table-row; }
-  .metrics-row > div { display: table-cell; padding: 6px 8px; font-size: 12px; border-top: 1px solid #eef2f6; }
-  .m-label { color: #6b8299; width: 40%; }
-  .m-val { font-weight: 600; text-align: right; }
-  .m-val.up { color: #39B54A; }
-  .m-val.down { color: #D67011; }
-  .zillow-btn { display: inline-block; margin-top: 8px; padding: 6px 14px; background: #6EA5CD; color: #fff; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: 600; }
-  .zillow-btn:hover { background: #5a92b8; }
-  .market-context { background: #f6f9fc; border-radius: 4px; padding: 10px 12px; margin-top: 10px; font-size: 12px; color: #475569; line-height: 1.6; }
-  .market-context p { margin: 2px 0; }
-  .totals-section { margin-top: 16px; padding: 14px; background: #1E3D58; border-radius: 6px; color: #fff; }
-  .totals-section h4 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
-  .totals-grid { display: table; width: 100%; border-collapse: collapse; }
-  .totals-grid .t-row { display: table-row; }
-  .totals-grid .t-row > span { display: table-cell; padding: 4px 0; font-size: 12px; }
-  .totals-grid .t-label { color: #c0d4e4; }
-  .totals-grid .t-val { color: #fff; font-weight: 600; text-align: right; }
-  .footer { text-align: center; padding: 20px; font-size: 11px; color: #94a3b8; }
-</style>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Weekly Leasing Update</title>
 </head>
-<body>
-<div class="wrapper">
-  <div class="header">
-    {% if logo_url %}<img src="{{ logo_url }}" alt="Vesta" style="height:32px;margin-bottom:8px;">{% endif %}
-    <h1>Weekly Leasing Update</h1>
-    <p>{{ week_start|date:"M j" }} &ndash; {{ week_end|date:"M j, Y" }}</p>
-  </div>
-  <div class="body-wrap">
-    <div class="greeting">Hi {{ owner_name }},</div>
-    <p style="font-size:13px;color:#475569;margin-bottom:18px;">
-      Here's your weekly leasing performance summary for your {{ unit_count }} active listing{{ unit_count|pluralize }}.
-    </p>
+<body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: Georgia, serif;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f5f5f5;">
+        <tr>
+            <td align="center" style="padding: 20px 0;">
 
-    {% for unit in units %}
-    <div class="unit-card">
-      <div class="unit-header">
-        <h3>{{ unit.address }}</h3>
-        <div class="meta">{{ unit.beds }}bd / {{ unit.baths }}ba &middot; Listed at ${{ unit.listed_price|floatformat:0 }} &middot; {{ unit.dom }} days on market</div>
-      </div>
-      <div class="unit-body">
-        {% if unit.note_text %}
-        <div class="note-text">{{ unit.note_text }}</div>
-        {% endif %}
+                <!-- Main Container -->
+                <table border="0" cellpadding="0" cellspacing="0" width="640" style="background-color: #ffffff; max-width: 640px;">
 
-        <div class="metrics-grid">
-          <div class="metrics-row">
-            <div class="m-label">Leads (this week)</div>
-            <div class="m-val">{{ unit.leads }}{% if unit.lead_delta > 0 %} <span class="up">&uarr;{{ unit.lead_delta }}</span>{% elif unit.lead_delta < 0 %} <span class="down">&darr;{{ unit.lead_delta|cut:"-" }}</span>{% endif %}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">Showings (this week)</div>
-            <div class="m-val">{{ unit.showings }}{% if unit.showing_delta > 0 %} <span class="up">&uarr;{{ unit.showing_delta }}</span>{% elif unit.showing_delta < 0 %} <span class="down">&darr;{{ unit.showing_delta|cut:"-" }}</span>{% endif %}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">Applications (this week)</div>
-            <div class="m-val">{{ unit.apps }}{% if unit.app_delta > 0 %} <span class="up">&uarr;{{ unit.app_delta }}</span>{% elif unit.app_delta < 0 %} <span class="down">&darr;{{ unit.app_delta|cut:"-" }}</span>{% endif %}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">Cancelled (this week)</div>
-            <div class="m-val">{{ unit.canceled }}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">Missed (this week)</div>
-            <div class="m-val">{{ unit.missed }}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">All-time leads</div>
-            <div class="m-val">{{ unit.alltime_leads }}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">All-time showings</div>
-            <div class="m-val">{{ unit.alltime_showings }}</div>
-          </div>
-          <div class="metrics-row">
-            <div class="m-label">All-time applications</div>
-            <div class="m-val">{{ unit.alltime_apps }}</div>
-          </div>
-        </div>
+                    <!-- LOGO -->
+                    {% if logo_url %}
+                    <tr>
+                        <td align="center" bgcolor="#ffffff" style="padding: 32px 40px 24px 40px;">
+                            <img src="{{ logo_url }}" alt="Vesta Property Management" width="180" style="display: block; border: 0;" />
+                        </td>
+                    </tr>
+                    {% endif %}
 
-        <!-- Per-property market context -->
-        <div class="market-context">
-          <p>Your property is averaging <strong>{{ unit.avg_leads_per_week }}</strong> leads/week (portfolio avg: <strong>{{ benchmarks.avg_leads_per_week }}</strong>).</p>
-          <p>Showing traffic is averaging <strong>{{ unit.avg_showings_per_week }}</strong>/week (portfolio avg: <strong>{{ benchmarks.avg_showings_per_week }}</strong>).</p>
-          <p>This listing has been active for <strong>{{ unit.dom }}</strong> days, vs portfolio avg of <strong>{{ benchmarks.avg_dom }}</strong> days.</p>
-        </div>
+                    <!-- HEADER -->
+                    <tr>
+                        <td align="center" bgcolor="#1E3D58" style="padding: 36px 40px 32px 40px;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="center" style="color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 32px; font-weight: 300; letter-spacing: 2px; padding-bottom: 10px;">
+                                        Weekly Leasing Update
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td align="center" style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 300; letter-spacing: 1px;">
+                                        {{ week_start|date:"M j" }} &ndash; {{ week_end|date:"M j, Y" }}
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
 
-        {% if unit.zillow_url %}
-        <a href="{{ unit.zillow_url }}" class="zillow-btn" target="_blank">View on Zillow</a>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
+                    <!-- CONTENT -->
+                    <tr>
+                        <td style="padding: 44px 44px 32px 44px;">
 
-    <!-- Portfolio Totals -->
-    <div class="totals-section">
-      <h4>Portfolio Totals</h4>
-      <div class="totals-grid">
-        <div class="t-row"><span class="t-label">Total Leads</span><span class="t-val">{{ benchmarks.total_leads }}</span></div>
-        <div class="t-row"><span class="t-label">Total Showings</span><span class="t-val">{{ benchmarks.total_showings }}</span></div>
-        <div class="t-row"><span class="t-label">Total Applications</span><span class="t-val">{{ benchmarks.total_apps }}</span></div>
-        <div class="t-row"><span class="t-label">Total Cancelled</span><span class="t-val">{{ benchmarks.total_canceled }}</span></div>
-        <div class="t-row"><span class="t-label">Total Missed</span><span class="t-val">{{ benchmarks.total_missed }}</span></div>
-        <div class="t-row"><span class="t-label">Avg Days on Market</span><span class="t-val">{{ benchmarks.avg_dom }}d</span></div>
-        <div class="t-row"><span class="t-label">Lead &rarr; Showing %</span><span class="t-val">{{ benchmarks.lead_to_showing_pct }}%</span></div>
-        <div class="t-row"><span class="t-label">Showing &rarr; Application %</span><span class="t-val">{{ benchmarks.showing_to_app_pct }}%</span></div>
-      </div>
-    </div>
-  </div>
+                            <!-- Greeting -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td style="color: #1E3D58; font-family: Georgia, serif; font-size: 17px; padding-bottom: 22px;">
+                                        Hi {{ owner_name }},
+                                    </td>
+                                </tr>
+                            </table>
 
-  <div class="footer">
-    Vesta Property Management &middot; Weekly Leasing Report<br>
-    This email was generated automatically. Please reply to your property manager with any questions.
-  </div>
-</div>
+                            <!-- Reading Guide -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#f9f9f9" style="border: 1px solid #e5e5e5; border-radius: 6px; margin-bottom: 32px;">
+                                <tr>
+                                    <td style="padding: 18px 22px;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px;">
+                                                    How to Read This Report
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #666; font-family: Georgia, serif; font-size: 12px; line-height: 1.6; padding-bottom: 6px;">
+                                                    <strong style="color: #1E3D58; font-weight: 600;">Notes from Vesta:</strong> Our analysis of each property's performance with strategic recommendations
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #666; font-family: Georgia, serif; font-size: 12px; line-height: 1.6; padding-bottom: 6px;">
+                                                    <strong style="color: #1E3D58; font-weight: 600;">This Week's Activity:</strong> New leads, showings, and applications with week-over-week changes
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #666; font-family: Georgia, serif; font-size: 12px; line-height: 1.6; padding-bottom: 6px;">
+                                                    <strong style="color: #1E3D58; font-weight: 600;">Conversion Rate:</strong> Percentage of leads that result in showings (higher = stronger interest)
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #666; font-family: Georgia, serif; font-size: 12px; line-height: 1.6;">
+                                                    <strong style="color: #1E3D58; font-weight: 600;">Market Comparison:</strong> Your property vs. Vesta's portfolio average
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Property Cards Loop -->
+                            {% for unit in units %}
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border: 2px solid #e5e5e5; border-top: 6px solid {% cycle '#39B54A' '#6EA5CD' '#39B54A' '#6EA5CD' %}; border-radius: 10px; margin-bottom: 36px;">
+                                <!-- Property Header -->
+                                <tr>
+                                    <td bgcolor="#1E3D58" style="padding: 28px 32px;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; padding-bottom: 8px;">
+                                                    Property {{ forloop.counter }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 500; letter-spacing: 0.3px; padding-bottom: 14px;">
+                                                    {{ unit.address }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td>
+                                                    <table border="0" cellpadding="0" cellspacing="0">
+                                                        <tr>
+                                                            <td style="color: #9ec5e1; font-family: Georgia, serif; font-size: 14px; padding-bottom: 6px;">
+                                                                <span style="color: #9ec5e1; font-size: 12px;">Bedrooms:</span> <span style="color: #ffffff; font-weight: 600;">{{ unit.beds }}bd / {{ unit.baths }}ba</span>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td style="color: #9ec5e1; font-family: Georgia, serif; font-size: 14px; padding-bottom: 6px;">
+                                                                <span style="color: #9ec5e1; font-size: 12px;">Listed at:</span> <span style="color: #ffffff; font-weight: 600;">${{ unit.listed_price|floatformat:0 }}/month</span>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td style="color: #9ec5e1; font-family: Georgia, serif; font-size: 14px;">
+                                                                <span style="color: #9ec5e1; font-size: 12px;">Days on market:</span> <span style="color: #ffffff; font-weight: 600;">{{ unit.dom }} days</span>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <!-- Property Body -->
+                                <tr>
+                                    <td bgcolor="#fafafa" style="padding: 32px;">
+
+                                        <!-- Notes from Vesta (if exists) -->
+                                        {% if unit.note_text %}
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EFF5F9" style="border-left: 4px solid #6EA5CD; border-radius: 6px; margin-bottom: 24px;">
+                                            <tr>
+                                                <td style="padding: 16px 20px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 8px;">
+                                                                Notes from Vesta
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td style="color: #333; font-family: Georgia, serif; font-size: 14px; line-height: 1.7;">
+                                                                {{ unit.note_text }}
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        {% endif %}
+
+                                        <!-- Section Title: This Week's Activity -->
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding-bottom: 18px; border-bottom: 2px solid #e8e8e8;">
+                                                    This Week's Activity
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Metrics Row: 3 Columns -->
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%" style="padding-top: 18px; padding-bottom: 32px;">
+                                            <tr>
+                                                <!-- Leads -->
+                                                <td width="33%" valign="top" style="padding-right: 8px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff" style="border: 2px solid #f0f0f0; border-radius: 8px;">
+                                                        <tr>
+                                                            <td align="center" style="padding: 24px 16px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td align="center" style="color: #888; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px;">
+                                                                            Leads
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td align="center" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 44px; font-weight: 700; line-height: 1; padding-bottom: 8px;">
+                                                                            {{ unit.leads }}{% if unit.lead_delta > 0 %} <span style="color: #39B54A; font-size: 18px; font-weight: 700;">+{{ unit.lead_delta }}</span>{% elif unit.lead_delta < 0 %} <span style="color: #D67011; font-size: 18px; font-weight: 700;">{{ unit.lead_delta }}</span>{% elif unit.lead_delta == 0 %} <span style="color: #6EA5CD; font-size: 18px; font-weight: 700;">&mdash;</span>{% endif %}
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td align="center" style="color: #999; font-family: Georgia, serif; font-size: 10px;">
+                                                                            vs. last week
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                                <!-- Showings -->
+                                                <td width="33%" valign="top" style="padding: 0 8px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff" style="border: 2px solid #f0f0f0; border-radius: 8px;">
+                                                        <tr>
+                                                            <td align="center" style="padding: 24px 16px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td align="center" style="color: #888; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px;">
+                                                                            Showings
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td align="center" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 44px; font-weight: 700; line-height: 1; padding-bottom: 8px;">
+                                                                            {{ unit.showings }}{% if unit.showing_delta > 0 %} <span style="color: #39B54A; font-size: 18px; font-weight: 700;">+{{ unit.showing_delta }}</span>{% elif unit.showing_delta < 0 %} <span style="color: #D67011; font-size: 18px; font-weight: 700;">{{ unit.showing_delta }}</span>{% elif unit.showing_delta == 0 %} <span style="color: #6EA5CD; font-size: 18px; font-weight: 700;">&mdash;</span>{% endif %}
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td align="center" style="color: #999; font-family: Georgia, serif; font-size: 10px;">
+                                                                            vs. last week
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                                <!-- Applications -->
+                                                <td width="33%" valign="top" style="padding-left: 8px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff" style="border: 2px solid #f0f0f0; border-radius: 8px;">
+                                                        <tr>
+                                                            <td align="center" style="padding: 24px 16px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td align="center" style="color: #888; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px;">
+                                                                            Applications
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td align="center" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 44px; font-weight: 700; line-height: 1; padding-bottom: 8px;">
+                                                                            {{ unit.apps }}{% if unit.app_delta > 0 %} <span style="color: #39B54A; font-size: 18px; font-weight: 700;">+{{ unit.app_delta }}</span>{% elif unit.app_delta < 0 %} <span style="color: #D67011; font-size: 18px; font-weight: 700;">{{ unit.app_delta }}</span>{% elif unit.app_delta == 0 %} <span style="color: #6EA5CD; font-size: 18px; font-weight: 700;">&mdash;</span>{% endif %}
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td align="center" style="color: #999; font-family: Georgia, serif; font-size: 10px;">
+                                                                            vs. last week
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- All-Time Section -->
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding-bottom: 18px; border-bottom: 2px solid #e8e8e8;">
+                                                    All-Time Performance
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff" style="border: 2px solid #f0f0f0; border-radius: 8px; margin-top: 18px; margin-bottom: 24px;">
+                                            <tr>
+                                                <td style="padding: 24px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td width="50%" style="padding: 12px 0; border-bottom: 1px solid #f5f5f5;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td style="color: #666; font-family: Georgia, serif; font-size: 13px;">Total leads</td>
+                                                                        <td align="right" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700;">{{ unit.alltime_leads }}</td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                            <td width="50%" style="padding: 12px 0 12px 14px; border-bottom: 1px solid #f5f5f5;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td style="color: #666; font-family: Georgia, serif; font-size: 13px;">Total showings</td>
+                                                                        <td align="right" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700;">{{ unit.alltime_showings }}</td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td width="50%" style="padding: 12px 0;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td style="color: #666; font-family: Georgia, serif; font-size: 13px;">Total applications</td>
+                                                                        <td align="right" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700;">{{ unit.alltime_apps }}</td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                            <td width="50%" style="padding: 12px 0 12px 14px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td style="color: #666; font-family: Georgia, serif; font-size: 13px;">Days active</td>
+                                                                        <td align="right" style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700;">{{ unit.dom }}</td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Conversion Rate -->
+                                        {% if unit.alltime_leads > 0 %}
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#ffffff" style="border: 2px solid #f0f0f0; border-radius: 8px; margin-bottom: 24px;">
+                                            <tr>
+                                                <td style="padding: 20px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 14px;">
+                                                                Conversion Rate
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td style="padding-bottom: 8px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td style="color: #666; font-family: Georgia, serif; font-size: 12px; font-weight: 600;">Lead &rarr; Showing</td>
+                                                                        <td align="right" style="color: #39B54A; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600;">{% widthratio unit.alltime_showings unit.alltime_leads 100 %}%</td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td>
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#f0f0f0" style="border-radius: 20px; height: 10px;">
+                                                                    <tr>
+                                                                        <td width="{% widthratio unit.alltime_showings unit.alltime_leads 100 %}%" bgcolor="#39B54A" style="border-radius: 20px; height: 10px;"></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        {% endif %}
+
+                                        <!-- Market Comparison -->
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EFF5F9" style="border-left: 4px solid #6EA5CD; border-radius: 8px; margin-bottom: 24px;">
+                                            <tr>
+                                                <td style="padding: 24px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 18px;">
+                                                                Market Comparison
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                    <!-- Comparison Grid: 2x2 -->
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td width="50%" valign="top" style="padding-right: 8px; padding-bottom: 14px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#fcfdfe" style="border-radius: 6px;">
+                                                                    <tr>
+                                                                        <td style="padding: 14px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td style="color: #666; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 6px;">
+                                                                                        Leads/Week
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; padding-bottom: 4px;">
+                                                                                        {{ unit.avg_leads_per_week }}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #888; font-family: Georgia, serif; font-size: 11px;">
+                                                                                        Portfolio avg: <strong style="color: #666;">{{ benchmarks.avg_leads_per_week }}</strong>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                            <td width="50%" valign="top" style="padding-left: 8px; padding-bottom: 14px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#fcfdfe" style="border-radius: 6px;">
+                                                                    <tr>
+                                                                        <td style="padding: 14px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td style="color: #666; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 6px;">
+                                                                                        Showings/Week
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; padding-bottom: 4px;">
+                                                                                        {{ unit.avg_showings_per_week }}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #888; font-family: Georgia, serif; font-size: 11px;">
+                                                                                        Portfolio avg: <strong style="color: #666;">{{ benchmarks.avg_showings_per_week }}</strong>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td width="50%" valign="top" style="padding-right: 8px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#fcfdfe" style="border-radius: 6px;">
+                                                                    <tr>
+                                                                        <td style="padding: 14px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td style="color: #666; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 6px;">
+                                                                                        Days on Market
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; padding-bottom: 4px;">
+                                                                                        {{ unit.dom }}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #888; font-family: Georgia, serif; font-size: 11px;">
+                                                                                        Portfolio avg: <strong style="color: #666;">{{ benchmarks.avg_dom }}</strong>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                            <td width="50%" valign="top" style="padding-left: 8px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#fcfdfe" style="border-radius: 6px;">
+                                                                    <tr>
+                                                                        <td style="padding: 14px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td style="color: #666; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 6px;">
+                                                                                        Conversion Rate
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; padding-bottom: 4px;">
+                                                                                        {% if unit.alltime_leads > 0 %}{% widthratio unit.alltime_showings unit.alltime_leads 100 %}%{% else %}&mdash;{% endif %}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td style="color: #888; font-family: Georgia, serif; font-size: 11px;">
+                                                                                        {% if unit.alltime_leads > 0 %}{% widthratio unit.alltime_showings unit.alltime_leads 1 %} of {% widthratio unit.alltime_leads unit.alltime_leads 1 %} leads{% else %}No leads yet{% endif %}
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Zillow Button -->
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td align="center" style="padding-top: 20px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0">
+                                                        <tr>
+                                                            <td align="center" bgcolor="#1E3D58" style="border-radius: 8px;">
+                                                                <a href="{{ unit.zillow_link }}" style="display: block; color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; padding: 16px 44px; letter-spacing: 1px; text-transform: uppercase;">View on Zillow</a>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            {% endfor %}
+
+                            <!-- Portfolio Summary -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#1E3D58" style="border-radius: 10px; margin-top: 44px;">
+                                <tr>
+                                    <td style="padding: 40px 36px;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <!-- Header -->
+                                            <tr>
+                                                <td align="center" style="padding-bottom: 32px; border-bottom: 1px solid #405a71;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td align="center" style="color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 600; letter-spacing: 1px; padding-bottom: 8px;">
+                                                                Your Portfolio Performance
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td align="center" style="color: #6EA5CD; font-family: Georgia, serif; font-size: 13px; font-weight: 300;">
+                                                                Combined weekly activity across your {{ unit_count }} propert{{ unit_count|pluralize:"y,ies" }} &middot; {{ week_start|date:"M j" }} &ndash; {{ week_end|date:"M j, Y" }}
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                            <!-- Metrics Grid -->
+                                            <tr>
+                                                <td style="padding-top: 32px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <!-- Total Leads -->
+                                                            <td width="33%" valign="top" style="padding-right: 10px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#304d65" style="border: 2px solid #39546c; border-radius: 8px;">
+                                                                    <tr>
+                                                                        <td align="center" style="padding: 24px 18px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td align="center" style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; padding-bottom: 10px;">
+                                                                                        Total Leads
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td align="center" style="color: #39B54A; font-family: Helvetica, Arial, sans-serif; font-size: 36px; font-weight: 700; line-height: 1; padding-bottom: 8px;">
+                                                                                        {{ benchmarks.total_leads }}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td align="center">
+                                                                                        <table border="0" cellpadding="0" cellspacing="0" bgcolor="#224f56" style="border-radius: 4px;">
+                                                                                            <tr>
+                                                                                                <td style="color: #39B54A; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; padding: 5px 10px;">
+                                                                                                    {% if portfolio_lead_delta > 0 %}+{{ portfolio_lead_delta }}{% elif portfolio_lead_delta < 0 %}{{ portfolio_lead_delta }}{% else %}&mdash;{% endif %} vs. last week
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        </table>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                            <!-- Total Showings -->
+                                                            <td width="33%" valign="top" style="padding: 0 10px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#304d65" style="border: 2px solid #39546c; border-radius: 8px;">
+                                                                    <tr>
+                                                                        <td align="center" style="padding: 24px 18px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td align="center" style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; padding-bottom: 10px;">
+                                                                                        Total Showings
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td align="center" style="color: #39B54A; font-family: Helvetica, Arial, sans-serif; font-size: 36px; font-weight: 700; line-height: 1; padding-bottom: 8px;">
+                                                                                        {{ benchmarks.total_showings }}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td align="center">
+                                                                                        <table border="0" cellpadding="0" cellspacing="0" bgcolor="#2a4d6a" style="border-radius: 4px;">
+                                                                                            <tr>
+                                                                                                <td style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; padding: 5px 10px;">
+                                                                                                    {% if portfolio_showing_delta > 0 %}+{{ portfolio_showing_delta }}{% elif portfolio_showing_delta < 0 %}{{ portfolio_showing_delta }}{% else %}&mdash;{% endif %} vs. last week
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        </table>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                            <!-- Total Applications -->
+                                                            <td width="33%" valign="top" style="padding-left: 10px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#304d65" style="border: 2px solid #39546c; border-radius: 8px;">
+                                                                    <tr>
+                                                                        <td align="center" style="padding: 24px 18px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td align="center" style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; padding-bottom: 10px;">
+                                                                                        Total Applications
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td align="center" style="color: #39B54A; font-family: Helvetica, Arial, sans-serif; font-size: 36px; font-weight: 700; line-height: 1; padding-bottom: 8px;">
+                                                                                        {{ benchmarks.total_apps }}
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr>
+                                                                                    <td align="center">
+                                                                                        <table border="0" cellpadding="0" cellspacing="0" bgcolor="#2a4d6a" style="border-radius: 4px;">
+                                                                                            <tr>
+                                                                                                <td style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; padding: 5px 10px;">
+                                                                                                    {% if portfolio_app_delta > 0 %}+{{ portfolio_app_delta }}{% elif portfolio_app_delta < 0 %}{{ portfolio_app_delta }}{% else %}&mdash;{% endif %} vs. last week
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        </table>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                            <!-- Conversion Metrics -->
+                                            <tr>
+                                                <td style="padding-top: 24px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#304d65" style="border: 1px solid #39546c; border-radius: 6px;">
+                                                        <tr>
+                                                            <td style="padding: 20px 24px;">
+                                                                <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                    <tr>
+                                                                        <td width="50%" style="padding-bottom: 10px;">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td style="color: #6EA5CD; font-family: Georgia, serif; font-size: 12px;">Lead &rarr; Showing conversion</td>
+                                                                                    <td align="right" style="color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 16px; font-weight: 600;">{{ benchmarks.lead_to_showing_pct }}%</td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td width="50%">
+                                                                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                                                <tr>
+                                                                                    <td style="color: #6EA5CD; font-family: Georgia, serif; font-size: 12px;">Showing &rarr; Application conversion</td>
+                                                                                    <td align="right" style="color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 16px; font-weight: 600;">{{ benchmarks.showing_to_app_pct }}%</td>
+                                                                                </tr>
+                                                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <!-- FOOTER -->
+                    <tr>
+                        <td align="center" bgcolor="#1E3D58" style="padding: 32px 40px; border-radius: 8px;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="center" style="padding-bottom: 20px;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#214b56" style="border: 2px solid #266154; border-radius: 8px;">
+                                            <tr>
+                                                <td align="center" style="padding: 24px 28px;">
+                                                    <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                                        <tr>
+                                                            <td align="center" style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 10px;">
+                                                                Questions About Your Properties?
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td align="center" style="color: #ffffff; font-family: Georgia, serif; font-size: 14px; line-height: 1.6; padding-bottom: 18px;">
+                                                                Our team is here to help. Reply to this email or call us directly to discuss strategy, pricing, or any leasing concerns.
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td align="center">
+                                                                <table border="0" cellpadding="0" cellspacing="0">
+                                                                    <tr>
+                                                                        <td bgcolor="#39B54A" style="border-radius: 6px;">
+                                                                            <a href="mailto:support@vestapm.com" style="display: block; color: #ffffff; font-family: Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; text-decoration: none; padding: 12px 28px; text-transform: uppercase; letter-spacing: 0.5px;">Reply to This Email</a>
+                                                                        </td>
+                                                                    </tr>
+                                                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td align="center" style="color: #6EA5CD; font-family: Helvetica, Arial, sans-serif; font-size: 11px; line-height: 1.6;">
+                                        <strong style="color: #ffffff; display: block; margin-bottom: 4px;">Vesta Property Management</strong>
+                                        Serving Western North Carolina<br>
+                                        828-882-2707 &middot; <a href="https://vestapm.com" style="color: #6EA5CD; text-decoration: none;">vestapm.com</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                </table>
+
+            </td>
+        </tr>
+    </table>
 </body>
 </html>

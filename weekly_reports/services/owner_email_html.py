@@ -2,8 +2,17 @@
 Build rendered HTML for owner weekly leasing emails.
 """
 
+from urllib.parse import quote_plus
+
 from django.conf import settings
 from django.template.loader import render_to_string
+
+
+def _zillow_link(address, explicit_url):
+    """Return the explicit Zillow URL if set, otherwise a Zillow search URL."""
+    if explicit_url:
+        return explicit_url
+    return "https://www.zillow.com/homes/" + quote_plus(address) + "_rb/"
 
 
 def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
@@ -43,8 +52,20 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
             "avg_leads_per_week": u.get("avg_leads_per_week", 0),
             "avg_showings_per_week": u.get("avg_showings_per_week", 0),
             "zillow_url": u.get("zillow_url", ""),
+            "zillow_link": _zillow_link(u["address"], u.get("zillow_url", "")),
             "note_text": u.get("note_text", ""),
         })
+
+    # Portfolio week-over-week deltas (sum across this owner's units)
+    portfolio_lead_delta = sum(
+        u.get("leads", 0) - u.get("prev_leads", 0) for u in units_data
+    )
+    portfolio_showing_delta = sum(
+        u.get("showings", 0) - u.get("prev_showings", 0) for u in units_data
+    )
+    portfolio_app_delta = sum(
+        u.get("apps", 0) - u.get("prev_apps", 0) for u in units_data
+    )
 
     context = {
         "owner_name": owner.first_name or owner.name,
@@ -54,6 +75,10 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
         "week_start": week_start,
         "week_end": week_end,
         "logo_url": getattr(settings, "VESTA_LOGO_URL", ""),
+        "show_showing_outcomes": getattr(settings, "SHOW_SHOWING_OUTCOMES", True),
+        "portfolio_lead_delta": portfolio_lead_delta,
+        "portfolio_showing_delta": portfolio_showing_delta,
+        "portfolio_app_delta": portfolio_app_delta,
     }
 
     return render_to_string("weekly_reports/owner_email.html", context)

@@ -204,7 +204,19 @@ SG_OWNER_REPORT_TEMPLATE_ID = os.environ.get(
     "SG_OWNER_REPORT_TEMPLATE_ID", "d-3083295c8c354ccfb8365e9cec9760ae"
 )
 SG_OWNER_REPORT_CC = os.environ.get("SG_OWNER_REPORT_CC", "accounting@vestapm.com")
-if SENDGRID_API_KEY:
+
+# Local dev: route email to MailHog (SMTP on localhost:1025, web UI on localhost:8025)
+# From inside Docker, MailHog on the host is reachable via host.docker.internal.
+USE_MAILHOG = os.environ.get("USE_MAILHOG", "").lower() in ("1", "true", "yes")
+
+if USE_MAILHOG:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = os.environ.get("MAILHOG_HOST", "mailhog")
+    EMAIL_PORT = 1025
+    EMAIL_USE_TLS = False
+    EMAIL_HOST_USER = ""
+    EMAIL_HOST_PASSWORD = ""
+elif SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
     ANYMAIL = {"SENDGRID_API_KEY": SENDGRID_API_KEY}
     INSTALLED_APPS += ["anymail"]
@@ -213,8 +225,14 @@ else:
 DEFAULT_FROM_EMAIL = os.environ.get("VESTA_FROM_EMAIL", "reports@vestapm.com")
 VESTA_LOGO_URL = os.environ.get(
     "VESTA_LOGO_URL",
-    "https://vestapm.com/wp-content/uploads/2026/02/cropped-Full-Logo-All-White-Green-Flame.png",
+    "https://www.vestapm.com/images/logo.png",
 )
+
+# Showing outcome display: cancelled/missed columns in owner emails and
+# Marketing Report page. Disabled because RentEngine's leasing_events webhook
+# is not delivering — the only Showing data is a frozen May 19 bulk import.
+# Re-enable once RentEngine webhook delivery is confirmed working.
+SHOW_SHOWING_OUTCOMES = False
 
 # Slack Bot
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
