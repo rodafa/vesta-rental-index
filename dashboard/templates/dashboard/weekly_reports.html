@@ -56,7 +56,7 @@
       <th rowspan="2" style="cursor:pointer;" onclick="_sortBy('owner_names')">Owner</th>
       <th rowspan="2" class="num" style="cursor:pointer;" onclick="_sortBy('dom')">DOM</th>
       <th rowspan="2" class="num" style="cursor:pointer;" onclick="_sortBy('listed_price')">List Price</th>
-      <th colspan="3" class="th-group">This Week</th>
+      <th colspan="5" class="th-group">This Week</th>
       <th colspan="3" class="th-group">All-Time</th>
       <th colspan="2" class="th-group">Avg / Week</th>
       <th rowspan="2">Weekly Note</th>
@@ -67,6 +67,8 @@
       <th class="th-sub num">Leads</th>
       <th class="th-sub num">Show.</th>
       <th class="th-sub num">Apps</th>
+      <th class="th-sub num">Canc.</th>
+      <th class="th-sub num">Miss.</th>
       <th class="th-sub num">Leads</th>
       <th class="th-sub num">Show.</th>
       <th class="th-sub num">Apps</th>
@@ -75,7 +77,7 @@
     </tr>
   </thead>
   <tbody id="mr-body">
-    <tr><td colspan="15" style="text-align:center;">Loading...</td></tr>
+    <tr><td colspan="17" style="text-align:center;">Loading...</td></tr>
   </tbody>
 </table>
 </div>
@@ -132,11 +134,11 @@ function _loadReport() {
   var url = '/reports/weekly-update/marketing-report';
   if (s && e) url += '?start=' + s + '&end=' + e;
 
-  document.getElementById('mr-body').innerHTML = '<tr><td colspan="15" style="text-align:center;">Loading...</td></tr>';
+  document.getElementById('mr-body').innerHTML = '<tr><td colspan="17" style="text-align:center;">Loading...</td></tr>';
 
   VestaAPI.get(url).then(function(data) {
     if (data.ok === false) {
-      document.getElementById('mr-body').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);">' + _esc(data.error) + '</td></tr>';
+      document.getElementById('mr-body').innerHTML = '<tr><td colspan="17" style="text-align:center;color:var(--red);">' + _esc(data.error) + '</td></tr>';
       return;
     }
     ALL_ROWS = (data.rows || []).map(function(r) {
@@ -149,7 +151,7 @@ function _loadReport() {
     _applyFilters();
     _loadSendLog();
   }).catch(function(err) {
-    document.getElementById('mr-body').innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--red);">Failed to load report</td></tr>';
+    document.getElementById('mr-body').innerHTML = '<tr><td colspan="17" style="text-align:center;color:var(--red);">Failed to load report</td></tr>';
   });
 }
 
@@ -226,7 +228,7 @@ function _pill(cur, prev) {
 function _renderRows(rows) {
   var tb = document.getElementById('mr-body');
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="15" style="text-align:center;color:var(--text-muted);">No properties match filters</td></tr>';
+    tb.innerHTML = '<tr><td colspan="17" style="text-align:center;color:var(--text-muted);">No properties match filters</td></tr>';
     return;
   }
   tb.innerHTML = rows.map(function(r) {
@@ -273,6 +275,8 @@ function _renderRows(rows) {
       '<td class="num"><span class="metric">' + r.leads + ' ' + _pill(r.leads, r.prev_leads) + '</span></td>' +
       '<td class="num"><span class="metric">' + r.showings + ' ' + _pill(r.showings, r.prev_showings) + '</span></td>' +
       '<td class="num"><span class="metric">' + r.apps + ' ' + _pill(r.apps, r.prev_apps) + '</span></td>' +
+      '<td class="num"><span class="metric">' + (r.canceled || 0) + ' ' + _pill(r.canceled || 0, r.prev_canceled || 0) + '</span></td>' +
+      '<td class="num"><span class="metric">' + (r.missed || 0) + ' ' + _pill(r.missed || 0, r.prev_missed || 0) + '</span></td>' +
       // All-time
       '<td class="num">' + r.alltime_leads + '</td>' +
       '<td class="num">' + r.alltime_showings + '</td>' +
