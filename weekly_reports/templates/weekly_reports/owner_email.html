@@ -27,15 +27,15 @@
   .m-val.down { color: #D67011; }
   .zillow-btn { display: inline-block; margin-top: 8px; padding: 6px 14px; background: #6EA5CD; color: #fff; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: 600; }
   .zillow-btn:hover { background: #5a92b8; }
-  .context-section { background: #f6f9fc; border-radius: 6px; padding: 14px; margin-top: 16px; }
-  .context-section h4 { margin: 0 0 8px; font-size: 13px; color: #1E3D58; }
-  .ctx-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
-  .ctx-row .ctx-label { color: #6b8299; }
-  .ctx-row .ctx-val { font-weight: 600; }
-  .totals-section { margin-top: 16px; padding: 12px 14px; background: #1E3D58; border-radius: 6px; color: #fff; }
-  .totals-section h4 { margin: 0 0 8px; font-size: 13px; }
-  .totals-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; color: #c0d4e4; }
-  .totals-row .t-val { color: #fff; font-weight: 600; }
+  .market-context { background: #f6f9fc; border-radius: 4px; padding: 10px 12px; margin-top: 10px; font-size: 12px; color: #475569; line-height: 1.6; }
+  .market-context p { margin: 2px 0; }
+  .totals-section { margin-top: 16px; padding: 14px; background: #1E3D58; border-radius: 6px; color: #fff; }
+  .totals-section h4 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+  .totals-grid { display: table; width: 100%; border-collapse: collapse; }
+  .totals-grid .t-row { display: table-row; }
+  .totals-grid .t-row > span { display: table-cell; padding: 4px 0; font-size: 12px; }
+  .totals-grid .t-label { color: #c0d4e4; }
+  .totals-grid .t-val { color: #fff; font-weight: 600; text-align: right; }
   .footer { text-align: center; padding: 20px; font-size: 11px; color: #94a3b8; }
 </style>
 </head>
@@ -77,6 +77,14 @@
             <div class="m-val">{{ unit.apps }}{% if unit.app_delta > 0 %} <span class="up">&uarr;{{ unit.app_delta }}</span>{% elif unit.app_delta < 0 %} <span class="down">&darr;{{ unit.app_delta|cut:"-" }}</span>{% endif %}</div>
           </div>
           <div class="metrics-row">
+            <div class="m-label">Cancelled (this week)</div>
+            <div class="m-val">{{ unit.canceled }}</div>
+          </div>
+          <div class="metrics-row">
+            <div class="m-label">Missed (this week)</div>
+            <div class="m-val">{{ unit.missed }}</div>
+          </div>
+          <div class="metrics-row">
             <div class="m-label">All-time leads</div>
             <div class="m-val">{{ unit.alltime_leads }}</div>
           </div>
@@ -90,6 +98,13 @@
           </div>
         </div>
 
+        <!-- Per-property market context -->
+        <div class="market-context">
+          <p>Your property is averaging <strong>{{ unit.avg_leads_per_week }}</strong> leads/week (portfolio avg: <strong>{{ benchmarks.avg_leads_per_week }}</strong>).</p>
+          <p>Showing traffic is averaging <strong>{{ unit.avg_showings_per_week }}</strong>/week (portfolio avg: <strong>{{ benchmarks.avg_showings_per_week }}</strong>).</p>
+          <p>This listing has been active for <strong>{{ unit.dom }}</strong> days, vs portfolio avg of <strong>{{ benchmarks.avg_dom }}</strong> days.</p>
+        </div>
+
         {% if unit.zillow_url %}
         <a href="{{ unit.zillow_url }}" class="zillow-btn" target="_blank">View on Zillow</a>
         {% endif %}
@@ -97,24 +112,20 @@
     </div>
     {% endfor %}
 
-    <!-- Market Context -->
-    <div class="context-section">
-      <h4>Market Context</h4>
-      <div class="ctx-row"><span class="ctx-label">Active vacancies</span><span class="ctx-val">{{ benchmarks.active_vacancy_count }}</span></div>
-      <div class="ctx-row"><span class="ctx-label">Avg days on market</span><span class="ctx-val">{{ benchmarks.avg_dom }}d</span></div>
-      <div class="ctx-row"><span class="ctx-label">Lead &rarr; showing rate</span><span class="ctx-val">{{ benchmarks.lead_to_showing_pct }}%</span></div>
-      <div class="ctx-row"><span class="ctx-label">Showing &rarr; app rate</span><span class="ctx-val">{{ benchmarks.showing_to_app_pct }}%</span></div>
-    </div>
-
     <!-- Portfolio Totals -->
-    {% if portfolio_totals %}
     <div class="totals-section">
-      <h4>Your Portfolio This Week</h4>
-      <div class="totals-row"><span>Total leads</span><span class="t-val">{{ portfolio_totals.leads }}</span></div>
-      <div class="totals-row"><span>Total showings</span><span class="t-val">{{ portfolio_totals.showings }}</span></div>
-      <div class="totals-row"><span>Total applications</span><span class="t-val">{{ portfolio_totals.apps }}</span></div>
+      <h4>Portfolio Totals</h4>
+      <div class="totals-grid">
+        <div class="t-row"><span class="t-label">Total Leads</span><span class="t-val">{{ benchmarks.total_leads }}</span></div>
+        <div class="t-row"><span class="t-label">Total Showings</span><span class="t-val">{{ benchmarks.total_showings }}</span></div>
+        <div class="t-row"><span class="t-label">Total Applications</span><span class="t-val">{{ benchmarks.total_apps }}</span></div>
+        <div class="t-row"><span class="t-label">Total Cancelled</span><span class="t-val">{{ benchmarks.total_canceled }}</span></div>
+        <div class="t-row"><span class="t-label">Total Missed</span><span class="t-val">{{ benchmarks.total_missed }}</span></div>
+        <div class="t-row"><span class="t-label">Avg Days on Market</span><span class="t-val">{{ benchmarks.avg_dom }}d</span></div>
+        <div class="t-row"><span class="t-label">Lead &rarr; Showing %</span><span class="t-val">{{ benchmarks.lead_to_showing_pct }}%</span></div>
+        <div class="t-row"><span class="t-label">Showing &rarr; Application %</span><span class="t-val">{{ benchmarks.showing_to_app_pct }}%</span></div>
+      </div>
     </div>
-    {% endif %}
   </div>
 
   <div class="footer">

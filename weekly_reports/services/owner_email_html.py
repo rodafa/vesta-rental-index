@@ -21,15 +21,8 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
     """
     # Prepare per-unit template data with WoW deltas
     units = []
-    total_leads = 0
-    total_showings = 0
-    total_apps = 0
 
     for u in units_data:
-        total_leads += u.get("leads", 0)
-        total_showings += u.get("showings", 0)
-        total_apps += u.get("apps", 0)
-
         units.append({
             "address": u["address"],
             "beds": u.get("beds", 0),
@@ -39,12 +32,16 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
             "leads": u.get("leads", 0),
             "showings": u.get("showings", 0),
             "apps": u.get("apps", 0),
+            "canceled": u.get("canceled", 0),
+            "missed": u.get("missed", 0),
             "lead_delta": u.get("leads", 0) - u.get("prev_leads", 0),
             "showing_delta": u.get("showings", 0) - u.get("prev_showings", 0),
             "app_delta": u.get("apps", 0) - u.get("prev_apps", 0),
             "alltime_leads": u.get("alltime_leads", 0),
             "alltime_showings": u.get("alltime_showings", 0),
             "alltime_apps": u.get("alltime_apps", 0),
+            "avg_leads_per_week": u.get("avg_leads_per_week", 0),
+            "avg_showings_per_week": u.get("avg_showings_per_week", 0),
             "zillow_url": u.get("zillow_url", ""),
             "note_text": u.get("note_text", ""),
         })
@@ -54,11 +51,6 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
         "units": units,
         "unit_count": len(units),
         "benchmarks": benchmarks,
-        "portfolio_totals": {
-            "leads": total_leads,
-            "showings": total_showings,
-            "apps": total_apps,
-        },
         "week_start": week_start,
         "week_end": week_end,
         "logo_url": getattr(settings, "VESTA_LOGO_URL", ""),
