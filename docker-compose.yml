@@ -50,6 +50,7 @@ services:
       PROPERTY_MELD_SUMMARY_CHANNEL: ${PROPERTY_MELD_SUMMARY_CHANNEL:-maintenance-gpt}
       LEADSIMPLE_API_KEY: ${LEADSIMPLE_API_KEY:-}
       LEADSIMPLE_BASE_URL: ${LEADSIMPLE_BASE_URL:-}
+      USE_MAILHOG: ${USE_MAILHOG:-}
     depends_on:
       - db
 
@@ -72,6 +73,14 @@ services:
       TZ: America/New_York
     depends_on:
       - web
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    profiles:
+      - mailhog
 
 volumes:
   pgdata:

@@ -212,6 +212,7 @@ class LeasingEvent(models.Model):
         ("missed_showing", "Missed Showing"),
         ("showing_failed", "Showing Failed"),
         ("showing_canceled", "Showing Canceled"),
+        ("showing_pending", "Showing Pending"),
         ("reassign_showing", "Reassign Showing"),
         ("ghosting", "Ghosting"),
         ("application_sent_to_prospect", "Application Sent to Prospect"),

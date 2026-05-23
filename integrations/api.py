@@ -127,7 +127,7 @@ def rentengine_webhook(request: HttpRequest):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/sendgrid/", response={200: dict})
+@router.post("/sendgrid/", auth=None, response={200: dict})
 def sendgrid_webhook(request: HttpRequest):
     """
     Receive delivery event webhooks from SendGrid.
@@ -142,9 +142,11 @@ def sendgrid_webhook(request: HttpRequest):
 
     We match on sendgrid_message_id to update OwnerReportNote status.
 
-    Signature verification uses X-Twilio-Email-Event-Webhook-Signature header
-    and SENDGRID_WEBHOOK_SECRET from settings. If the secret is not configured,
-    verification is skipped (dev mode).
+    Auth is bypassed at the API level (auth=None) because SendGrid cannot
+    send our X-API-Key header.  Signature verification uses
+    X-Twilio-Email-Event-Webhook-Signature header and SENDGRID_WEBHOOK_SECRET
+    from settings.  If the secret is not configured, verification is skipped
+    (dev mode).
     """
     import hashlib
     import hmac

@@ -361,21 +361,33 @@ def map_leasing_event_webhook(record):
 
     Returns a dict of defaults for LeasingEvent.objects.update_or_create().
     """
+    from django.utils import timezone
+
     event_type = _normalize_event_type(
         _get(record, "event_type", "eventType", "type", "status", default="")
     )
 
     event_timestamp = _safe_datetime(
-        _get(record, "created_at", "createdAt", "event_timestamp", "eventTimestamp", default=None)
+        _get(record, "created_at", "createdAt", "event_timestamp", "eventTimestamp",
+             "timestamp", "updated_at", "updatedAt", default=None)
     )
 
-    event_date = None
-    if event_timestamp:
-        event_date = event_timestamp.date()
-    else:
-        event_date = _safe_date(
-            _get(record, "event_date", "eventDate", "date", default=None)
+    # LeasingEvent.event_timestamp is NOT NULL — default to now if RentEngine
+    # doesn't provide a recognisable timestamp field.
+    if event_timestamp is None:
+        logger.warning(
+            "Leasing event webhook missing timestamp field, defaulting to now. "
+            "Record keys: %s", list(record.keys()),
         )
+        event_timestamp = timezone.now()
+
+    event_date = event_timestamp.date()
+    # Override with explicit date if provided
+    explicit_date = _safe_date(
+        _get(record, "event_date", "eventDate", "date", default=None)
+    )
+    if explicit_date:
+        event_date = explicit_date
 
     # Build context from extra fields not covered by explicit columns
     known_keys = {

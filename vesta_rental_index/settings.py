@@ -209,6 +209,12 @@ SG_OWNER_REPORT_CC = os.environ.get("SG_OWNER_REPORT_CC", "accounting@vestapm.co
 # From inside Docker, MailHog on the host is reachable via host.docker.internal.
 USE_MAILHOG = os.environ.get("USE_MAILHOG", "").lower() in ("1", "true", "yes")
 
+# Always configure anymail when a SendGrid key exists so test-send can
+# use an explicit SendGrid connection even when MailHog is the default.
+if SENDGRID_API_KEY:
+    ANYMAIL = {"SENDGRID_API_KEY": SENDGRID_API_KEY}
+    INSTALLED_APPS += ["anymail"]
+
 if USE_MAILHOG:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = os.environ.get("MAILHOG_HOST", "mailhog")
@@ -218,8 +224,6 @@ if USE_MAILHOG:
     EMAIL_HOST_PASSWORD = ""
 elif SENDGRID_API_KEY:
     EMAIL_BACKEND = "anymail.backends.sendgrid.EmailBackend"
-    ANYMAIL = {"SENDGRID_API_KEY": SENDGRID_API_KEY}
-    INSTALLED_APPS += ["anymail"]
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("VESTA_FROM_EMAIL", "reports@vestapm.com")

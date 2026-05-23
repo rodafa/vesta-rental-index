@@ -495,7 +495,11 @@ def test_send_email(request, payload: TestSendSchema):
     html = build_owner_email_html(owner, owner_rows, report["benchmarks"], week_start, week_end)
 
     try:
-        from django.core.mail import EmailMultiAlternatives
+        from django.core.mail import EmailMultiAlternatives, get_connection
+
+        # Always route test sends through SendGrid for real delivery,
+        # even when the dev environment defaults to MailHog.
+        connection = get_connection("anymail.backends.sendgrid.EmailBackend")
 
         week_label = (
             f"{week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}"
@@ -504,6 +508,7 @@ def test_send_email(request, payload: TestSendSchema):
             subject=f"[TEST] Weekly Leasing Update — {week_label}",
             from_email=django_settings.DEFAULT_FROM_EMAIL,
             to=[request.user.email],
+            connection=connection,
         )
         msg.attach_alternative(html, "text/html")
         msg.send()
