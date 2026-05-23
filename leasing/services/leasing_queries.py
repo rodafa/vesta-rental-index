@@ -1,0 +1,136 @@
+"""
+Query layer for Leasing Intelligence.
+
+Provides window-aggregated delta sums and point-in-time state fields
+for DailyLeasingMetric data.
+"""
+
+import datetime
+import logging
+
+from django.db.models import Avg, Count, OuterRef, Subquery, Sum
+
+from leasing.models import DailyLeasingMetric
+
+logger = logging.getLogger(__name__)
+
+
+def get_unit_metrics(date_from, date_to, portfolio=None):
+    """
+    Return one dict per unit with summed deltas over the window and
+    state fields from the nearest row to *date_to*.
+
+    Each dict contains:
+        unit_id, address, leads, showings, apps_submitted,
+        apps_requested, missed_failed, outbound_texts, total_calls,
+        dom, health
+    """
+    qs = DailyLeasingMetric.objects.filter(date__range=(date_from, date_to))
+    if portfolio:
+        qs = qs.filter(unit__property__portfolio=portfolio)
+
+    # Subquery: nearest row <= date_to for each unit (state fields)
+    nearest = (
+        DailyLeasingMetric.objects.filter(
+            unit=OuterRef("unit"),
+            date__lte=date_to,
+        )
+        .order_by("-date")
+    )
+
+    rows = (
+        qs.values("unit", "unit__property__address_line_1", "unit__name")
+        .annotate(
+            leads=Sum("new_prospects_delta"),
+            showings=Sum("showings_completed_delta"),
+            apps_submitted=Sum("applications_submitted_delta"),
+            apps_requested=Sum("applications_requested_delta"),
+            missed_failed=Sum("showings_missed_or_failed_delta"),
+            outbound_texts=Sum("outbound_texts_delta"),
+            total_calls=Sum("total_calls_delta"),
+            dom=Subquery(nearest.values("days_on_market")[:1]),
+            health=Subquery(nearest.values("property_health")[:1]),
+        )
+        .order_by("unit__property__address_line_1", "unit__name")
+    )
+
+    results = []
+    for row in rows:
+        address = row["unit__property__address_line_1"] or ""
+        unit_name = row["unit__name"] or ""
+        if unit_name and unit_name.lower() != "default":
+            address = f"{address} - {unit_name}"
+
+        results.append({
+            "unit_id": row["unit"],
+            "address": address,
+            "leads": row["leads"] or 0,
+            "showings": row["showings"] or 0,
+            "apps_submitted": row["apps_submitted"] or 0,
+            "apps_requested": row["apps_requested"] or 0,
+            "missed_failed": row["missed_failed"] or 0,
+            "outbound_texts": row["outbound_texts"] or 0,
+            "total_calls": row["total_calls"] or 0,
+            "dom": row["dom"],
+            "health": row["health"] or "",
+        })
+
+    logger.info(
+        "get_unit_metrics: %s–%s, portfolio=%s, units=%d",
+        date_from, date_to, portfolio, len(results),
+    )
+    return results
+
+
+def _aggregate_window(date_from, date_to, portfolio=None):
+    """Sum deltas and compute aggregate stats for a single window."""
+    qs = DailyLeasingMetric.objects.filter(date__range=(date_from, date_to))
+    if portfolio:
+        qs = qs.filter(unit__property__portfolio=portfolio)
+
+    agg = qs.aggregate(
+        total_leads=Sum("new_prospects_delta"),
+        total_showings=Sum("showings_completed_delta"),
+        total_apps=Sum("applications_submitted_delta"),
+        total_apps_requested=Sum("applications_requested_delta"),
+        total_missed=Sum("showings_missed_or_failed_delta"),
+        active_units=Count("unit", distinct=True),
+        avg_dom=Avg("days_on_market"),
+    )
+    return {
+        "total_leads": agg["total_leads"] or 0,
+        "total_showings": agg["total_showings"] or 0,
+        "total_apps": agg["total_apps"] or 0,
+        "total_apps_requested": agg["total_apps_requested"] or 0,
+        "total_missed": agg["total_missed"] or 0,
+        "active_units": agg["active_units"] or 0,
+        "avg_dom": round(agg["avg_dom"], 1) if agg["avg_dom"] is not None else None,
+    }
+
+
+def get_portfolio_kpis(date_from, date_to, portfolio=None):
+    """
+    Return KPIs for the current window and the prior window of equal length.
+
+    Returns ``{"current": {...}, "prior": {...}, "deltas": {...}}``.
+    """
+    current = _aggregate_window(date_from, date_to, portfolio)
+
+    length = (date_to - date_from).days + 1
+    prior_to = date_from - datetime.timedelta(days=1)
+    prior_from = prior_to - datetime.timedelta(days=length - 1)
+    prior = _aggregate_window(prior_from, prior_to, portfolio)
+
+    deltas = {}
+    for key in current:
+        cur_val = current[key]
+        pri_val = prior[key]
+        if cur_val is not None and pri_val is not None:
+            deltas[key] = cur_val - pri_val
+        else:
+            deltas[key] = None
+
+    logger.info(
+        "get_portfolio_kpis: %s–%s, portfolio=%s", date_from, date_to, portfolio,
+    )
+    return {"current": current, "prior": prior, "deltas": deltas}

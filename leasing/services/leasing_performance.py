@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 
 from integrations.rentengine.client import RentEngineClient
 from leasing.models import DailyLeasingMetric, ShowingFeedback
+from leasing.services.leasing_deltas import recompute_deltas_for_unit
 from properties.models import Unit
 
 logger = logging.getLogger(__name__)
@@ -234,6 +235,8 @@ def ingest_day(day, unit_ids=None):
                 feedback_count = upsert_showing_feedback(
                     unit, payload.get("showing_feedback") or []
                 )
+
+            recompute_deltas_for_unit(unit, from_date=day)
 
             result["units_processed"] += 1
             result["metrics_upserted"] += 1

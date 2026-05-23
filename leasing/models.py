@@ -444,6 +444,16 @@ class DailyLeasingMetric(models.Model):
     outbound_texts = models.IntegerField(null=True, blank=True)
     total_calls = models.IntegerField(null=True, blank=True)
 
+    # Derived per-day deltas — computed at ingest time by recompute_deltas_for_unit().
+    # For each cumulative field, delta = current - prior (or current if first row / reset).
+    new_prospects_delta = models.IntegerField(default=0)
+    showings_completed_delta = models.IntegerField(default=0)
+    applications_submitted_delta = models.IntegerField(default=0)
+    showings_missed_or_failed_delta = models.IntegerField(default=0)
+    applications_requested_delta = models.IntegerField(default=0)
+    outbound_texts_delta = models.IntegerField(default=0)
+    total_calls_delta = models.IntegerField(default=0)
+
     # Denormalized rollup of showing feedback for this (unit, date).
     # Structure: [{"prospect_id": int, "prospect_name": str,
     #              "showing_completed_at": iso8601, "feedback": str|null}, ...]

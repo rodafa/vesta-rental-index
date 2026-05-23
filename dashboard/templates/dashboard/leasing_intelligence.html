@@ -1,0 +1,199 @@
+{% extends "dashboard/_base.html" %}
+
+{% block title %}Leasing Intelligence{% endblock %}
+{% block topbar_title %}Leasing Intelligence{% endblock %}
+{% block nav_leasing_intelligence %}active{% endblock %}
+
+{% block content %}
+<form method="get" class="filter-bar">
+  <div class="filter-group">
+    <label for="date_from">From</label>
+    <input type="date" id="date_from" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+  </div>
+  <div class="filter-group">
+    <label for="date_to">To</label>
+    <input type="date" id="date_to" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
+  </div>
+  <div class="filter-group">
+    <label for="portfolio">Portfolio</label>
+    <select id="portfolio" name="portfolio">
+      <option value="">All Portfolios</option>
+      {% for p in portfolios %}
+        <option value="{{ p.pk }}" {% if portfolio and portfolio.pk == p.pk %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="filter-group" style="align-self:flex-end">
+    <button type="submit" class="btn btn-primary">Load</button>
+  </div>
+  <div class="filter-group" style="align-self:flex-end; margin-left:.5rem">
+    <a class="btn btn-secondary" id="preset-today">Today</a>
+    <a class="btn btn-secondary" id="preset-7d">Last 7</a>
+    <a class="btn btn-secondary" id="preset-30d">Last 30</a>
+  </div>
+  <div class="filter-group" style="align-self:flex-end; margin-left:auto">
+    <a class="btn btn-secondary" href="?date_from={{ date_from|date:'Y-m-d' }}&date_to={{ date_to|date:'Y-m-d' }}{% if portfolio %}&portfolio={{ portfolio.pk }}{% endif %}&export=csv">Export CSV</a>
+  </div>
+</form>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="label">Active Units</div>
+    <div class="value">{{ kpis.current.active_units }}</div>
+    {% with d=kpis.deltas.active_units %}
+      {% if d and d != 0 %}
+        <div class="change {% if d > 0 %}positive{% else %}negative{% endif %}">
+          {% if d > 0 %}+{% endif %}{{ d }}
+        </div>
+      {% endif %}
+    {% endwith %}
+  </div>
+  <div class="stat-card">
+    <div class="label">Total Leads</div>
+    <div class="value">{{ kpis.current.total_leads }}</div>
+    {% with d=kpis.deltas.total_leads %}
+      {% if d and d != 0 %}
+        <div class="change {% if d > 0 %}positive{% else %}negative{% endif %}">
+          {% if d > 0 %}+{% endif %}{{ d }}
+        </div>
+      {% endif %}
+    {% endwith %}
+  </div>
+  <div class="stat-card">
+    <div class="label">Total Showings</div>
+    <div class="value">{{ kpis.current.total_showings }}</div>
+    {% with d=kpis.deltas.total_showings %}
+      {% if d and d != 0 %}
+        <div class="change {% if d > 0 %}positive{% else %}negative{% endif %}">
+          {% if d > 0 %}+{% endif %}{{ d }}
+        </div>
+      {% endif %}
+    {% endwith %}
+  </div>
+  <div class="stat-card">
+    <div class="label">Total Apps</div>
+    <div class="value">{{ kpis.current.total_apps }}</div>
+    {% with d=kpis.deltas.total_apps %}
+      {% if d and d != 0 %}
+        <div class="change {% if d > 0 %}positive{% else %}negative{% endif %}">
+          {% if d > 0 %}+{% endif %}{{ d }}
+        </div>
+      {% endif %}
+    {% endwith %}
+  </div>
+  <div class="stat-card">
+    <div class="label">Avg DOM</div>
+    <div class="value">{{ kpis.current.avg_dom|default_if_none:"—" }}</div>
+    {% with d=kpis.deltas.avg_dom %}
+      {% if d and d != 0 %}
+        <div class="change {% if d < 0 %}positive{% else %}negative{% endif %}">
+          {% if d > 0 %}+{% endif %}{{ d }}
+        </div>
+      {% endif %}
+    {% endwith %}
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Address</th>
+      <th>Health</th>
+      <th class="num">DOM</th>
+      <th class="num">Leads</th>
+      <th class="num">Showings</th>
+      <th class="num">Apps Submitted</th>
+      <th class="num">Apps Requested</th>
+      <th class="num">Missed/Failed</th>
+      <th class="num">Texts</th>
+      <th class="num">Calls</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in unit_rows %}
+    <tr>
+      <td>{{ row.address }}</td>
+      <td>
+        {% if row.health == "Healthy" %}
+          <span style="color:#39B54A">{{ row.health }}</span>
+        {% elif row.health == "At-risk" %}
+          <span style="color:#D67011">{{ row.health }}</span>
+        {% elif row.health == "Off-Market" %}
+          <span style="color:#64748B">{{ row.health }}</span>
+        {% else %}
+          {{ row.health }}
+        {% endif %}
+      </td>
+      <td class="num">{{ row.dom|default_if_none:"—" }}</td>
+      <td class="num">{{ row.leads }}</td>
+      <td class="num">{{ row.showings }}</td>
+      <td class="num">{{ row.apps_submitted }}</td>
+      <td class="num">{{ row.apps_requested }}</td>
+      <td class="num">{{ row.missed_failed }}</td>
+      <td class="num">{{ row.outbound_texts }}</td>
+      <td class="num">{{ row.total_calls }}</td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="10" style="text-align:center; padding:2rem; color:#64748B">
+        No leasing data for this period.
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% if unit_rows %}
+  <tfoot>
+    <tr>
+      <td><strong>Total ({{ unit_rows|length }} units)</strong></td>
+      <td></td>
+      <td></td>
+      <td class="num"><strong>{{ kpis.current.total_leads }}</strong></td>
+      <td class="num"><strong>{{ kpis.current.total_showings }}</strong></td>
+      <td class="num"><strong>{{ kpis.current.total_apps }}</strong></td>
+      <td class="num"><strong>{{ kpis.current.total_apps_requested }}</strong></td>
+      <td class="num"><strong>{{ kpis.current.total_missed }}</strong></td>
+      <td></td>
+      <td></td>
+    </tr>
+  </tfoot>
+  {% endif %}
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  var fromEl = document.getElementById('date_from');
+  var toEl = document.getElementById('date_to');
+
+  function setDates(from, to) {
+    fromEl.value = from;
+    toEl.value = to;
+    fromEl.form.submit();
+  }
+
+  function fmt(d) {
+    return d.toISOString().slice(0, 10);
+  }
+
+  document.getElementById('preset-today').addEventListener('click', function() {
+    var t = fmt(new Date());
+    setDates(t, t);
+  });
+
+  document.getElementById('preset-7d').addEventListener('click', function() {
+    var now = new Date();
+    var from = new Date(now);
+    from.setDate(from.getDate() - 6);
+    setDates(fmt(from), fmt(now));
+  });
+
+  document.getElementById('preset-30d').addEventListener('click', function() {
+    var now = new Date();
+    var from = new Date(now);
+    from.setDate(from.getDate() - 29);
+    setDates(fmt(from), fmt(now));
+  });
+})();
+</script>
+{% endblock %}

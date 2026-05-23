@@ -1,13 +1,17 @@
+import csv
+import datetime
 from collections import defaultdict
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Avg
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from dashboard.models import UnitNote
 from leasing.models import Lease
+from leasing.services.leasing_queries import get_portfolio_kpis, get_unit_metrics
 from properties.models import Portfolio, Property, Unit
 
 
@@ -87,6 +91,66 @@ class PasswordChangeCompleteView(View):
         except Exception:
             pass
         return redirect("dashboard:daily_pulse")
+
+
+@login_required
+def leasing_intelligence(request):
+    today = datetime.date.today()
+    date_from_str = request.GET.get("date_from")
+    date_to_str = request.GET.get("date_to")
+    portfolio_id = request.GET.get("portfolio")
+    export = request.GET.get("export")
+
+    try:
+        date_from = datetime.date.fromisoformat(date_from_str) if date_from_str else today - datetime.timedelta(days=6)
+    except ValueError:
+        date_from = today - datetime.timedelta(days=6)
+
+    try:
+        date_to = datetime.date.fromisoformat(date_to_str) if date_to_str else today
+    except ValueError:
+        date_to = today
+
+    portfolio = None
+    if portfolio_id:
+        try:
+            portfolio = Portfolio.objects.get(pk=portfolio_id)
+        except (Portfolio.DoesNotExist, ValueError):
+            pass
+
+    kpis = get_portfolio_kpis(date_from, date_to, portfolio=portfolio)
+    unit_rows = get_unit_metrics(date_from, date_to, portfolio=portfolio)
+
+    if export == "csv":
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = (
+            f'attachment; filename="leasing_intelligence_{date_from}_{date_to}.csv"'
+        )
+        writer = csv.writer(response)
+        writer.writerow([
+            "Address", "Health", "DOM", "Leads", "Showings",
+            "Apps Submitted", "Apps Requested", "Missed/Failed",
+            "Outbound Texts", "Total Calls",
+        ])
+        for row in unit_rows:
+            writer.writerow([
+                row["address"], row["health"], row["dom"] or "",
+                row["leads"], row["showings"], row["apps_submitted"],
+                row["apps_requested"], row["missed_failed"],
+                row["outbound_texts"], row["total_calls"],
+            ])
+        return response
+
+    portfolios = Portfolio.objects.filter(is_active=True).order_by("name")
+
+    return render(request, "dashboard/leasing_intelligence.html", {
+        "date_from": date_from,
+        "date_to": date_to,
+        "portfolio": portfolio,
+        "portfolios": portfolios,
+        "kpis": kpis,
+        "unit_rows": unit_rows,
+    })
 
 
 def owner_dashboard(request, portfolio_slug):
