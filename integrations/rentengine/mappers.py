@@ -391,8 +391,10 @@ def map_leasing_event_webhook(record):
 
     # Build context from extra fields not covered by explicit columns
     known_keys = {
-        "id", "prospect_id", "unit_id", "event_type", "eventType", "type",
-        "status", "created_at", "createdAt", "event_timestamp", "eventTimestamp",
+        "id", "prospect_id", "prospect", "unit_id", "unit",
+        "event_type", "eventType", "type", "status",
+        "created_at", "createdAt", "event_timestamp", "eventTimestamp",
+        "timestamp", "updated_at", "updatedAt",
         "event_date", "eventDate", "date",
     }
     context = {k: v for k, v in record.items() if k not in known_keys}

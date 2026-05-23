@@ -103,15 +103,15 @@ def _handle_leasing_event(event: WebhookEvent):
 
     defaults = map_leasing_event_webhook(record)
 
-    # Resolve prospect FK
-    prospect_id = record.get("prospect_id")
+    # Resolve prospect FK — RentEngine uses "prospect" (not "prospect_id")
+    prospect_id = record.get("prospect_id") or record.get("prospect")
     if prospect_id:
         defaults["prospect"] = Prospect.objects.filter(
             rentengine_id=prospect_id
         ).first()
 
-    # Resolve unit FK
-    unit_id = record.get("unit_id")
+    # Resolve unit FK — RentEngine uses "unit" or "unit_id"
+    unit_id = record.get("unit_id") or record.get("unit")
     if unit_id:
         defaults["unit"] = Unit.objects.filter(rentengine_id=unit_id).first()
 

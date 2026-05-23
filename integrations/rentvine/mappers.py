@@ -65,16 +65,24 @@ def _safe_datetime(value):
             return value.replace(tzinfo=timezone.utc)
         return value
     try:
+        # fromisoformat handles +00:00 offsets, Z suffix, fractional seconds
+        s = str(value).strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (TypeError, ValueError):
+        pass
+    # Fallback: strptime for non-ISO formats (e.g. "2026-05-22 23:11:19")
+    try:
         for fmt in (
-            "%Y-%m-%dT%H:%M:%S.%fZ",
-            "%Y-%m-%dT%H:%M:%S.%f",  # Z stripped by [:26] slice
-            "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%dT%H:%M:%S",
             "%Y-%m-%d %H:%M:%S",
             "%Y-%m-%d",
         ):
             try:
-                dt = datetime.strptime(str(value)[:26], fmt)
+                dt = datetime.strptime(str(value)[:19], fmt)
                 return dt.replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
