@@ -1,5 +1,4 @@
 from collections import defaultdict
-from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.decorators import login_required
@@ -66,36 +65,9 @@ def monthly_notes(request):
 def weekly_reports(request):
     from django.conf import settings as django_settings
 
-    from weekly_reports.services.blurb import (
-        get_blurb_for_week,
-        next_send_date,
-        target_send_week,
-        week_start_for,
-    )
-
-    # Resolve which week's blurb to show
-    raw_send_date = request.GET.get("send_date")
-    if raw_send_date:
-        try:
-            send_date = date.fromisoformat(raw_send_date)
-        except ValueError:
-            send_date = next_send_date(date.today())
-        week_start = week_start_for(send_date)
-    else:
-        send_date = next_send_date(date.today())
-        week_start = target_send_week(date.today())
-
-    blurb = get_blurb_for_week(week_start)
-
     return render(request, "dashboard/weekly_reports.html", {
         "show_showing_outcomes": getattr(django_settings, "SHOW_SHOWING_OUTCOMES", True),
         "user_email": request.user.email if request.user.is_authenticated else "",
-        "blurb_body": blurb.body if blurb else "",
-        "blurb_last_edited_by": (
-            blurb.last_edited_by.get_full_name() or blurb.last_edited_by.username
-        ) if blurb and blurb.last_edited_by else "",
-        "blurb_updated_at": blurb.updated_at.isoformat() if blurb else "",
-        "blurb_send_date": send_date.isoformat(),
     })
 
 

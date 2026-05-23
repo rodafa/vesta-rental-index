@@ -42,7 +42,8 @@ class ZillowUrlSchema(Schema):
 
 class BlurbSaveSchema(Schema):
     body: str
-    send_date: str  # YYYY-MM-DD — week_start is computed server-side
+    start: str  # YYYY-MM-DD — monday anchor computed server-side
+    end: str    # YYYY-MM-DD
 
 
 class SendEmailsSchema(Schema):
@@ -260,8 +261,10 @@ def delete_note(request, note_id: int):
 
 @router.post("/blurb/save")
 def save_blurb(request, payload: BlurbSaveSchema):
-    """Save/update the team blurb for a given send-date week. Staff-auth only."""
-    from weekly_reports.services.blurb import upsert_blurb, week_start_for
+    """Save/update the team blurb for the report date range's Monday anchor. Staff-auth only."""
+    from datetime import timedelta
+
+    from weekly_reports.services.blurb import upsert_blurb
 
     if not (hasattr(request, "user") and request.user.is_staff):
         from ninja.errors import HttpError
@@ -269,12 +272,12 @@ def save_blurb(request, payload: BlurbSaveSchema):
         raise HttpError(403, "Staff access required")
 
     try:
-        send_date = date.fromisoformat(payload.send_date)
+        start_date = date.fromisoformat(payload.start)
     except ValueError:
-        return {"ok": False, "error": "Invalid send_date format (expected YYYY-MM-DD)"}
+        return {"ok": False, "error": "Invalid start date format (expected YYYY-MM-DD)"}
 
-    week_start = week_start_for(send_date)
-    blurb = upsert_blurb(week_start, payload.body, request.user)
+    monday = start_date - timedelta(days=start_date.weekday())
+    blurb = upsert_blurb(monday, payload.body, request.user)
     return {
         "ok": True,
         "last_edited_by": (
@@ -422,7 +425,10 @@ def get_property_detail(request, unit_id: int):
 
 @router.get("/marketing-report")
 def get_marketing_report(request, start: str = None, end: str = None):
-    """Return full marketing report data for the week."""
+    """Return full marketing report data for the week, including blurb."""
+    from datetime import timedelta
+
+    from weekly_reports.services.blurb import get_blurb_for_week
     from weekly_reports.services.marketing_report import build_marketing_report
     from weekly_reports.services.weekly_update import default_date_range
 
@@ -438,6 +444,18 @@ def get_marketing_report(request, start: str = None, end: str = None):
     data = build_marketing_report(week_start, week_end)
     data["week_start"] = week_start.isoformat()
     data["week_end"] = week_end.isoformat()
+
+    # Include blurb keyed to the same Monday anchor as property notes
+    monday = week_start - timedelta(days=week_start.weekday())
+    blurb = get_blurb_for_week(monday)
+    data["blurb"] = {
+        "body": blurb.body if blurb else "",
+        "last_edited_by": (
+            blurb.last_edited_by.get_full_name() or blurb.last_edited_by.username
+        ) if blurb and blurb.last_edited_by else "",
+        "updated_at": blurb.updated_at.isoformat() if blurb else "",
+    }
+
     return data
 
 

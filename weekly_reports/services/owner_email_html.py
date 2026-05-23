@@ -61,11 +61,13 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
     portfolio_showing_delta = benchmarks.get("period_showings", 0) - benchmarks.get("prev_period_showings", 0)
     portfolio_app_delta = benchmarks.get("period_apps", 0) - benchmarks.get("prev_period_apps", 0)
 
-    # Shared team blurb — keyed to the upcoming send week so that
-    # authoring, preview, and send all resolve to the same row.
-    from weekly_reports.services.blurb import get_blurb_for_week, target_send_week
+    # Shared team blurb — keyed to the same Monday anchor as property notes.
+    from datetime import timedelta
 
-    blurb = get_blurb_for_week(target_send_week())
+    from weekly_reports.services.blurb import get_blurb_for_week
+
+    monday = week_start - timedelta(days=week_start.weekday())
+    blurb = get_blurb_for_week(monday)
     blurb_body = blurb.body.strip() if blurb else ""
 
     context = {

@@ -9,20 +9,13 @@
 <!-- Team Blurb -->
 <div class="card" style="margin-bottom:1rem;">
   <div class="card-title">Team Note for Owner Emails</div>
-  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem;flex-wrap:wrap;">
-    <span style="font-size:.82rem;color:var(--text-secondary);">This note will appear on the owner email sending <strong>{{ blurb_send_date }}</strong>.</span>
-    <span style="font-size:.75rem;color:var(--text-muted);">Override week:</span>
-    <input type="date" id="blurb-send-date-picker" value="{{ blurb_send_date }}" style="font-size:.78rem;padding:.2rem .4rem;border:1px solid var(--border-medium);border-radius:4px;" onchange="_changeBlurbWeek(this.value)">
-  </div>
   <p style="font-size:.75rem;color:var(--text-muted);margin-bottom:.5rem;">
-    Leave blank to skip &mdash; owners won't see an empty section.
+    Leave blank to skip &mdash; owners won't see an empty section. Tied to the report date range above.
   </p>
-  <textarea id="blurb-body" class="draft-textarea" placeholder="Write a shared team note for all owners...">{{ blurb_body }}</textarea>
+  <textarea id="blurb-body" class="draft-textarea" placeholder="Write a shared team note for all owners..."></textarea>
   <div style="display:flex;align-items:center;gap:.75rem;">
     <button class="btn btn-primary btn-sm" onclick="_saveBlurb()">Save note</button>
-    <span id="blurb-meta" style="font-size:.75rem;color:var(--text-muted);">
-      {% if blurb_last_edited_by %}Last edited by {{ blurb_last_edited_by }} &middot; {{ blurb_updated_at }}{% endif %}
-    </span>
+    <span id="blurb-meta" style="font-size:.75rem;color:var(--text-muted);"></span>
   </div>
 </div>
 
@@ -175,6 +168,16 @@ function _loadReport() {
     _renderBenchmarks();
     _applyFilters();
     _loadSendLog();
+
+    // Populate blurb editor from API response
+    var blurb = data.blurb || {};
+    document.getElementById('blurb-body').value = blurb.body || '';
+    var meta = document.getElementById('blurb-meta');
+    if (blurb.last_edited_by) {
+      meta.textContent = 'Last edited by ' + blurb.last_edited_by + ' \u00b7 ' + new Date(blurb.updated_at).toLocaleString();
+    } else {
+      meta.textContent = '';
+    }
   }).catch(function(err) {
     document.getElementById('mr-body').innerHTML = '<tr><td colspan="' + TOTAL_COLS + '" style="text-align:center;color:var(--red);">Failed to load report</td></tr>';
   });
@@ -575,13 +578,13 @@ function _attr(s) {
 
 /* ── Team Blurb ───────────────────────────────────────────────── */
 
-var BLURB_SEND_DATE = "{{ blurb_send_date }}";
-
 function _saveBlurb() {
+  if (!document.getElementById('mr-start').value) return;
   var body = document.getElementById('blurb-body').value;
   VestaAPI.post('/reports/weekly-update/blurb/save', {
     body: body,
-    send_date: BLURB_SEND_DATE
+    start: document.getElementById('mr-start').value,
+    end: document.getElementById('mr-end').value
   }).then(function(resp) {
     if (resp.ok) {
       var meta = document.getElementById('blurb-meta');
@@ -593,11 +596,6 @@ function _saveBlurb() {
   }).catch(function() {
     VestaAPI.toast('Failed to save blurb', 'error');
   });
-}
-
-function _changeBlurbWeek(dateStr) {
-  var url = window.location.pathname + '?send_date=' + encodeURIComponent(dateStr);
-  window.location.href = url;
 }
 </script>
 {% endblock %}

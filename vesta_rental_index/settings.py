@@ -238,10 +238,6 @@ VESTA_LOGO_URL = os.environ.get(
 # Re-enable once RentEngine webhook delivery is confirmed working.
 SHOW_SHOWING_OUTCOMES = False
 
-# Owner-email send weekday (Python weekday: 0=Mon … 6=Sun).
-# Used to predict which week a blurb will land in at authoring time.
-OWNER_EMAIL_SEND_WEEKDAY = 0  # Monday
-
 # Slack Bot
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
