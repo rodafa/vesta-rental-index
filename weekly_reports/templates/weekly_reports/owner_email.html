@@ -88,6 +88,28 @@
                                 </tr>
                             </table>
 
+                            {% if blurb_body %}
+                            <!-- Team Blurb -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EFF5F9" style="border-radius: 6px; margin-bottom: 32px;">
+                                <tr>
+                                    <td style="padding: 22px 26px;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td style="color: #1E3D58; font-family: Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 12px;">
+                                                    A Note From the Vesta Team
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #333333; font-family: Georgia, serif; font-size: 14px; line-height: 1.7;">
+                                                    {{ blurb_body|linebreaksbr }}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            {% endif %}
+
                             <!-- Property Cards Loop -->
                             {% for unit in units %}
                             <table border="0" cellpadding="0" cellspacing="0" width="100%" style="border: 2px solid #e5e5e5; border-top: 6px solid {% cycle '#39B54A' '#6EA5CD' '#39B54A' '#6EA5CD' %}; border-radius: 10px; margin-bottom: 36px;">

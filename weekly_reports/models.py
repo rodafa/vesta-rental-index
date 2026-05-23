@@ -84,3 +84,29 @@ class OwnerEmailSend(models.Model):
 
     def __str__(self):
         return f"Email to {self.owner} for week {self.week_date} ({self.status})"
+
+
+class WeeklyLeasingBlurb(models.Model):
+    """Shared team blurb for the top of weekly owner leasing emails.
+
+    One per week. Resets each week — if no blurb is written, none appears.
+    """
+
+    week_start = models.DateField(
+        unique=True, help_text="Monday of the week this blurb applies to"
+    )
+    body = models.TextField(blank=True)
+    last_edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-week_start"]
+
+    def __str__(self):
+        return f"Blurb for week of {self.week_start}"

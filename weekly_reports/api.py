@@ -40,6 +40,11 @@ class ZillowUrlSchema(Schema):
     zillow_url: str
 
 
+class BlurbSaveSchema(Schema):
+    body: str
+    send_date: str  # YYYY-MM-DD — week_start is computed server-side
+
+
 class SendEmailsSchema(Schema):
     start: str
     end: str
@@ -247,6 +252,36 @@ def delete_note(request, note_id: int):
     note.delete()
 
     return {"ok": True, "deleted": note_id}
+
+
+# ---------------------------------------------------------------------------
+# Blurb endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/blurb/save")
+def save_blurb(request, payload: BlurbSaveSchema):
+    """Save/update the team blurb for a given send-date week. Staff-auth only."""
+    from weekly_reports.services.blurb import upsert_blurb, week_start_for
+
+    if not (hasattr(request, "user") and request.user.is_staff):
+        from ninja.errors import HttpError
+
+        raise HttpError(403, "Staff access required")
+
+    try:
+        send_date = date.fromisoformat(payload.send_date)
+    except ValueError:
+        return {"ok": False, "error": "Invalid send_date format (expected YYYY-MM-DD)"}
+
+    week_start = week_start_for(send_date)
+    blurb = upsert_blurb(week_start, payload.body, request.user)
+    return {
+        "ok": True,
+        "last_edited_by": (
+            blurb.last_edited_by.get_full_name() or blurb.last_edited_by.username
+        ) if blurb.last_edited_by else "",
+        "updated_at": blurb.updated_at.isoformat(),
+    }
 
 
 # ---------------------------------------------------------------------------

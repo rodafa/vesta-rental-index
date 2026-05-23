@@ -56,16 +56,17 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
             "note_text": u.get("note_text", ""),
         })
 
-    # Portfolio week-over-week deltas (sum across this owner's units)
-    portfolio_lead_delta = sum(
-        u.get("leads", 0) - u.get("prev_leads", 0) for u in units_data
-    )
-    portfolio_showing_delta = sum(
-        u.get("showings", 0) - u.get("prev_showings", 0) for u in units_data
-    )
-    portfolio_app_delta = sum(
-        u.get("apps", 0) - u.get("prev_apps", 0) for u in units_data
-    )
+    # Portfolio week-over-week deltas (company-wide, matching benchmark scope)
+    portfolio_lead_delta = benchmarks.get("period_leads", 0) - benchmarks.get("prev_period_leads", 0)
+    portfolio_showing_delta = benchmarks.get("period_showings", 0) - benchmarks.get("prev_period_showings", 0)
+    portfolio_app_delta = benchmarks.get("period_apps", 0) - benchmarks.get("prev_period_apps", 0)
+
+    # Shared team blurb — keyed to the upcoming send week so that
+    # authoring, preview, and send all resolve to the same row.
+    from weekly_reports.services.blurb import get_blurb_for_week, target_send_week
+
+    blurb = get_blurb_for_week(target_send_week())
+    blurb_body = blurb.body.strip() if blurb else ""
 
     context = {
         "owner_name": owner.first_name or owner.name,
@@ -79,6 +80,7 @@ def build_owner_email_html(owner, units_data, benchmarks, week_start, week_end):
         "portfolio_lead_delta": portfolio_lead_delta,
         "portfolio_showing_delta": portfolio_showing_delta,
         "portfolio_app_delta": portfolio_app_delta,
+        "blurb_body": blurb_body,
     }
 
     return render_to_string("weekly_reports/owner_email.html", context)
