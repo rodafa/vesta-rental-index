@@ -39,6 +39,18 @@ VENDOR_ACCEPTED_STATUSES = {"PENDING_COMPLETION"}
 AWAITING_OWNER_APPROVAL_STATUS = "OWNER_APPROVAL_REQUESTED"
 
 # ---------------------------------------------------------------------------
+# Email status buckets — used for owner maintenance summary emails.
+# Could-not-complete → Open bucket (per spec).
+# ---------------------------------------------------------------------------
+
+EMAIL_CLOSED_BUCKET = {"COMPLETED"}
+
+EMAIL_CANCELED_BUCKET = {"MANAGER_CANCELED", "TENANT_CANCELED"}
+
+# Everything else (including COULD_NOT_COMPLETE variants) → open
+# Check: status NOT in EMAIL_CLOSED_BUCKET and NOT in EMAIL_CANCELED_BUCKET
+
+# ---------------------------------------------------------------------------
 # Owner approval normalisation
 # ---------------------------------------------------------------------------
 
@@ -157,7 +169,11 @@ def map_meld(data):
         data.get("managementappointment"),
     )
 
-    completed_date = _safe_date(data.get("marked_complete"))
+    # Date fields
+    marked_complete = _safe_datetime(data.get("marked_complete"))
+    completion_date = _safe_datetime(data.get("completion_date"))
+    started = _safe_datetime(data.get("started"))
+    due_date = _safe_date(data.get("due_date"))
 
     owner_approval_status = _normalise_owner_approval(data.get("owner_approval_status"))
 
@@ -182,13 +198,48 @@ def map_meld(data):
         "unit_ref": unit_ref,
         "resident_presence_required": resident_presence_required,
         "scheduled_date": scheduled_date,
-        "completed_date": completed_date,
+        "marked_complete": marked_complete,
+        "completion_date": completion_date,
+        "started": started,
+        "due_date": due_date,
         "owner_approval_status": owner_approval_status,
         "has_invoice": has_invoice,
         "tags": tags,
+        # New fields from API
+        "reference_id": data.get("reference_id") or "",
+        "description": data.get("description") or "",
+        "work_type": data.get("work_type") or "",
+        "work_location": data.get("work_location") or "",
+        "origin": data.get("origin") or "",
+        "is_active": data.get("is_active", True),
+        "maintenance_notes": data.get("maintenance_notes") or "",
+        "completion_notes": data.get("completion_notes") or "",
+        "reason_cannot_complete": data.get("reason_cannot_complete") or "",
+        "resolution_type": data.get("resolution_type") or "",
+        "parent_meld_id": str(data.get("parent") or ""),
+        "recurring_meld_id": str(data.get("recurring_meld") or ""),
+        "merged_meld_data": data.get("merged_meld") or {},
+        "tenant_rating": data.get("tenant_rating"),
         "raw_data": data,
         "source_created_at": source_created_at,
         "source_modified_at": source_modified_at,
     }
 
     return property_meld_id, defaults
+
+
+def map_expenditure(data):
+    """
+    Map a Property Meld expenditure record to (property_meld_id, defaults_dict).
+    """
+    from decimal import Decimal
+
+    exp_id = int(data["id"])
+    return exp_id, {
+        "amount": Decimal(str(data.get("amount", "0"))),
+        "status": data.get("status") or "",
+        "notes": data.get("notes") or "",
+        "line_items": data.get("expenditures_line_items") or [],
+        "source_created_at": _safe_datetime(data.get("created")),
+        "source_updated_at": _safe_datetime(data.get("updated")),
+    }

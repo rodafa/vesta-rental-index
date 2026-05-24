@@ -77,6 +77,9 @@ class Property(models.Model):
     rentengine_id = models.IntegerField(
         unique=True, null=True, blank=True, db_index=True
     )
+    property_meld_id = models.IntegerField(
+        unique=True, null=True, blank=True, db_index=True
+    )
 
     portfolio = models.ForeignKey(
         Portfolio,
@@ -169,6 +172,9 @@ class Unit(models.Model):
         unique=True, null=True, blank=True, db_index=True
     )
     rentengine_id = models.IntegerField(
+        unique=True, null=True, blank=True, db_index=True
+    )
+    property_meld_id = models.IntegerField(
         unique=True, null=True, blank=True, db_index=True
     )
 

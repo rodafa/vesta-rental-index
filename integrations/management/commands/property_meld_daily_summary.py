@@ -256,7 +256,7 @@ class Command(BaseCommand):
 
         # S2 — net flow
         opened_yesterday = Meld.objects.filter(source_created_at__date=yesterday).count()
-        closed_yesterday = Meld.objects.filter(completed_date=yesterday).count()
+        closed_yesterday = Meld.objects.filter(marked_complete__date=yesterday).count()
 
         # S3 — unscheduled & aging
         unscheduled_aging = list(

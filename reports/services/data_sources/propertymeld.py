@@ -93,7 +93,7 @@ def get_melds_for_period(property_obj, month_start, month_end) -> list:
             "has_vendor": bool(m.assigned_vendor_name),
             "scheduled_date": m.scheduled_date.isoformat() if m.scheduled_date else None,
             "created_at": m.source_created_at.date().isoformat() if m.source_created_at else None,
-            "completed_date": m.completed_date.isoformat() if m.completed_date else None,
+            "completed_date": m.marked_complete.isoformat() if m.marked_complete else None,
             "unit_ref": m.unit_ref or None,
         })
 

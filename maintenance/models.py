@@ -239,15 +239,18 @@ class Meld(models.Model):
     """
     Maintenance meld from Property Meld. Tracks work orders from creation
     through vendor assignment, scheduling, and completion.
-
-    No FK to Property/Unit — PM entities don't map 1:1 to RentVine records.
-    Cross-references stored as text fields for flexibility.
     """
 
     property_meld_id = models.CharField(max_length=255, unique=True, db_index=True)
 
     brief_description = models.TextField(blank=True)
     category = models.CharField(max_length=255, blank=True)
+    reference_id = models.CharField(max_length=20, blank=True, db_index=True)
+    description = models.TextField(blank=True)
+    work_type = models.CharField(max_length=100, blank=True)
+    work_location = models.CharField(max_length=255, blank=True)
+    origin = models.CharField(max_length=50, blank=True)
+    is_active = models.BooleanField(default=True)
 
     PRIORITY_CHOICES = [
         ("LOW", "Low"),
@@ -267,9 +270,23 @@ class Meld(models.Model):
     property_meld_property_id = models.CharField(max_length=255, blank=True)
     unit_ref = models.CharField(max_length=255, blank=True)
 
+    # Resolved FK to local Unit (populated by unit resolver)
+    unit_fk = models.ForeignKey(
+        "properties.Unit",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="melds",
+    )
+
     resident_presence_required = models.BooleanField(default=False)
+
+    # Dates
     scheduled_date = models.DateField(null=True, blank=True, db_index=True)
-    completed_date = models.DateField(null=True, blank=True, db_index=True)
+    started = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    marked_complete = models.DateTimeField(null=True, blank=True, db_index=True)
+    completion_date = models.DateTimeField(null=True, blank=True, db_index=True)
 
     OWNER_APPROVAL_CHOICES = [
         ("Not Requested", "Not Requested"),
@@ -287,6 +304,30 @@ class Meld(models.Model):
     has_invoice = models.BooleanField(default=False)
     tags = models.JSONField(default=list, blank=True)
 
+    # Notes
+    maintenance_notes = models.TextField(blank=True)
+    completion_notes = models.TextField(blank=True)
+    reason_cannot_complete = models.TextField(blank=True)
+    resolution_type = models.CharField(max_length=100, blank=True)
+
+    # Relationships
+    parent_meld_id = models.CharField(max_length=50, blank=True)
+    recurring_meld_id = models.CharField(max_length=50, blank=True)
+    merged_meld_data = models.JSONField(default=dict, blank=True)
+    tenant_rating = models.IntegerField(null=True, blank=True)
+
+    # Email summary fields
+    ai_summary = models.TextField(blank=True)
+    staff_summary = models.TextField(blank=True)
+    SUMMARY_STATUS_CHOICES = [
+        ("auto", "Auto"),
+        ("edited", "Edited"),
+        ("needs_manual", "Needs Manual"),
+    ]
+    summary_status = models.CharField(
+        max_length=20, default="auto", choices=SUMMARY_STATUS_CHOICES
+    )
+
     raw_data = models.JSONField(default=dict, blank=True)
     source_created_at = models.DateTimeField(null=True, blank=True)
     source_modified_at = models.DateTimeField(null=True, blank=True, db_index=True)
@@ -298,8 +339,55 @@ class Meld(models.Model):
             models.Index(fields=["status", "priority"]),
             models.Index(fields=["owner_approval_status", "source_modified_at"]),
             models.Index(fields=["scheduled_date", "status"]),
-            models.Index(fields=["completed_date", "has_invoice"]),
+            models.Index(fields=["marked_complete", "has_invoice"]),
         ]
 
     def __str__(self):
         return f"Meld {self.property_meld_id} — {self.brief_description[:60]}"
+
+
+class Expenditure(models.Model):
+    """Cost/expenditure record from Property Meld, linked to a Meld."""
+
+    property_meld_id = models.IntegerField(unique=True, db_index=True)
+    meld = models.ForeignKey(
+        Meld, on_delete=models.CASCADE, related_name="expenditures"
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20)
+    notes = models.TextField(blank=True)
+    line_items = models.JSONField(default=list, blank=True)
+    source_created_at = models.DateTimeField(null=True, blank=True)
+    source_updated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Expenditure #{self.property_meld_id} — ${self.amount}"
+
+
+class MaintenanceEmailSend(models.Model):
+    """Tracks sent maintenance summary emails per owner per week."""
+
+    owner = models.ForeignKey(
+        "properties.Owner",
+        on_delete=models.CASCADE,
+        related_name="maintenance_email_sends",
+    )
+    week_date = models.DateField()  # Monday anchor
+    status = models.CharField(max_length=20)  # pending, sent, failed
+    sendgrid_message_id = models.CharField(max_length=255, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    sent_by = models.ForeignKey(
+        "auth.User", null=True, blank=True, on_delete=models.SET_NULL
+    )
+    error_detail = models.TextField(blank=True)
+    melds_included = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("owner", "week_date")]
+
+    def __str__(self):
+        return f"MaintenanceEmail {self.owner} — {self.week_date} ({self.status})"

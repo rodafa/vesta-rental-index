@@ -763,14 +763,14 @@ def generate_meld_drafts(request, data: MeldGenerateSchema):
     # All open melds + melds completed this week
     qs = MeldModel.objects.filter(
         Q(status__in=OPEN_STATUSES) |
-        Q(status__in=COMPLETED_STATUSES, completed_date__gte=week_start, completed_date__lt=week_end)
-    ).values("status", "completed_date", "property_address", "brief_description", "category", "property_meld_id")
+        Q(status__in=COMPLETED_STATUSES, marked_complete__date__gte=week_start, marked_complete__date__lt=week_end)
+    ).values("status", "marked_complete", "property_address", "brief_description", "category", "property_meld_id")
 
     # Convert to the dict shape the rest of this function expects
     week_melds = [
         {
             "status": m["status"],
-            "completed_date": m["completed_date"],
+            "completed_date": m["marked_complete"],
             "prop_address": {"full_address": m["property_address"]},
             "brief_description": m["brief_description"],
             "work_category": m["category"],
