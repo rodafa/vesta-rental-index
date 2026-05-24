@@ -6,6 +6,7 @@ build/
 *.egg
 db.sqlite3
 .env
+.env.*
 *.log
 .venv/
 venv/
