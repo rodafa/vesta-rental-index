@@ -83,11 +83,11 @@
   </div>
   <div class="stat-card">
     <div class="label">Avg DOM</div>
-    <div class="value">{{ kpis.current.avg_dom|default_if_none:"—" }}</div>
+    <div class="value">{% if kpis.current.avg_dom != None %}{{ kpis.current.avg_dom|floatformat:1 }}{% else %}&mdash;{% endif %}</div>
     {% with d=kpis.deltas.avg_dom %}
       {% if d and d != 0 %}
         <div class="change {% if d < 0 %}positive{% else %}negative{% endif %}">
-          {% if d > 0 %}+{% endif %}{{ d }}
+          {% if d > 0 %}+{% endif %}{{ d|floatformat:1 }}
         </div>
       {% endif %}
     {% endwith %}
@@ -105,6 +105,7 @@
       <th class="num">Apps Submitted</th>
       <th class="num">Apps Requested</th>
       <th class="num">Missed/Failed</th>
+      <th class="num">Cancelled</th>
       <th class="num">Texts</th>
       <th class="num">Calls</th>
     </tr>
@@ -124,18 +125,19 @@
           {{ row.health }}
         {% endif %}
       </td>
-      <td class="num">{{ row.dom|default_if_none:"—" }}</td>
+      <td class="num">{{ row.dom|default_if_none:"&mdash;" }}</td>
       <td class="num">{{ row.leads }}</td>
       <td class="num">{{ row.showings }}</td>
       <td class="num">{{ row.apps_submitted }}</td>
       <td class="num">{{ row.apps_requested }}</td>
       <td class="num">{{ row.missed_failed }}</td>
+      <td class="num">{{ row.canceled }}</td>
       <td class="num">{{ row.outbound_texts }}</td>
       <td class="num">{{ row.total_calls }}</td>
     </tr>
     {% empty %}
     <tr>
-      <td colspan="10" style="text-align:center; padding:2rem; color:#64748B">
+      <td colspan="11" style="text-align:center; padding:2rem; color:#64748B">
         No leasing data for this period.
       </td>
     </tr>
@@ -152,6 +154,7 @@
       <td class="num"><strong>{{ kpis.current.total_apps }}</strong></td>
       <td class="num"><strong>{{ kpis.current.total_apps_requested }}</strong></td>
       <td class="num"><strong>{{ kpis.current.total_missed }}</strong></td>
+      <td class="num"><strong>{{ kpis.current.total_canceled }}</strong></td>
       <td></td>
       <td></td>
     </tr>

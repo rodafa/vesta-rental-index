@@ -8,9 +8,10 @@ for DailyLeasingMetric data.
 import datetime
 import logging
 
-from django.db.models import Avg, Count, OuterRef, Subquery, Sum
+from django.db.models import Avg, Count, OuterRef, Q, Subquery, Sum
 
 from leasing.models import DailyLeasingMetric
+from leasing.models import Showing
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,19 @@ def get_unit_metrics(date_from, date_to, portfolio=None):
         .order_by("unit__property__address_line_1", "unit__name")
     )
 
+    # Cancelled showings from Showing model for the window
+    unit_ids_in_window = [r["unit"] for r in qs.values("unit").distinct()]
+    canceled_qs = (
+        Showing.objects.filter(
+            unit_id__in=unit_ids_in_window,
+            status="canceled",
+            scheduled_at__date__range=(date_from, date_to),
+        )
+        .values("unit_id")
+        .annotate(canceled=Count("id"))
+    )
+    canceled_by_unit = {r["unit_id"]: r["canceled"] for r in canceled_qs}
+
     results = []
     for row in rows:
         address = row["unit__property__address_line_1"] or ""
@@ -69,6 +83,7 @@ def get_unit_metrics(date_from, date_to, portfolio=None):
             "apps_submitted": row["apps_submitted"] or 0,
             "apps_requested": row["apps_requested"] or 0,
             "missed_failed": row["missed_failed"] or 0,
+            "canceled": canceled_by_unit.get(row["unit"], 0),
             "outbound_texts": row["outbound_texts"] or 0,
             "total_calls": row["total_calls"] or 0,
             "dom": row["dom"],
@@ -97,12 +112,23 @@ def _aggregate_window(date_from, date_to, portfolio=None):
         active_units=Count("unit", distinct=True),
         avg_dom=Avg("days_on_market"),
     )
+
+    # Cancelled showings from Showing model
+    showing_qs = Showing.objects.filter(
+        status="canceled",
+        scheduled_at__date__range=(date_from, date_to),
+    )
+    if portfolio:
+        showing_qs = showing_qs.filter(unit__property__portfolio=portfolio)
+    total_canceled = showing_qs.count()
+
     return {
         "total_leads": agg["total_leads"] or 0,
         "total_showings": agg["total_showings"] or 0,
         "total_apps": agg["total_apps"] or 0,
         "total_apps_requested": agg["total_apps_requested"] or 0,
         "total_missed": agg["total_missed"] or 0,
+        "total_canceled": total_canceled,
         "active_units": agg["active_units"] or 0,
         "avg_dom": round(agg["avg_dom"], 1) if agg["avg_dom"] is not None else None,
     }

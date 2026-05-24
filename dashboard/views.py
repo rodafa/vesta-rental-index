@@ -130,14 +130,14 @@ def leasing_intelligence(request):
         writer.writerow([
             "Address", "Health", "DOM", "Leads", "Showings",
             "Apps Submitted", "Apps Requested", "Missed/Failed",
-            "Outbound Texts", "Total Calls",
+            "Cancelled", "Outbound Texts", "Total Calls",
         ])
         for row in unit_rows:
             writer.writerow([
                 row["address"], row["health"], row["dom"] or "",
                 row["leads"], row["showings"], row["apps_submitted"],
                 row["apps_requested"], row["missed_failed"],
-                row["outbound_texts"], row["total_calls"],
+                row["canceled"], row["outbound_texts"], row["total_calls"],
             ])
         return response
 
