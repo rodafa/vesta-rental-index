@@ -66,6 +66,14 @@ def build_marketing_report(week_start, week_end):
     tw_outcomes = showing_outcome_counts(listed_ids, week_start, week_end)
     pw_outcomes = showing_outcome_counts(listed_ids, prev_start, prev_end)
 
+    # Company-wide period totals for portfolio deltas
+    cw_leads = sum(d.get("leads", 0) for d in this_week.values())
+    cw_showings = sum(d.get("showings", 0) for d in this_week.values())
+    cw_apps = sum(d.get("apps", 0) for d in this_week.values())
+    pw_leads = sum(d.get("leads", 0) for d in prev_week.values())
+    pw_showings = sum(d.get("showings", 0) for d in prev_week.values())
+    pw_apps = sum(d.get("apps", 0) for d in prev_week.values())
+
     # 5. Notes for this week
     notes_map = {}
     for n in PropertyWeeklyNote.objects.filter(unit_id__in=listed_ids, week_date=monday):
@@ -89,6 +97,12 @@ def build_marketing_report(week_start, week_end):
 
     # 7. Benchmarks
     benchmarks = get_portfolio_benchmark(listed_ids, week_start, week_end)
+    benchmarks["period_leads"] = cw_leads
+    benchmarks["period_showings"] = cw_showings
+    benchmarks["period_apps"] = cw_apps
+    benchmarks["prev_period_leads"] = pw_leads
+    benchmarks["prev_period_showings"] = pw_showings
+    benchmarks["prev_period_apps"] = pw_apps
 
     # 8. Build rows
     rows = []

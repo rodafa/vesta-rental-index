@@ -16,3 +16,4 @@ venv/
 *.swo
 staticfiles/
 .claude/
+tmp/

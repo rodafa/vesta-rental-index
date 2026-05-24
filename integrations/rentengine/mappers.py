@@ -218,11 +218,8 @@ def map_leasing_performance(data):
             _get(data, "showings_missed", "showingsMissed", "missedShowings",
                  default=None)
         ) or max(scheduled - completed, 0),
-        "applications_count": _safe_int(
-            _get(data, "applications_submitted", "applications",
-                 "applicationsCount", "applications_count",
-                 "totalApplications", default=0)
-        ) or 0,
+        # applications_count is populated by ApplicationCountService from
+        # BoomScreen data — RentEngine no longer writes this field.
     }
 
     extra = {

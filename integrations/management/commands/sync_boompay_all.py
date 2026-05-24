@@ -4,12 +4,13 @@ import time
 from django.core.management.base import BaseCommand
 
 from integrations.boompay.client import BoompayClient
-from integrations.boompay.services import ApplicationSyncService
+from integrations.boompay.services import ApplicationCountService, ApplicationSyncService
 
 logger = logging.getLogger(__name__)
 
 SYNC_ORDER = [
     ("applications", ApplicationSyncService),
+    ("application_counts", ApplicationCountService),
     # Reports endpoint not available in BoomScreen partner API;
     # screening data is embedded in application records.
 ]
@@ -27,7 +28,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip",
             nargs="+",
-            choices=["applications", "reports"],
+            choices=["applications", "application_counts", "reports"],
             default=[],
             help="Skip specific entity types (e.g., --skip applications)",
         )

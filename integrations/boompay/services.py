@@ -10,10 +10,13 @@ Each service:
 """
 
 import logging
+from datetime import date
 
+from django.db.models import Count
 from django.utils import timezone
 
 from integrations.models import APISyncLog
+from market.models import DailyLeasingSummary
 from properties.models import Unit
 from screening.models import ScreeningApplication, ScreeningReport
 
@@ -204,6 +207,148 @@ class ReportSyncService(_BaseSyncService):
         )
         return {
             "fetched": total_fetched,
+            "created": created_count,
+            "updated": updated_count,
+            "errors": len(errors),
+        }
+
+
+class ApplicationCountService:
+    """
+    Populate DailyLeasingSummary.applications_count from ScreeningApplication
+    records instead of RentEngine data.
+
+    For each unit with screening applications, counts all applications where
+    submitted_at <= target_date (cumulative) and writes the total to
+    DailyLeasingSummary.applications_count.
+    """
+
+    source = "boompay"
+    endpoint = "application_counts"
+
+    def __init__(self, client=None):
+        # No API client needed — this service queries local DB only.
+        pass
+
+    def _create_log(self):
+        return APISyncLog.objects.create(
+            source=self.source,
+            endpoint=self.endpoint,
+            sync_type="derived",
+            status="started",
+        )
+
+    def _complete_log(self, log, *, created, updated, errors=None):
+        log.status = "completed" if not errors else "partial"
+        log.records_created = created
+        log.records_updated = updated
+        if errors:
+            log.error_message = "\n".join(errors[:50])
+        log.completed_at = timezone.now()
+        log.save()
+
+    def _fail_log(self, log, error_message):
+        log.status = "failed"
+        log.error_message = str(error_message)[:2000]
+        log.completed_at = timezone.now()
+        log.save()
+
+    def sync(self, target_date=None, dry_run=False):
+        target_date = target_date or date.today()
+        log = self._create_log()
+
+        try:
+            return self._do_sync(log, target_date, dry_run)
+        except Exception as exc:
+            self._fail_log(log, exc)
+            raise
+
+    def _do_sync(self, log, target_date, dry_run):
+        created_count = 0
+        updated_count = 0
+        errors = []
+
+        # Get cumulative application counts per unit up to target_date
+        unit_counts = (
+            ScreeningApplication.objects.filter(
+                unit__isnull=False,
+                submitted_at__date__lte=target_date,
+            )
+            .values("unit_id")
+            .annotate(app_count=Count("id"))
+        )
+
+        unit_count_map = {row["unit_id"]: row["app_count"] for row in unit_counts}
+
+        # Update existing DailyLeasingSummary rows for target_date
+        existing_summaries = DailyLeasingSummary.objects.filter(
+            summary_date=target_date,
+        ).select_related("unit")
+
+        seen_unit_ids = set()
+
+        for dls in existing_summaries:
+            try:
+                count = unit_count_map.get(dls.unit_id, 0)
+                seen_unit_ids.add(dls.unit_id)
+
+                if dls.applications_count == count:
+                    continue
+
+                if dry_run:
+                    logger.info(
+                        "DRY RUN %s: applications_count %d -> %d",
+                        dls.unit, dls.applications_count, count,
+                    )
+                    continue
+
+                dls.applications_count = count
+                dls.save(update_fields=["applications_count"])
+                updated_count += 1
+            except Exception as exc:
+                msg = f"Error updating DLS for unit {dls.unit_id}: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+
+        # Create DLS rows for units that have applications but no DLS yet
+        for unit_id, count in unit_count_map.items():
+            if unit_id in seen_unit_ids:
+                continue
+            try:
+                unit = Unit.objects.get(pk=unit_id)
+                if dry_run:
+                    logger.info(
+                        "DRY RUN %s: would create DLS with applications_count=%d",
+                        unit, count,
+                    )
+                    continue
+
+                DailyLeasingSummary.objects.create(
+                    summary_date=target_date,
+                    unit=unit,
+                    applications_count=count,
+                    property_display_name=str(unit),
+                )
+                created_count += 1
+            except Exception as exc:
+                msg = f"Error creating DLS for unit {unit_id}: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            errors=errors,
+        )
+
+        logger.info(
+            "ApplicationCountService: date=%s updated=%d created=%d errors=%d",
+            target_date, updated_count, created_count, len(errors),
+        )
+
+        return {
+            "fetched": len(unit_count_map),
             "created": created_count,
             "updated": updated_count,
             "errors": len(errors),
