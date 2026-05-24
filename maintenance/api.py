@@ -7,7 +7,7 @@ from django.core.management import call_command
 from django.http import HttpResponse
 from ninja import Router, Schema
 
-from maintenance.models import MaintenanceEmailSend, Meld
+from maintenance.models import MaintenanceEmailMeld, MaintenanceEmailSend, Meld
 from maintenance.services.meld_summarizer import batch_summarize
 from maintenance.services.owner_email_builder import (
     build_maintenance_email_data,
@@ -221,4 +221,31 @@ def send_history(request, start: date | None = None, end: date | None = None):
             "melds_count": len(record.melds_included),
         }
         for record in qs[:100]
+    ]
+
+
+@router.get("/owner-email/send-history/{send_id}/snapshots")
+def send_history_snapshots(request, send_id: int):
+    """Get frozen meld snapshots for a specific email send."""
+    if not _staff_required(request):
+        return HttpResponse(status=403)
+
+    snapshots = MaintenanceEmailMeld.objects.filter(
+        email_send_id=send_id
+    ).order_by("section", "created_at")
+
+    return [
+        {
+            "id": s.pk,
+            "meld_reference_id": s.meld_reference_id,
+            "summary_text": s.summary_text,
+            "cost": float(s.cost) if s.cost else None,
+            "status_at_send": s.status_at_send,
+            "section": s.section,
+            "portfolio_name": s.portfolio_name,
+            "unit_label": s.unit_label,
+            "property_address": s.property_address,
+            "created_at": s.created_at.isoformat(),
+        }
+        for s in snapshots
     ]

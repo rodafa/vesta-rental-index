@@ -6,83 +6,73 @@
 {% block topbar_title %}Maintenance Emails{% endblock %}
 
 {% block content %}
-<style>
-  .me-layout { display: flex; gap: 0; height: calc(100vh - var(--topbar-height) - 72px); min-height: 400px; }
-
-  /* ── Left panel ── */
-  .me-left { width: 280px; min-width: 240px; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }
-  .me-left-header { padding: .75rem 1rem; border-bottom: 1px solid #e5e7eb; background: #f9f9fb; }
-  .me-owner-list { flex: 1; overflow-y: auto; }
-  .me-owner-row { padding: .65rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
-  .me-owner-row:hover { background: #f5f7fa; }
-  .me-owner-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; }
-  .me-owner-name { font-size: .875rem; font-weight: 600; color: #1f2937; }
-  .me-owner-meta { font-size: .75rem; color: #6b7280; margin-top: 2px; }
-
-  /* ── Right panel ── */
-  .me-right { flex: 1; display: flex; flex-direction: column; padding: 1.25rem 1.5rem; overflow-y: auto; }
-  .me-right-empty { color: #9ca3af; font-size: .9rem; margin: auto; text-align: center; }
-
-  .me-subject-row { margin-bottom: .75rem; }
-  .me-subject-input { width: 100%; box-sizing: border-box; font-size: .9rem; padding: .4rem .6rem; border: 1px solid #d1d5db; border-radius: 4px; }
-  .me-subject-input:focus { outline: none; border-color: #3b82f6; }
-
-  .me-body-label { font-size: .8rem; font-weight: 600; color: #555; margin-bottom: .3rem; display: block; }
-  .me-body-textarea { width: 100%; box-sizing: border-box; font-size: .875rem; padding: .5rem .6rem; border: 1px solid #d1d5db; border-radius: 4px; resize: vertical; min-height: 220px; line-height: 1.55; }
-  .me-body-textarea:focus { outline: none; border-color: #3b82f6; }
-  .me-body-textarea[readonly] { background: #f9fafb; color: #6b7280; }
-
-  .me-actions { margin-top: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-  .me-save-status { font-size: .78rem; color: #16a34a; }
-
-  /* Status badges */
-  .me-badge { font-size: .7rem; font-weight: 700; padding: 2px 7px; border-radius: 10px; letter-spacing: .04em; }
-  .me-badge-draft { background: #e5e7eb; color: #555; }
-  .me-badge-sent  { background: #d1fae5; color: #065f46; }
-
-  /* Top bar */
-  .me-topbar { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; flex-wrap: wrap; }
-  .me-week-label { font-size: .875rem; color: #6b7280; }
-
-  /* Progress bar */
-  .me-progress { display: none; align-items: center; gap: .75rem; margin-bottom: .75rem; padding: .6rem .9rem; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; }
-  .me-progress.visible { display: flex; }
-  .me-progress-track { width: 220px; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
-  .me-progress-fill { height: 100%; background: #3b82f6; border-radius: 3px; width: 0%; transition: width 1s ease; }
-  .me-progress-label { font-size: .82rem; color: #374151; flex: 1; }
-  .me-progress-time { font-size: .78rem; color: #9ca3af; white-space: nowrap; }
-  .me-progress-done { color: #16a34a; font-weight: 600; }
-  .me-progress-error { color: #dc2626; font-weight: 600; }
-</style>
-
-<h1 class="page-title">Maintenance Emails</h1>
-
-<div class="me-topbar">
-  <button class="btn btn-primary" id="me-generate-btn">Generate Drafts</button>
-  <span class="me-week-label" id="me-week-label">Week: loading...</span>
-</div>
-<div class="me-progress" id="me-progress">
-  <div class="me-progress-track"><div class="me-progress-fill" id="me-progress-fill"></div></div>
-  <span class="me-progress-label" id="me-progress-label">Starting...</span>
-  <span class="me-progress-time" id="me-progress-time"></span>
-</div>
-
-<div class="me-layout">
-  <!-- Left: owner list -->
-  <div class="me-left">
-    <div class="me-left-header" style="font-size:.8rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">Owners</div>
-    <div class="me-owner-list" id="me-owner-list">
-      <div style="padding:1rem;color:#9ca3af;font-size:.85rem;">No drafts yet — click Generate.</div>
+<!-- Controls -->
+<div class="card" style="margin-bottom:1rem;">
+  <div style="display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap;">
+    <div class="filter-group">
+      <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">From</label>
+      <input type="date" id="me-start" class="input" style="width:160px;">
     </div>
+    <div class="filter-group">
+      <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">To</label>
+      <input type="date" id="me-end" class="input" style="width:160px;">
+    </div>
+    <button class="btn btn-primary" id="me-load-btn" onclick="ME.load()">Load</button>
+    <button class="btn btn-secondary" id="me-gen-btn" onclick="ME.generateSummaries()">Generate Summaries</button>
+    <button class="btn btn-success" id="me-send-btn" onclick="ME.confirmSend()">Send Emails</button>
+    <span id="me-status" style="font-size:.85rem;color:var(--text-secondary);"></span>
   </div>
+</div>
 
-  <!-- Right: draft editor -->
-  <div class="me-right" id="me-right-panel">
-    <div class="me-right-empty">Select an owner to view or edit their draft.</div>
+<!-- Stats bar -->
+<div class="benchmark-bar" id="me-stats" style="display:none;"></div>
+
+<!-- Filters -->
+<div class="card" style="margin-bottom:1rem;">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <div class="filter-group">
+      <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">Owner</label>
+      <select id="me-filter-owner" class="input" onchange="ME.applyFilters()" style="width:200px;">
+        <option value="all">All Owners</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">Search</label>
+      <input type="text" id="me-filter-search" class="input" placeholder="Address or description..." oninput="ME.applyFilters()" style="width:220px;">
+    </div>
+    <div style="margin-left:auto;font-size:.78rem;color:var(--text-muted);" id="me-count"></div>
+  </div>
+</div>
+
+<!-- Owner sections -->
+<div id="me-owners-container">
+  <div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">Select a date range and click Load.</div>
+</div>
+
+<!-- Send Log -->
+<div class="card" id="me-send-log" style="display:none;margin-top:1.5rem;">
+  <div class="card-title">Send History</div>
+  <table class="send-log-table" style="width:100%;font-size:.82rem;">
+    <thead>
+      <tr><th>Owner</th><th>Week</th><th>Status</th><th>Melds</th><th>Sent At</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="me-send-log-body"></tbody>
+  </table>
+</div>
+
+<!-- Snapshot detail modal -->
+<div id="me-snapshot-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;overflow-y:auto;">
+  <div style="max-width:700px;margin:3rem auto;background:#fff;border-radius:8px;padding:1.5rem;position:relative;">
+    <button onclick="ME.closeSnapshot()" style="position:absolute;top:.75rem;right:1rem;background:none;border:none;font-size:1.2rem;cursor:pointer;">&times;</button>
+    <h3 style="margin:0 0 1rem;">Sent Summaries</h3>
+    <div id="me-snapshot-content"></div>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'dashboard/js/maintenance_emails.js' %}?v=2"></script>
+<script>
+var USER_EMAIL = "{{ user_email|escapejs }}";
+</script>
+<script src="{% static 'dashboard/js/maintenance_emails.js' %}?v=3"></script>
 {% endblock %}

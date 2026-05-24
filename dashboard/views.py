@@ -52,7 +52,9 @@ def leasing_pipeline(request):
 
 @login_required
 def maintenance_emails(request):
-    return render(request, "dashboard/maintenance_emails.html")
+    return render(request, "dashboard/maintenance_emails.html", {
+        "user_email": request.user.email if request.user.is_authenticated else "",
+    })
 
 
 @login_required

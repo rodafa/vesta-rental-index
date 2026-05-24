@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from django.conf import settings
 from django.utils import timezone
 
-from maintenance.models import MaintenanceEmailSend
+from maintenance.models import MaintenanceEmailMeld, MaintenanceEmailSend, Meld
 from maintenance.services.owner_email_builder import (
     build_maintenance_email_data,
     build_maintenance_email_html,
@@ -125,7 +125,7 @@ def send_maintenance_emails(
                 msg_id = getattr(msg.anymail_status, "message_id", "") or ""
 
             if not test_recipient:
-                MaintenanceEmailSend.objects.update_or_create(
+                email_send, _ = MaintenanceEmailSend.objects.update_or_create(
                     owner=owner,
                     week_date=monday,
                     defaults={
@@ -141,6 +141,8 @@ def send_maintenance_emails(
                         ),
                     },
                 )
+                # Write frozen snapshots
+                _create_meld_snapshots(email_send, email_data, owner)
             sent += 1
             logger.info(
                 "Sent maintenance email to %s (%s) — open=%d closed=%d, msg_id=%s",
@@ -174,3 +176,45 @@ def send_maintenance_emails(
         sent, skipped, failed,
     )
     return {"sent": sent, "skipped": skipped, "failed": failed, "errors": errors}
+
+
+def _create_meld_snapshots(email_send, email_data, owner):
+    """
+    Write one MaintenanceEmailMeld row per meld included in the send.
+    Frozen copies — never updated later.
+    """
+    snapshots = []
+    for section, melds in [
+        ("open", email_data["open_melds"]),
+        ("closed", email_data["closed_melds"]),
+        ("canceled", email_data["canceled_melds"]),
+    ]:
+        for m in melds:
+            meld_obj = Meld.objects.select_related(
+                "unit_fk__property__portfolio"
+            ).filter(pk=m["id"]).first()
+
+            # Derive portfolio per meld from unit → property → portfolio
+            portfolio = None
+            if meld_obj and meld_obj.unit_fk and meld_obj.unit_fk.property:
+                portfolio = meld_obj.unit_fk.property.portfolio
+            portfolio_name = portfolio.name if portfolio else ""
+
+            snapshots.append(
+                MaintenanceEmailMeld(
+                    email_send=email_send,
+                    meld=meld_obj,
+                    meld_reference_id=m.get("reference_id", ""),
+                    summary_text=m.get("summary", ""),
+                    cost=m.get("cost") or None,
+                    status_at_send=m.get("status", ""),
+                    section=section,
+                    portfolio=portfolio,
+                    portfolio_name=portfolio_name,
+                    unit_label=m.get("unit_address", ""),
+                    property_address=m.get("unit_address", ""),
+                )
+            )
+
+    if snapshots:
+        MaintenanceEmailMeld.objects.bulk_create(snapshots)

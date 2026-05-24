@@ -391,3 +391,54 @@ class MaintenanceEmailSend(models.Model):
 
     def __str__(self):
         return f"MaintenanceEmail {self.owner} — {self.week_date} ({self.status})"
+
+
+class MaintenanceEmailMeld(models.Model):
+    """
+    Write-once snapshot of a meld as it appeared in a sent email.
+
+    Created at send time, never updated. Survives meld deletion, portfolio
+    renames, and summary re-edits. Enables the query: "every maintenance
+    summary ever sent for this portfolio."
+    """
+
+    email_send = models.ForeignKey(
+        MaintenanceEmailSend,
+        on_delete=models.CASCADE,
+        related_name="meld_snapshots",
+    )
+    meld = models.ForeignKey(
+        Meld, null=True, blank=True, on_delete=models.SET_NULL, related_name="email_snapshots"
+    )
+
+    # Frozen copies — independent of later changes
+    meld_reference_id = models.CharField(max_length=20, blank=True)
+    summary_text = models.TextField(blank=True)
+    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    status_at_send = models.CharField(max_length=100, blank=True)
+    section = models.CharField(max_length=10)  # open, closed, canceled
+
+    # Portfolio linkage — frozen text survives renames/restructuring
+    portfolio = models.ForeignKey(
+        "properties.Portfolio",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="maintenance_email_melds",
+    )
+    portfolio_name = models.CharField(max_length=255, blank=True)
+
+    # Address context — self-contained record
+    unit_label = models.CharField(max_length=500, blank=True)
+    property_address = models.CharField(max_length=500, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["portfolio", "created_at"]),
+            models.Index(fields=["email_send"]),
+        ]
+
+    def __str__(self):
+        return f"Snapshot #{self.meld_reference_id} — {self.section} ({self.email_send_id})"

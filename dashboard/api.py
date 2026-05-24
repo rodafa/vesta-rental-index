@@ -8,10 +8,28 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from ninja import Router, Schema
 
+from properties.models import Owner
 from .models import MeldWeeklyDraft, OwnerReportNote, PropertyWeeklyNote, UnitNote
 
 router = Router(tags=["Dashboard"])
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Owner list (used by maintenance email review dashboard)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/owner-list")
+def list_owners(request):
+    """Return all active owners with email addresses."""
+    owners = Owner.objects.filter(is_active=True).exclude(email="").order_by("name")
+    return {
+        "owners": [
+            {"id": o.pk, "name": o.name, "email": o.email}
+            for o in owners
+        ]
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -1,399 +1,511 @@
 /**
- * Maintenance Emails — split-panel draft workflow.
- * Left: owner list with status badges.
- * Right: editable subject + body, send button.
- * Auto-refreshes every 60s (edit guard prevents re-render while typing).
+ * Maintenance Emails — review dashboard.
+ * Mirrors the weekly_reports page pattern: date range, owner sections,
+ * inline editing, preview, test-send, batch-send, send history.
  */
-document.addEventListener('DOMContentLoaded', function () {
+var ME = (function () {
 
-  // ── State ──────────────────────────────────────────────────────────────
+  var owners = [];  // [{owner_id, owner_name, open_melds, closed_melds, canceled_melds, total_spend}]
+  var ALL_OWNERS = [];
 
-  var drafts = [];
-  var _activeDraftId = null;
-  var _dirtyBody = false;
-  var _dirtySubject = false;
+  // ── Init ──────────────────────────────────────────────────────────────────
 
-  // ── Week calculation (most recent Tuesday) ─────────────────────────────
+  document.addEventListener('DOMContentLoaded', function () {
+    _setDefaultDates();
+  });
 
-  function currentTuesday() {
-    var d = new Date();
-    var day = d.getDay(); // 0=Sun,1=Mon,...,6=Sat — Tue=2
-    var daysSinceTue = (day - 2 + 7) % 7;
-    var tue = new Date(d);
-    tue.setDate(d.getDate() - daysSinceTue);
-    return tue.toISOString().split('T')[0];
+  function _setDefaultDates() {
+    var today = new Date();
+    var dow = today.getDay();
+    // Default: last Monday through today
+    var daysSinceMon = (dow - 1 + 7) % 7;
+    if (daysSinceMon === 0) daysSinceMon = 7;
+    var start = new Date(today);
+    start.setDate(today.getDate() - daysSinceMon);
+    var end = new Date(today);
+    document.getElementById('me-start').value = _iso(start);
+    document.getElementById('me-end').value = _iso(end);
   }
 
-  var weekStart = currentTuesday();
-
-  function weekLabel() {
-    var start = new Date(weekStart + 'T00:00:00');
-    var end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    return 'Week: ' + fmtDate(start) + ' \u2013 ' + fmtDate(end);
+  function _iso(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
-  function fmtDate(d) {
+  function _fmtDate(s) {
+    if (!s) return '';
+    var d = new Date(s);
     var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return months[d.getMonth()] + ' ' + d.getDate();
   }
 
-  var weekLabelEl = document.getElementById('me-week-label');
-  if (weekLabelEl) weekLabelEl.textContent = weekLabel();
+  // ── Load ──────────────────────────────────────────────────────────────────
 
-  // ── Edit Guard ──────────────────────────────────────────────────────────
+  function load() {
+    var s = document.getElementById('me-start').value;
+    var e = document.getElementById('me-end').value;
+    if (!s || !e) { VestaAPI.toast('Select a date range', 'error'); return; }
 
-  function isEditing() {
-    var a = document.activeElement;
-    if (!a) return false;
-    var t = a.tagName.toLowerCase();
-    return t === 'textarea' || t === 'input';
+    _setStatus('Loading...');
+    document.getElementById('me-owners-container').innerHTML =
+      '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">Loading...</div>';
+
+    // Fetch all owners with active portfolios
+    VestaAPI.get('/api/maintenance/owner-email/send-history?start=' + s + '&end=' + e).then(function () {});
+
+    // We need to iterate owners — get the list from the melds endpoint for each
+    // Strategy: first fetch owner list, then fetch melds per owner
+    _fetchAllOwners(s, e);
   }
 
-  // ── Load ────────────────────────────────────────────────────────────────
-
-  function loadAll() {
-    VestaAPI.get('/dashboard/meld-drafts?week_start=' + weekStart).then(function (data) {
-      var items = data.items || data;
-      if (!Array.isArray(items)) items = [];
-      drafts = items;
-      if (!isEditing()) {
-        renderOwnerList();
-        if (_activeDraftId !== null) {
-          renderRightPanel();
-        }
-      }
-    }).catch(function (err) {
-      console.error('Maintenance emails load error:', err);
+  function _fetchAllOwners(start, end) {
+    // Get all active owners from the properties API
+    VestaAPI.get('/api/dashboard/owner-list').then(function (data) {
+      var ownerList = data.owners || data || [];
+      _loadOwnerMelds(ownerList, start, end);
+    }).catch(function () {
+      // Fallback: try to load from send history to get owner list
+      _loadFromKnownOwners(start, end);
     });
   }
 
-  loadAll();
-  setInterval(loadAll, 60000);
-
-  // ── Progress bar ─────────────────────────────────────────────────────────
-
-  var _progressTimer = null;
-  var _progressStart = 0;
-
-  // Stages: [seconds_from_start, progress_pct, label]
-  var STAGES = [
-    [0,   4,  'Connecting to Property Meld API\u2026'],
-    [3,   12, 'Fetching open melds\u2026'],
-    [8,   28, 'Fetching melds (this can take 30\u201360s)\u2026'],
-    [30,  50, 'Still fetching\u2026 almost there'],
-    [55,  68, 'Matching properties to owners\u2026'],
-    [65,  80, 'Generating AI drafts\u2026'],
-    [80,  90, 'Drafting remaining emails\u2026'],
-    [95,  95, 'Finalizing\u2026'],
-  ];
-
-  function _startProgress() {
-    var bar    = document.getElementById('me-progress');
-    var fill   = document.getElementById('me-progress-fill');
-    var label  = document.getElementById('me-progress-label');
-    var timer  = document.getElementById('me-progress-time');
-    if (!bar) return;
-
-    _progressStart = Date.now();
-    bar.classList.add('visible');
-    label.className = 'me-progress-label';
-    fill.style.width = '4%';
-    label.textContent = STAGES[0][2];
-    timer.textContent = '0s';
-
-    _progressTimer = setInterval(function () {
-      var elapsed = Math.floor((Date.now() - _progressStart) / 1000);
-      timer.textContent = elapsed + 's';
-
-      // Find the highest stage whose time threshold has been passed
-      var pct = STAGES[0][1];
-      var msg = STAGES[0][2];
-      for (var i = 0; i < STAGES.length; i++) {
-        if (elapsed >= STAGES[i][0]) {
-          pct = STAGES[i][1];
-          msg = STAGES[i][2];
-        }
-      }
-      fill.style.width = pct + '%';
-      label.textContent = msg;
-    }, 1000);
-  }
-
-  function _stopProgress(success, message) {
-    if (_progressTimer) { clearInterval(_progressTimer); _progressTimer = null; }
-    var fill  = document.getElementById('me-progress-fill');
-    var label = document.getElementById('me-progress-label');
-    var timer = document.getElementById('me-progress-time');
-    var bar   = document.getElementById('me-progress');
-    if (!bar) return;
-
-    var elapsed = Math.floor((Date.now() - _progressStart) / 1000);
-    fill.style.width = success ? '100%' : '100%';
-    fill.style.background = success ? '#16a34a' : '#dc2626';
-    label.className = 'me-progress-label ' + (success ? 'me-progress-done' : 'me-progress-error');
-    label.textContent = message;
-    timer.textContent = elapsed + 's';
-
-    // Fade out after 4s
-    setTimeout(function () {
-      bar.classList.remove('visible');
-      fill.style.width = '0%';
-      fill.style.background = '#3b82f6';
-    }, 4000);
-  }
-
-  // ── Generate ────────────────────────────────────────────────────────────
-
-  document.getElementById('me-generate-btn').addEventListener('click', function () {
-    var btn = document.getElementById('me-generate-btn');
-    btn.disabled = true;
-    _startProgress();
-
-    VestaAPI.post('/dashboard/meld-drafts/generate', { week_start: weekStart }).then(function (result) {
-      btn.disabled = false;
-      var newDrafts = (result.drafts || []);
-      if (!newDrafts.length) {
-        _stopProgress(false, 'No melds matched to owners — check property sync');
-        return;
-      }
-      drafts = newDrafts;
-      _activeDraftId = null;
-      renderOwnerList();
-      renderRightPanel();
-      _stopProgress(true, 'Generated ' + newDrafts.length + ' draft' + (newDrafts.length !== 1 ? 's' : '') + ' successfully');
-    }).catch(function (err) {
-      btn.disabled = false;
-      console.error('Generate error:', err);
-      _stopProgress(false, 'Error generating drafts — see console for details');
+  function _loadFromKnownOwners(start, end) {
+    // Use a single owner_id=0 call which might fail, then fallback
+    _setStatus('Loading owner data...');
+    VestaAPI.get('/api/maintenance/owner-email/melds?owner_id=0&start=' + start + '&end=' + end).catch(function () {
+      _setStatus('Could not load owners — use owner filter');
+      document.getElementById('me-owners-container').innerHTML =
+        '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">Enter an owner ID in the filter or check API connectivity.</div>';
     });
-  });
-
-  // ── Render: left panel ──────────────────────────────────────────────────
-
-  function renderOwnerList() {
-    var list = document.getElementById('me-owner-list');
-    if (!list) return;
-    if (!drafts.length) {
-      list.innerHTML = '<div style="padding:1rem;color:#9ca3af;font-size:.85rem;">No drafts yet \u2014 click Generate.</div>';
-      return;
-    }
-    var html = '';
-    for (var i = 0; i < drafts.length; i++) {
-      var d = drafts[i];
-      var active = (_activeDraftId === d.id) ? ' active' : '';
-      html += '<div class="me-owner-row' + active + '" data-id="' + d.id + '">';
-      html += '<div class="me-owner-name">' + esc(d.owner_name) + '</div>';
-      html += '<div class="me-owner-meta">' + d.meld_count + ' meld' + (d.meld_count !== 1 ? 's' : '') +
-        ' &middot; ' + statusBadge(d) + '</div>';
-      html += '</div>';
-    }
-    list.innerHTML = html;
-    var rows = list.querySelectorAll('.me-owner-row');
-    for (var j = 0; j < rows.length; j++) {
-      rows[j].addEventListener('click', onOwnerRowClick);
-    }
   }
 
-  function statusBadge(d) {
-    if (d.status === 'sent') {
-      var sentStr = d.sent_at ? ' (' + fmtDate(new Date(d.sent_at)) + ')' : '';
-      return '<span class="me-badge me-badge-sent">SENT' + esc(sentStr) + '</span>';
-    }
-    return '<span class="me-badge me-badge-draft">DRAFT</span>';
-  }
-
-  // ── Render: right panel ─────────────────────────────────────────────────
-
-  function renderRightPanel() {
-    var panel = document.getElementById('me-right-panel');
-    if (!panel) return;
-
-    var draft = _activeDraftId !== null ? getDraftById(_activeDraftId) : null;
-    if (!draft) {
-      panel.innerHTML = '<div class="me-right-empty">Select an owner to view or edit their draft.</div>';
+  function _loadOwnerMelds(ownerList, start, end) {
+    if (!ownerList.length) {
+      _setStatus('No active owners found');
       return;
     }
 
-    var isSent = draft.status === 'sent';
-    var roAttr = isSent ? ' readonly' : '';
+    var loaded = 0;
+    var total = ownerList.length;
+    owners = [];
 
-    var html = '';
-
-    // Owner + status
-    html += '<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;">';
-    html += '<strong style="font-size:1rem;">' + esc(draft.owner_name) + '</strong>';
-    html += statusBadge(draft);
-    if (isSent && draft.sent_at) {
-      html += '<span style="font-size:.78rem;color:#6b7280;">Sent ' + fmtDate(new Date(draft.sent_at)) + '</span>';
-    }
-    html += '</div>';
-
-    // Subject
-    html += '<div class="me-subject-row">';
-    html += '<label class="me-body-label">Subject</label>';
-    html += '<input type="text" class="me-subject-input" id="me-subject-input" value="' + esc(draft.email_subject) + '"' + roAttr + '>';
-    html += '</div>';
-
-    // Body
-    html += '<label class="me-body-label">Email Body <span style="font-weight:400;color:#9ca3af;">(AI-drafted, editable)</span></label>';
-    html += '<textarea class="me-body-textarea" id="me-body-textarea"' + roAttr + '>' + esc(draft.email_body) + '</textarea>';
-
-    // Properties included
-    if (draft.properties_included && draft.properties_included.length) {
-      html += '<div style="font-size:.75rem;color:#9ca3af;margin-top:.4rem;">Covers: ' + esc(draft.properties_included.join(', ')) + '</div>';
-    }
-
-    // Actions
-    html += '<div class="me-actions">';
-    if (!isSent) {
-      html += '<button class="btn btn-success btn-sm" id="me-send-btn">Send Email</button>';
-      html += '<button class="btn btn-secondary btn-sm" id="me-save-btn">Save Draft</button>';
-    }
-    html += '<span class="me-save-status" id="me-save-status"></span>';
-    html += '</div>';
-
-    panel.innerHTML = html;
-
-    // Bind events
-    var bodyTA = document.getElementById('me-body-textarea');
-    var subjectIn = document.getElementById('me-subject-input');
-
-    if (bodyTA) {
-      bodyTA.addEventListener('input', function () { _dirtyBody = true; });
-      bodyTA.addEventListener('blur', onBodyBlur);
-    }
-    if (subjectIn) {
-      subjectIn.addEventListener('input', function () { _dirtySubject = true; });
-      subjectIn.addEventListener('blur', onSubjectBlur);
-    }
-
-    var sendBtn = document.getElementById('me-send-btn');
-    if (sendBtn) sendBtn.addEventListener('click', onSend);
-
-    var saveBtn = document.getElementById('me-save-btn');
-    if (saveBtn) saveBtn.addEventListener('click', onSave);
-  }
-
-  // ── Events ──────────────────────────────────────────────────────────────
-
-  function onOwnerRowClick(e) {
-    var id = parseInt(e.currentTarget.getAttribute('data-id'), 10);
-    _activeDraftId = id;
-    _dirtyBody = false;
-    _dirtySubject = false;
-    renderOwnerList();
-    renderRightPanel();
-  }
-
-  function onBodyBlur() {
-    if (_dirtyBody) saveDraft();
-  }
-
-  function onSubjectBlur() {
-    if (_dirtySubject) saveDraft();
-  }
-
-  function onSave() {
-    saveDraft();
-  }
-
-  function saveDraft() {
-    var draft = getDraftById(_activeDraftId);
-    if (!draft) return;
-
-    var bodyTA = document.getElementById('me-body-textarea');
-    var subjectIn = document.getElementById('me-subject-input');
-    var newBody = bodyTA ? bodyTA.value : draft.email_body;
-    var newSubject = subjectIn ? subjectIn.value : draft.email_subject;
-
-    VestaAPI.put('/dashboard/meld-drafts/' + draft.id, {
-      email_body: newBody,
-      email_subject: newSubject
-    }).then(function (updated) {
-      updateDraftInState(updated);
-      _dirtyBody = false;
-      _dirtySubject = false;
-      var status = document.getElementById('me-save-status');
-      if (status) {
-        status.textContent = 'Saved';
-        setTimeout(function () { if (status) status.textContent = ''; }, 2000);
-      }
-    }).catch(function (err) {
-      console.error('Save draft error:', err);
-      VestaAPI.toast('Error saving draft', 'error');
-    });
-  }
-
-  function onSend() {
-    var draft = getDraftById(_activeDraftId);
-    if (!draft) return;
-
-    var btn = document.getElementById('me-send-btn');
-    if (btn) btn.disabled = true;
-
-    // Save any pending edits first
-    var savePromise;
-    if (_dirtyBody || _dirtySubject) {
-      var bodyTA = document.getElementById('me-body-textarea');
-      var subjectIn = document.getElementById('me-subject-input');
-      var newBody = bodyTA ? bodyTA.value : draft.email_body;
-      var newSubject = subjectIn ? subjectIn.value : draft.email_subject;
-      savePromise = VestaAPI.put('/dashboard/meld-drafts/' + draft.id, {
-        email_body: newBody,
-        email_subject: newSubject
-      }).then(function (updated) {
-        updateDraftInState(updated);
-        _dirtyBody = false;
-        _dirtySubject = false;
+    ownerList.forEach(function (owner) {
+      var oid = owner.id || owner.owner_id;
+      VestaAPI.get('/api/maintenance/owner-email/melds?owner_id=' + oid + '&start=' + start + '&end=' + end).then(function (data) {
+        if (data.open_melds && data.open_melds.length || data.closed_melds && data.closed_melds.length || data.canceled_melds && data.canceled_melds.length) {
+          owners.push(data);
+        }
+        loaded++;
+        if (loaded === total) _onAllLoaded();
+      }).catch(function () {
+        loaded++;
+        if (loaded === total) _onAllLoaded();
       });
-    } else {
-      savePromise = Promise.resolve();
-    }
-
-    savePromise.then(function () {
-      return VestaAPI.post('/dashboard/meld-drafts/' + draft.id + '/send', {});
-    }).then(function (result) {
-      if (result.error) {
-        VestaAPI.toast('Error: ' + result.error, 'error');
-        if (btn) btn.disabled = false;
-        return;
-      }
-      updateDraftInState(result);
-      renderOwnerList();
-      renderRightPanel();
-      VestaAPI.toast('Email sent to ' + draft.owner_name, 'success');
-    }).catch(function (err) {
-      console.error('Send error:', err);
-      VestaAPI.toast('Error sending email', 'error');
-      if (btn) btn.disabled = false;
     });
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
-
-  function getDraftById(id) {
-    for (var i = 0; i < drafts.length; i++) {
-      if (drafts[i].id === id) return drafts[i];
-    }
-    return null;
+  function _onAllLoaded() {
+    ALL_OWNERS = owners.slice();
+    _populateOwnerFilter();
+    _renderStats();
+    applyFilters();
+    _loadSendLog();
+    _setStatus('Loaded ' + owners.length + ' owners with activity');
   }
 
-  function updateDraftInState(updated) {
-    for (var i = 0; i < drafts.length; i++) {
-      if (drafts[i].id === updated.id) {
-        drafts[i] = updated;
+  function _populateOwnerFilter() {
+    var select = document.getElementById('me-filter-owner');
+    select.innerHTML = '<option value="all">All Owners (' + owners.length + ')</option>';
+    owners.sort(function (a, b) { return (a.owner_name || '').localeCompare(b.owner_name || ''); });
+    owners.forEach(function (o) {
+      var count = (o.open_melds || []).length + (o.closed_melds || []).length + (o.canceled_melds || []).length;
+      select.innerHTML += '<option value="' + o.owner_id + '">' + _esc(o.owner_name) + ' (' + count + ')</option>';
+    });
+  }
+
+  function _renderStats() {
+    var totalOpen = 0, totalClosed = 0, totalCanceled = 0, totalSpend = 0;
+    owners.forEach(function (o) {
+      totalOpen += (o.open_melds || []).length;
+      totalClosed += (o.closed_melds || []).length;
+      totalCanceled += (o.canceled_melds || []).length;
+      totalSpend += o.total_spend || 0;
+    });
+
+    var bar = document.getElementById('me-stats');
+    if (!owners.length) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    bar.innerHTML =
+      _bmCard('Owners', owners.length) +
+      _bmCard('Open', totalOpen) +
+      _bmCard('Closed', totalClosed) +
+      _bmCard('Canceled', totalCanceled) +
+      _bmCard('Total Spend', '$' + totalSpend.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+  }
+
+  function _bmCard(label, value) {
+    return '<div class="benchmark-card"><div class="bm-label">' + label + '</div><div class="bm-value">' + value + '</div></div>';
+  }
+
+  // ── Filters ───────────────────────────────────────────────────────────────
+
+  function applyFilters() {
+    var ownerFilter = document.getElementById('me-filter-owner').value;
+    var search = (document.getElementById('me-filter-search').value || '').toLowerCase();
+
+    var filtered = ALL_OWNERS.filter(function (o) {
+      if (ownerFilter !== 'all' && String(o.owner_id) !== ownerFilter) return false;
+      if (search) {
+        var haystack = (o.owner_name + ' ' + _allMeldText(o)).toLowerCase();
+        if (haystack.indexOf(search) === -1) return false;
+      }
+      return true;
+    });
+
+    document.getElementById('me-count').textContent = filtered.length + ' of ' + ALL_OWNERS.length + ' owners';
+    _renderOwners(filtered);
+  }
+
+  function _allMeldText(o) {
+    var parts = [];
+    [].concat(o.open_melds || [], o.closed_melds || [], o.canceled_melds || []).forEach(function (m) {
+      parts.push(m.brief_description || '');
+      parts.push(m.unit_address || '');
+      parts.push(m.reference_id || '');
+    });
+    return parts.join(' ');
+  }
+
+  // ── Render owners ─────────────────────────────────────────────────────────
+
+  function _renderOwners(filtered) {
+    var container = document.getElementById('me-owners-container');
+    if (!filtered.length) {
+      container.innerHTML = '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">No owners with maintenance activity in this period.</div>';
+      return;
+    }
+
+    container.innerHTML = filtered.map(function (o) {
+      var html = '<div class="card" style="margin-bottom:1rem;">';
+
+      // Owner header
+      html += '<div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem;">';
+      html += '<strong style="font-size:1rem;">' + _esc(o.owner_name) + '</strong>';
+      html += '<span style="font-size:.78rem;color:var(--text-muted);">';
+      html += (o.open_melds || []).length + ' open, ' + (o.closed_melds || []).length + ' closed';
+      if (o.total_spend) html += ', $' + o.total_spend.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' spend';
+      html += '</span>';
+      html += '<div style="margin-left:auto;display:flex;gap:.4rem;">';
+      html += '<button class="btn btn-secondary btn-xs" onclick="ME.preview(' + o.owner_id + ')">Preview</button>';
+      if (typeof USER_EMAIL !== 'undefined' && USER_EMAIL) {
+        html += '<button class="btn btn-secondary btn-xs" onclick="ME.testSend(' + o.owner_id + ', \'' + _attr(o.owner_name) + '\')">Test Send</button>';
+      }
+      html += '</div></div>';
+
+      // Open melds
+      if (o.open_melds && o.open_melds.length) {
+        html += _sectionHeader('Open Work Orders', o.open_melds.length, '#3b82f6');
+        html += o.open_melds.map(function (m) { return _meldCard(m, 'open'); }).join('');
+      }
+
+      // Closed melds
+      if (o.closed_melds && o.closed_melds.length) {
+        html += _sectionHeader('Completed This Week', o.closed_melds.length, '#16a34a');
+        html += o.closed_melds.map(function (m) { return _meldCard(m, 'closed'); }).join('');
+      }
+
+      // Canceled melds
+      if (o.canceled_melds && o.canceled_melds.length) {
+        html += _sectionHeader('Canceled', o.canceled_melds.length, '#9ca3af');
+        html += o.canceled_melds.map(function (m) { return _meldCard(m, 'canceled'); }).join('');
+      }
+
+      html += '</div>';
+      return html;
+    }).join('');
+  }
+
+  function _sectionHeader(title, count, color) {
+    return '<div style="font-size:.8rem;font-weight:700;color:' + color + ';text-transform:uppercase;letter-spacing:.04em;margin:1rem 0 .4rem;border-bottom:2px solid ' + color + ';padding-bottom:.25rem;">' +
+      title + ' (' + count + ')</div>';
+  }
+
+  function _meldCard(m, section) {
+    var needsManual = m.summary_status === 'needs_manual';
+    var borderColor = needsManual ? '#dc2626' : (section === 'closed' ? '#16a34a' : section === 'canceled' ? '#d1d5db' : '#3b82f6');
+
+    var html = '<div style="background:#f9fafb;border-radius:6px;border-left:4px solid ' + borderColor + ';padding:.75rem 1rem;margin-bottom:.5rem;">';
+
+    // Top row: ref + description + priority/cost
+    html += '<div style="display:flex;align-items:flex-start;gap:.5rem;">';
+    html += '<div style="flex:1;">';
+    html += '<span style="font-size:.75rem;color:#6b7280;">';
+    if (m.reference_id) html += '#' + _esc(m.reference_id) + ' &bull; ';
+    html += _esc(m.category || '') + '</span>';
+    html += '<div style="font-size:.875rem;font-weight:600;color:#1f2937;margin-top:2px;">' + _esc(m.brief_description || '') + '</div>';
+    html += '</div>';
+
+    // Right side: priority badge or cost
+    if (section === 'open' && m.priority === 'EMERGENCY') {
+      html += '<span class="badge" style="background:#dc2626;color:#fff;font-size:.65rem;">EMERGENCY</span>';
+    } else if (section === 'open' && m.priority === 'HIGH') {
+      html += '<span class="badge" style="background:#d97706;color:#fff;font-size:.65rem;">HIGH</span>';
+    } else if (section === 'closed' && m.cost) {
+      html += '<span style="font-weight:700;font-size:.875rem;color:#1f2937;">$' + Number(m.cost).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '</span>';
+    }
+    html += '</div>';
+
+    // Summary row — editable
+    html += '<div style="margin-top:.5rem;">';
+    if (needsManual) {
+      html += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:.4rem .6rem;font-size:.78rem;color:#991b1b;margin-bottom:.3rem;">Needs manual summary — AI could not generate</div>';
+    }
+    html += '<textarea id="me-summary-' + m.id + '" style="width:100%;box-sizing:border-box;font-size:.82rem;padding:.4rem .5rem;border:1px solid #e5e7eb;border-radius:4px;resize:vertical;min-height:50px;line-height:1.4;" onblur="ME.saveSummary(' + m.id + ')">' + _esc(m.summary || '') + '</textarea>';
+    html += '</div>';
+
+    // Meta row
+    html += '<div style="display:flex;align-items:center;gap:.75rem;margin-top:.3rem;font-size:.72rem;color:#9ca3af;">';
+    html += '<span>' + _esc(m.unit_address || '') + '</span>';
+    if (m.assigned_vendor_name) html += '<span>&bull; ' + _esc(m.assigned_vendor_name) + '</span>';
+    if (m.completion_date) html += '<span>&bull; ' + _fmtDate(m.completion_date) + '</span>';
+    if (m.tenant_rating) html += '<span>&bull; Rating: ' + m.tenant_rating + '/5</span>';
+    if (m.owner_approval_status === 'Requested') {
+      html += '<span class="badge" style="background:#f59e0b;color:#fff;font-size:.6rem;">APPROVAL REQUESTED</span>';
+    }
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  function saveSummary(meldPk) {
+    var ta = document.getElementById('me-summary-' + meldPk);
+    if (!ta) return;
+    var text = ta.value;
+
+    VestaAPI.post('/api/maintenance/owner-email/summary/' + meldPk + '/edit', {
+      summary: text
+    }).then(function () {
+      // Update local state
+      _updateMeldSummary(meldPk, text);
+      VestaAPI.toast('Summary saved');
+    }).catch(function () {
+      VestaAPI.toast('Failed to save summary', 'error');
+    });
+  }
+
+  function _updateMeldSummary(meldPk, text) {
+    ALL_OWNERS.forEach(function (o) {
+      ['open_melds', 'closed_melds', 'canceled_melds'].forEach(function (key) {
+        (o[key] || []).forEach(function (m) {
+          if (m.id === meldPk) {
+            m.summary = text;
+            m.summary_status = 'edited';
+          }
+        });
+      });
+    });
+  }
+
+  function generateSummaries() {
+    var btn = document.getElementById('me-gen-btn');
+    btn.disabled = true;
+    _setStatus('Generating AI summaries...');
+
+    // Collect all meld IDs that need summaries
+    var meldIds = [];
+    ALL_OWNERS.forEach(function (o) {
+      ['open_melds', 'closed_melds', 'canceled_melds'].forEach(function (key) {
+        (o[key] || []).forEach(function (m) {
+          if (!m.summary || m.summary_status === 'needs_manual') {
+            meldIds.push(m.id);
+          }
+        });
+      });
+    });
+
+    VestaAPI.post('/api/maintenance/owner-email/generate-summaries', {
+      meld_ids: meldIds.length ? meldIds : null,
+      force: false
+    }).then(function (result) {
+      btn.disabled = false;
+      _setStatus('Generated: ' + (result.summarized || 0) + ' summaries, ' + (result.failed || 0) + ' failed');
+      VestaAPI.toast('Summaries generated');
+      // Reload to get fresh data
+      load();
+    }).catch(function () {
+      btn.disabled = false;
+      _setStatus('Error generating summaries');
+      VestaAPI.toast('Failed to generate summaries', 'error');
+    });
+  }
+
+  function preview(ownerId) {
+    var s = document.getElementById('me-start').value;
+    var e = document.getElementById('me-end').value;
+    window.open('/api/maintenance/owner-email/preview?owner_id=' + ownerId + '&start=' + s + '&end=' + e, '_blank');
+  }
+
+  function testSend(ownerId, ownerName) {
+    if (!confirm('Send a test copy of ' + ownerName + "'s maintenance email to " + USER_EMAIL + '?')) return;
+    var s = document.getElementById('me-start').value;
+    var e = document.getElementById('me-end').value;
+
+    VestaAPI.post('/api/maintenance/owner-email/test-send', {
+      start: s,
+      end: e,
+      owner_id: ownerId,
+      recipient: USER_EMAIL
+    }).then(function (resp) {
+      VestaAPI.toast('Test email sent to ' + USER_EMAIL);
+    }).catch(function () {
+      VestaAPI.toast('Failed to send test email', 'error');
+    });
+  }
+
+  function confirmSend() {
+    if (!ALL_OWNERS.length) { VestaAPI.toast('No owners loaded', 'error'); return; }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+    overlay.innerHTML =
+      '<div class="dialog-box">' +
+        '<h3>Send Maintenance Emails</h3>' +
+        '<p>This will email <strong>' + ALL_OWNERS.length + '</strong> owner' + (ALL_OWNERS.length !== 1 ? 's' : '') +
+          ' their weekly maintenance summary.</p>' +
+        '<p style="font-size:.82rem;color:var(--text-muted);">Owners already sent for this week will be skipped.</p>' +
+        '<div class="dialog-actions">' +
+          '<button class="btn btn-secondary" id="me-send-cancel">Cancel</button>' +
+          '<button class="btn btn-success" id="me-send-confirm">Send Emails</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    document.getElementById('me-send-cancel').onclick = function () { overlay.remove(); };
+    document.getElementById('me-send-confirm').onclick = function () {
+      overlay.remove();
+      _doSend();
+    };
+  }
+
+  function _doSend() {
+    var btn = document.getElementById('me-send-btn');
+    btn.disabled = true;
+    _setStatus('Sending emails...');
+
+    var s = document.getElementById('me-start').value;
+    var e = document.getElementById('me-end').value;
+
+    VestaAPI.post('/api/maintenance/owner-email/send', {
+      start: s,
+      end: e
+    }).then(function (resp) {
+      btn.disabled = false;
+      _setStatus('Sent: ' + (resp.sent || 0) + ', Skipped: ' + (resp.skipped || 0) + ', Failed: ' + (resp.failed || 0));
+      VestaAPI.toast('Emails sent: ' + (resp.sent || 0));
+      _loadSendLog();
+    }).catch(function () {
+      btn.disabled = false;
+      _setStatus('Error sending emails');
+      VestaAPI.toast('Failed to send emails', 'error');
+    });
+  }
+
+  // ── Send Log ──────────────────────────────────────────────────────────────
+
+  function _loadSendLog() {
+    var s = document.getElementById('me-start').value;
+    var e = document.getElementById('me-end').value;
+    var url = '/api/maintenance/owner-email/send-history';
+    if (s && e) url += '?start=' + s + '&end=' + e;
+
+    VestaAPI.get(url).then(function (sends) {
+      var logSection = document.getElementById('me-send-log');
+      var logBody = document.getElementById('me-send-log-body');
+      if (!sends || !sends.length) {
+        logSection.style.display = 'none';
         return;
       }
-    }
-    drafts.push(updated);
+      logSection.style.display = 'block';
+      logBody.innerHTML = sends.map(function (s) {
+        var badge = s.status === 'sent' ? 'badge-green' : s.status === 'failed' ? 'badge-red' : 'badge-yellow';
+        return '<tr>' +
+          '<td>' + _esc(s.owner_name) + '</td>' +
+          '<td>' + s.week_date + '</td>' +
+          '<td><span class="badge ' + badge + '">' + s.status + '</span></td>' +
+          '<td>' + (s.melds_count || 0) + '</td>' +
+          '<td>' + (s.sent_at ? new Date(s.sent_at).toLocaleString() : '\u2014') + '</td>' +
+          '<td><button class="btn btn-secondary btn-xs" onclick="ME.viewSnapshot(' + s.id + ')">View</button></td>' +
+        '</tr>';
+      }).join('');
+    }).catch(function () {});
   }
 
-  function esc(text) {
-    if (text == null) return '';
-    var div = document.createElement('div');
-    div.appendChild(document.createTextNode(String(text)));
-    return div.innerHTML;
+  function viewSnapshot(sendId) {
+    VestaAPI.get('/api/maintenance/owner-email/send-history/' + sendId + '/snapshots').then(function (data) {
+      var modal = document.getElementById('me-snapshot-modal');
+      var content = document.getElementById('me-snapshot-content');
+
+      if (!data || !data.length) {
+        content.innerHTML = '<p style="color:var(--text-muted);">No snapshot data available for this send.</p>';
+      } else {
+        var html = '';
+        ['open', 'closed', 'canceled'].forEach(function (section) {
+          var melds = data.filter(function (m) { return m.section === section; });
+          if (!melds.length) return;
+          var color = section === 'open' ? '#3b82f6' : section === 'closed' ? '#16a34a' : '#9ca3af';
+          html += '<div style="font-size:.75rem;font-weight:700;color:' + color + ';text-transform:uppercase;margin:1rem 0 .3rem;">' + section + ' (' + melds.length + ')</div>';
+          melds.forEach(function (m) {
+            html += '<div style="background:#f9fafb;border-left:3px solid ' + color + ';padding:.5rem .75rem;margin-bottom:.4rem;border-radius:4px;">';
+            html += '<div style="font-size:.78rem;color:#6b7280;">' + (m.meld_reference_id ? '#' + _esc(m.meld_reference_id) : '') + ' &bull; ' + _esc(m.unit_label) + '</div>';
+            html += '<div style="font-size:.85rem;margin-top:.2rem;">' + _esc(m.summary_text) + '</div>';
+            if (m.cost) html += '<div style="font-size:.78rem;color:#1f2937;font-weight:600;margin-top:.2rem;">$' + Number(m.cost).toFixed(2) + '</div>';
+            html += '</div>';
+          });
+        });
+        content.innerHTML = html;
+      }
+      modal.style.display = 'block';
+    }).catch(function () {
+      VestaAPI.toast('Failed to load snapshot', 'error');
+    });
   }
 
-});
+  function closeSnapshot() {
+    document.getElementById('me-snapshot-modal').style.display = 'none';
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function _setStatus(msg) {
+    var el = document.getElementById('me-status');
+    if (el) el.textContent = msg;
+  }
+
+  function _esc(s) {
+    if (!s) return '';
+    var el = document.createElement('span');
+    el.textContent = String(s);
+    return el.innerHTML;
+  }
+
+  function _attr(s) {
+    return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  }
+
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  return {
+    load: load,
+    applyFilters: applyFilters,
+    saveSummary: saveSummary,
+    generateSummaries: generateSummaries,
+    preview: preview,
+    testSend: testSend,
+    confirmSend: confirmSend,
+    viewSnapshot: viewSnapshot,
+    closeSnapshot: closeSnapshot
+  };
+
+})();
