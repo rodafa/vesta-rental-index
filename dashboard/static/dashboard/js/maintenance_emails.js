@@ -50,7 +50,7 @@ var ME = (function () {
       '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">Loading...</div>';
 
     // Fetch all owners with active portfolios
-    VestaAPI.get('/api/maintenance/owner-email/send-history?start=' + s + '&end=' + e).then(function () {});
+    VestaAPI.get('/maintenance/owner-email/send-history?start=' + s + '&end=' + e).then(function () {});
 
     // We need to iterate owners — get the list from the melds endpoint for each
     // Strategy: first fetch owner list, then fetch melds per owner
@@ -59,7 +59,7 @@ var ME = (function () {
 
   function _fetchAllOwners(start, end) {
     // Get all active owners from the properties API
-    VestaAPI.get('/api/dashboard/owner-list').then(function (data) {
+    VestaAPI.get('/dashboard/owner-list').then(function (data) {
       var ownerList = data.owners || data || [];
       _loadOwnerMelds(ownerList, start, end);
     }).catch(function () {
@@ -71,7 +71,7 @@ var ME = (function () {
   function _loadFromKnownOwners(start, end) {
     // Use a single owner_id=0 call which might fail, then fallback
     _setStatus('Loading owner data...');
-    VestaAPI.get('/api/maintenance/owner-email/melds?owner_id=0&start=' + start + '&end=' + end).catch(function () {
+    VestaAPI.get('/maintenance/owner-email/melds?owner_id=0&start=' + start + '&end=' + end).catch(function () {
       _setStatus('Could not load owners — use owner filter');
       document.getElementById('me-owners-container').innerHTML =
         '<div class="card" style="text-align:center;color:var(--text-muted);padding:2rem;">Enter an owner ID in the filter or check API connectivity.</div>';
@@ -90,7 +90,7 @@ var ME = (function () {
 
     ownerList.forEach(function (owner) {
       var oid = owner.id || owner.owner_id;
-      VestaAPI.get('/api/maintenance/owner-email/melds?owner_id=' + oid + '&start=' + start + '&end=' + end).then(function (data) {
+      VestaAPI.get('/maintenance/owner-email/melds?owner_id=' + oid + '&start=' + start + '&end=' + end).then(function (data) {
         if (data.open_melds && data.open_melds.length || data.closed_melds && data.closed_melds.length || data.canceled_melds && data.canceled_melds.length) {
           owners.push(data);
         }
@@ -284,7 +284,7 @@ var ME = (function () {
     if (!ta) return;
     var text = ta.value;
 
-    VestaAPI.post('/api/maintenance/owner-email/summary/' + meldPk + '/edit', {
+    VestaAPI.post('/maintenance/owner-email/summary/' + meldPk + '/edit', {
       summary: text
     }).then(function () {
       // Update local state
@@ -325,7 +325,7 @@ var ME = (function () {
       });
     });
 
-    VestaAPI.post('/api/maintenance/owner-email/generate-summaries', {
+    VestaAPI.post('/maintenance/owner-email/generate-summaries', {
       meld_ids: meldIds.length ? meldIds : null,
       force: false
     }).then(function (result) {
@@ -344,7 +344,7 @@ var ME = (function () {
   function preview(ownerId) {
     var s = document.getElementById('me-start').value;
     var e = document.getElementById('me-end').value;
-    window.open('/api/maintenance/owner-email/preview?owner_id=' + ownerId + '&start=' + s + '&end=' + e, '_blank');
+    window.open('/maintenance/owner-email/preview?owner_id=' + ownerId + '&start=' + s + '&end=' + e, '_blank');
   }
 
   function testSend(ownerId, ownerName) {
@@ -352,7 +352,7 @@ var ME = (function () {
     var s = document.getElementById('me-start').value;
     var e = document.getElementById('me-end').value;
 
-    VestaAPI.post('/api/maintenance/owner-email/test-send', {
+    VestaAPI.post('/maintenance/owner-email/test-send', {
       start: s,
       end: e,
       owner_id: ownerId,
@@ -397,7 +397,7 @@ var ME = (function () {
     var s = document.getElementById('me-start').value;
     var e = document.getElementById('me-end').value;
 
-    VestaAPI.post('/api/maintenance/owner-email/send', {
+    VestaAPI.post('/maintenance/owner-email/send', {
       start: s,
       end: e
     }).then(function (resp) {
@@ -417,7 +417,7 @@ var ME = (function () {
   function _loadSendLog() {
     var s = document.getElementById('me-start').value;
     var e = document.getElementById('me-end').value;
-    var url = '/api/maintenance/owner-email/send-history';
+    var url = '/maintenance/owner-email/send-history';
     if (s && e) url += '?start=' + s + '&end=' + e;
 
     VestaAPI.get(url).then(function (sends) {
@@ -443,7 +443,7 @@ var ME = (function () {
   }
 
   function viewSnapshot(sendId) {
-    VestaAPI.get('/api/maintenance/owner-email/send-history/' + sendId + '/snapshots').then(function (data) {
+    VestaAPI.get('/maintenance/owner-email/send-history/' + sendId + '/snapshots').then(function (data) {
       var modal = document.getElementById('me-snapshot-modal');
       var content = document.getElementById('me-snapshot-content');
 
