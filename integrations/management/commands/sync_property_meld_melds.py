@@ -76,7 +76,7 @@ class Command(BaseCommand):
 
         # Resolve units
         if options["resolve_units"] and not dry_run:
-            self.stdout.write("\nResolving meld → unit links...")
+            self.stdout.write("\nResolving meld -> unit links...")
             res = resolve_all_melds()
             total = Meld.objects.count()
             linked = Meld.objects.filter(unit_fk__isnull=False).count()
