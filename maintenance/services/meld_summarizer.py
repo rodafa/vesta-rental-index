@@ -16,7 +16,7 @@ from maintenance.models import Meld
 
 logger = logging.getLogger(__name__)
 
-_CALL_PAUSE = 1.5
+_CALL_PAUSE = 0.3
 
 
 def summarize_meld(meld: Meld) -> tuple[str, str]:

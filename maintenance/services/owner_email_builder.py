@@ -49,6 +49,16 @@ def build_maintenance_email_data(owner: Owner, date_start: date, date_end: date)
         ~Q(merged_meld_data={})
     )
 
+    # Exclude lawn mowing melds — they don't need owner summaries
+    base_qs = base_qs.exclude(
+        Q(category__in=["EXTERIOR", "LANDSCAPING"])
+        & (
+            Q(brief_description__icontains="mow")
+            | Q(brief_description__icontains="lawn care")
+            | Q(brief_description__icontains="grass")
+        )
+    )
+
     # Open: status NOT in CLOSED/CANCELED buckets (no date bound)
     open_statuses = EMAIL_CLOSED_BUCKET | EMAIL_CANCELED_BUCKET
     open_melds = list(

@@ -13,6 +13,12 @@
 - Our `rent_amount` is gross rent (all isRent charges). `pet_rent_amount` tracks the pet rent subset.
 - RentVine's UI "average rent" appears to exclude Pet Rent from their display, but the API includes it.
 
+## Queryset Exclusion Filters
+
+### Always apply the agreed filter logic exactly — don't simplify
+- **Problem**: Plan specified excluding lawn mowing melds where `category IN (EXTERIOR, LANDSCAPING) AND description contains "mow"/"lawn care"/"grass"`. I implemented a simpler version that only filtered on description keywords without the category constraint, which would have excluded a different count of records (191 vs 197).
+- **Rule**: When a filter has both a category/type constraint AND a keyword constraint, implement both as a compound `Q(category__in=[...]) & (Q(desc__icontains=...) | ...)`. Don't drop constraints for "simplicity" — the constraint scoping exists for a reason.
+
 ## Windows/Docker
 
 ### CRLF line endings break crontab in Linux containers

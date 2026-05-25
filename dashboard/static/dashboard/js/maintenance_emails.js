@@ -309,9 +309,9 @@ var ME = (function () {
   }
 
   function generateSummaries() {
+    var CHUNK_SIZE = 3;
     var btn = document.getElementById('me-gen-btn');
     btn.disabled = true;
-    _setStatus('Generating AI summaries...');
 
     // Collect all meld IDs that need summaries
     var meldIds = [];
@@ -325,20 +325,61 @@ var ME = (function () {
       });
     });
 
-    VestaAPI.post('/maintenance/owner-email/generate-summaries', {
-      meld_ids: meldIds.length ? meldIds : null,
-      force: false
-    }).then(function (result) {
+    if (!meldIds.length) {
       btn.disabled = false;
-      _setStatus('Generated: ' + (result.summarized || 0) + ' summaries, ' + (result.failed || 0) + ' failed');
-      VestaAPI.toast('Summaries generated');
-      // Reload to get fresh data
-      load();
-    }).catch(function () {
-      btn.disabled = false;
-      _setStatus('Error generating summaries');
-      VestaAPI.toast('Failed to generate summaries', 'error');
-    });
+      _setStatus('No melds need summaries');
+      return;
+    }
+
+    // Split into chunks
+    var chunks = [];
+    for (var i = 0; i < meldIds.length; i += CHUNK_SIZE) {
+      chunks.push(meldIds.slice(i, i + CHUNK_SIZE));
+    }
+
+    var totalSummarized = 0;
+    var totalSkipped = 0;
+    var totalFailed = 0;
+    var failedChunks = 0;
+    var completed = 0;
+    var totalMelds = meldIds.length;
+
+    _setStatus('Generating summaries... 0 of ' + totalMelds);
+
+    // Process chunks sequentially
+    function processNext(index) {
+      if (index >= chunks.length) {
+        btn.disabled = false;
+        var msg = 'Done: ' + totalSummarized + ' summarized, ' + totalFailed + ' failed';
+        if (failedChunks > 0) msg += ' (' + failedChunks + ' chunk errors)';
+        _setStatus(msg);
+        VestaAPI.toast('Summaries generated');
+        load();
+        return;
+      }
+
+      VestaAPI.post('/maintenance/owner-email/generate-summaries', {
+        meld_ids: chunks[index],
+        force: false
+      }).then(function (result) {
+        totalSummarized += result.summarized || 0;
+        totalSkipped += result.skipped || 0;
+        totalFailed += result.failed || 0;
+        completed += chunks[index].length;
+        _setStatus('Generating summaries... ' + completed + ' of ' + totalMelds);
+        processNext(index + 1);
+      }).catch(function (err) {
+        failedChunks++;
+        var errMsg = (err && err.message) ? err.message : 'Unknown error';
+        console.error('Chunk ' + (index + 1) + ' failed:', errMsg);
+        totalFailed += chunks[index].length;
+        completed += chunks[index].length;
+        _setStatus('Generating summaries... ' + completed + ' of ' + totalMelds + ' (chunk error: ' + errMsg + ')');
+        processNext(index + 1);
+      });
+    }
+
+    processNext(0);
   }
 
   function preview(ownerId) {
