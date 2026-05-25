@@ -23,7 +23,6 @@ from ninja.pagination import LimitOffsetPagination, paginate
 from django.shortcuts import get_object_or_404
 
 from leasing.models import Application, Lease, Prospect, Showing
-from maintenance.models import WorkOrder
 from market.models import (
     DailyLeasingSummary,
     DailyMarketStats,
@@ -1002,21 +1001,10 @@ def turn_cycles(request, months_back: int = 12):
             .first()
         )
 
-        # Make-ready work orders
-        make_ready_wos = WorkOrder.objects.filter(
-            unit=unit,
-            is_vacant=True,
-            actual_start_date__gte=lease.move_out_date,
-        )
+        # Make-ready metrics — WorkOrder model removed (was empty stub).
+        # TODO: re-implement via Meld-based make-ready tracking if needed.
         mr_days = None
         mr_cost = None
-        if make_ready_wos.exists():
-            first_start = make_ready_wos.order_by("actual_start_date").first().actual_start_date
-            last_end = make_ready_wos.filter(actual_end_date__isnull=False).order_by("-actual_end_date").first()
-            if first_start and last_end and last_end.actual_end_date:
-                mr_days = (last_end.actual_end_date - first_start).days
-            mr_cost_agg = make_ready_wos.aggregate(total=Sum("estimated_amount"))["total"]
-            mr_cost = mr_cost_agg
 
         move_in = next_lease.move_in_date if next_lease else None
         total_turn = None

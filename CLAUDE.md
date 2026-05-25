@@ -33,8 +33,8 @@ Aggregates data from RentVine (portfolio/lease management) and RentEngine (marke
 - `leasing` — Tenant, Lease, Prospect, LeasingEvent, Showing, Application, Applicant
 - `market` — DailyUnitSnapshot, DailyMarketStats, DailyLeasingSummary, WeeklyLeasingSummary, MonthlyMarketReport, DailySegmentStats, PriceDrop, ListingCycle
 - `screening` — ScreeningApplication, ScreeningReport
-- `maintenance` — Vendor, VendorTrade, WorkOrderStatus, WorkOrder, Inspection
-- `accounting` — ChartOfAccounts, Ledger, Transaction, TransactionEntry, Bill
+- `maintenance` — Vendor, VendorTrade, Inspection, Meld, Expenditure, MaintenanceEmailSend, MaintenanceEmailMeld
+- `accounting` — ChartOfAccounts, Ledger, Transaction, TransactionEntry, Bill, BillCharge
 - `integrations` — WebhookEvent, APISyncLog + all sync management commands
 
 ## VS Code

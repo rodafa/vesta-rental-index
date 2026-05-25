@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Bill, ChartOfAccounts, Ledger, Transaction, TransactionEntry
+from .models import Bill, BillCharge, ChartOfAccounts, Ledger, Transaction, TransactionEntry
 
 
 @admin.register(ChartOfAccounts)
@@ -34,7 +34,16 @@ class TransactionEntryAdmin(admin.ModelAdmin):
 
 @admin.register(Bill)
 class BillAdmin(admin.ModelAdmin):
-    list_display = ("rentvine_id", "bill_date", "date_due", "reference", "is_voided")
-    search_fields = ("rentvine_id", "reference")
+    list_display = ("rentvine_id", "bill_date", "date_due", "reference", "meld", "is_voided")
+    search_fields = ("rentvine_id", "reference", "description")
     list_filter = ("is_voided",)
     date_hierarchy = "bill_date"
+    raw_id_fields = ("meld",)
+
+
+@admin.register(BillCharge)
+class BillChargeAdmin(admin.ModelAdmin):
+    list_display = ("rentvine_transaction_id", "bill", "amount", "description", "date_posted", "is_voided")
+    search_fields = ("rentvine_transaction_id", "description")
+    list_filter = ("is_voided",)
+    raw_id_fields = ("bill",)

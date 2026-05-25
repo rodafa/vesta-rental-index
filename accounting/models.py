@@ -235,21 +235,17 @@ class Bill(models.Model):
     date_due = models.DateField()
     reference = models.CharField(max_length=255, blank=True)
     payment_memo = models.TextField(blank=True)
+    description = models.TextField(blank=True)
 
     is_voided = models.BooleanField(default=False)
-    discount_percent = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )
-    markup_percent = models.DecimalField(
-        max_digits=5, decimal_places=2, null=True, blank=True
-    )
 
-    work_order = models.ForeignKey(
-        "maintenance.WorkOrder",
+    meld = models.ForeignKey(
+        "maintenance.Meld",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="bills",
+        db_index=True,
     )
 
     raw_data = models.JSONField(default=dict, blank=True)
@@ -258,3 +254,37 @@ class Bill(models.Model):
 
     def __str__(self):
         return f"Bill #{self.rentvine_id} - due {self.date_due}"
+
+
+class BillCharge(models.Model):
+    """Line-item charge on a RentVine bill (a type-7 transaction)."""
+
+    rentvine_transaction_id = models.IntegerField(unique=True, db_index=True)
+    bill = models.ForeignKey(
+        Bill,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="charges",
+    )
+
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    amount_paid = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    primary_ledger_id = models.IntegerField(null=True, blank=True)
+    property_id = models.IntegerField(null=True, blank=True)
+    unit_id = models.IntegerField(null=True, blank=True)
+    charge_account_id = models.IntegerField(null=True, blank=True)
+    description = models.TextField(blank=True)
+    date_posted = models.DateField(null=True, blank=True)
+    is_voided = models.BooleanField(default=False)
+
+    raw_data = models.JSONField(default=dict, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["bill"])]
+
+    def __str__(self):
+        return f"Charge #{self.rentvine_transaction_id} — ${self.amount}"
