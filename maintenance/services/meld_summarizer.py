@@ -10,9 +10,9 @@ from decimal import Decimal
 
 import anthropic
 from django.conf import settings
-from django.db.models import Sum
 
 from maintenance.models import Meld
+from maintenance.services.meld_cost import get_meld_cost
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,8 @@ def summarize_meld(meld: Meld) -> tuple[str, str]:
     if not meld.brief_description and not meld.description:
         return ("", "needs_manual")
 
-    # Calculate total cost from expenditures
-    total_cost = meld.expenditures.filter(
-        status__in=["BILLED", "APPROVED"]
-    ).aggregate(total=Sum("amount"))["total"]
+    # Calculate total cost from bill charges
+    total_cost = get_meld_cost(meld)
 
     prompt = build_meld_prompt(meld, total_cost)
 

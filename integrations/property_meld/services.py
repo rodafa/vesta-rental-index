@@ -7,10 +7,10 @@ import logging
 from django.utils import timezone
 
 from integrations.models import APISyncLog
-from maintenance.models import Expenditure, Meld
+from maintenance.models import Meld
 
 from .client import PropertyMeldClient
-from .mappers import map_expenditure, map_meld
+from .mappers import map_meld
 
 logger = logging.getLogger(__name__)
 
@@ -120,88 +120,3 @@ class MeldSyncService(_BaseSyncService):
         }
 
 
-class ExpenditureSyncService(_BaseSyncService):
-    endpoint = "expenditure"
-
-    def sync(self, dry_run=False):
-        """
-        Fetch all expenditures from /expenditure/, map them, and upsert.
-        Links each expenditure to its parent meld.
-        Returns {"fetched", "created", "updated", "skipped", "errors"}.
-        """
-        log = self._create_log()
-        try:
-            records = self.client.get_all("/expenditure/")
-        except Exception as exc:
-            self._fail_log(log, exc)
-            raise
-
-        created_count = 0
-        updated_count = 0
-        skipped_count = 0
-        errors = []
-
-        for record in records:
-            try:
-                exp_id, defaults = map_expenditure(record)
-
-                # Link to parent meld
-                meld_pm_id = record.get("meld")
-                if not meld_pm_id:
-                    skipped_count += 1
-                    continue
-
-                meld = Meld.objects.filter(
-                    property_meld_id=str(meld_pm_id)
-                ).first()
-                if not meld:
-                    logger.warning(
-                        "Expenditure %d references meld %s which doesn't exist locally — skipping",
-                        exp_id, meld_pm_id,
-                    )
-                    skipped_count += 1
-                    continue
-
-                if dry_run:
-                    logger.info(
-                        "DRY RUN expenditure %d: meld=%s amount=%s status=%s",
-                        exp_id, meld_pm_id, defaults["amount"], defaults["status"],
-                    )
-                    continue
-
-                defaults["meld"] = meld
-                _, was_created = Expenditure.objects.update_or_create(
-                    property_meld_id=exp_id,
-                    defaults=defaults,
-                )
-                if was_created:
-                    created_count += 1
-                else:
-                    updated_count += 1
-
-            except Exception as exc:
-                msg = f"Error syncing expenditure record: {exc}"
-                logger.error(msg)
-                errors.append(msg)
-
-        if not dry_run:
-            self._complete_log(
-                log,
-                created=created_count,
-                updated=updated_count,
-                fetched=len(records),
-                errors=errors,
-            )
-        else:
-            log.status = "completed"
-            log.records_fetched = len(records)
-            log.completed_at = timezone.now()
-            log.save()
-
-        return {
-            "fetched": len(records),
-            "created": created_count,
-            "updated": updated_count,
-            "skipped": skipped_count,
-            "errors": len(errors),
-        }

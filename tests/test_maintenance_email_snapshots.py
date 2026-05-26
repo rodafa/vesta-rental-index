@@ -13,8 +13,8 @@ from decimal import Decimal
 
 from django.test import TestCase, override_settings
 
+from accounting.models import Bill, BillCharge
 from maintenance.models import (
-    Expenditure,
     MaintenanceEmailMeld,
     MaintenanceEmailSend,
     Meld,
@@ -101,12 +101,17 @@ class MaintenanceEmailSnapshotTest(TestCase):
             summary_status="edited",
         )
 
-        # Expenditure on meld_b
-        Expenditure.objects.create(
-            property_meld_id=9001,
+        # Bill + charge on meld_b (replaces old Expenditure fixture)
+        bill = Bill.objects.create(
+            rentvine_id=9001,
             meld=self.meld_b,
+            bill_date=date(2026, 5, 18),
+            date_due=date(2026, 5, 25),
+        )
+        BillCharge.objects.create(
+            rentvine_transaction_id=9001,
+            bill=bill,
             amount=Decimal("350.00"),
-            status="BILLED",
         )
 
         self.date_start = date(2026, 5, 17)

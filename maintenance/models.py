@@ -210,26 +210,6 @@ class Meld(models.Model):
         return f"Meld {self.property_meld_id} — {self.brief_description[:60]}"
 
 
-class Expenditure(models.Model):
-    """Cost/expenditure record from Property Meld, linked to a Meld."""
-
-    property_meld_id = models.IntegerField(unique=True, db_index=True)
-    meld = models.ForeignKey(
-        Meld, on_delete=models.CASCADE, related_name="expenditures"
-    )
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20)
-    notes = models.TextField(blank=True)
-    line_items = models.JSONField(default=list, blank=True)
-    source_created_at = models.DateTimeField(null=True, blank=True)
-    source_updated_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Expenditure #{self.property_meld_id} — ${self.amount}"
-
-
 class MaintenanceEmailSend(models.Model):
     """Tracks sent maintenance summary emails per owner per week."""
 

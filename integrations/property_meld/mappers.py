@@ -228,18 +228,3 @@ def map_meld(data):
     return property_meld_id, defaults
 
 
-def map_expenditure(data):
-    """
-    Map a Property Meld expenditure record to (property_meld_id, defaults_dict).
-    """
-    from decimal import Decimal
-
-    exp_id = int(data["id"])
-    return exp_id, {
-        "amount": Decimal(str(data.get("amount", "0"))),
-        "status": data.get("status") or "",
-        "notes": data.get("notes") or "",
-        "line_items": data.get("expenditures_line_items") or [],
-        "source_created_at": _safe_datetime(data.get("created")),
-        "source_updated_at": _safe_datetime(data.get("updated")),
-    }

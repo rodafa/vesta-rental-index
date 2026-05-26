@@ -4,12 +4,14 @@ Build maintenance summary email data and render HTML for owner emails.
 
 import logging
 from datetime import date
+from decimal import Decimal
 
-from django.db.models import Q, Sum
+from django.db.models import Q
 from django.template.loader import render_to_string
 
 from integrations.property_meld.mappers import EMAIL_CANCELED_BUCKET, EMAIL_CLOSED_BUCKET
 from maintenance.models import Meld
+from maintenance.services.meld_cost import get_meld_costs
 from properties.models import Owner, Unit
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,7 @@ def build_maintenance_email_data(owner: Owner, date_start: date, date_end: date)
         open_melds: list of meld dicts (all currently open for this owner)
         closed_melds: list of meld dicts (closed within date range)
         canceled_melds: list of meld dicts (canceled within date range)
-        total_spend: Decimal total of expenditures for closed melds
+        total_spend: Decimal total of bill charges for closed melds
         unit_count: number of owner units with melds
     """
     # Find owner's units: Owner → portfolios → properties → units
@@ -93,40 +95,30 @@ def build_maintenance_email_data(owner: Owner, date_start: date, date_end: date)
         .order_by("-source_modified_at")
     )
 
+    # Batch cost lookup — single query for all melds
+    all_melds = open_melds + closed_melds + canceled_melds
+    all_meld_ids = [m.pk for m in all_melds]
+    costs_by_meld = get_meld_costs(all_meld_ids)
+
     # Total spend for closed melds
     closed_meld_ids = [m.pk for m in closed_melds]
-    total_spend = 0
-    if closed_meld_ids:
-        from maintenance.models import Expenditure
-
-        total_spend = (
-            Expenditure.objects.filter(
-                meld_id__in=closed_meld_ids,
-                status__in=["BILLED", "APPROVED"],
-            ).aggregate(total=Sum("amount"))["total"]
-            or 0
-        )
+    total_spend = sum(
+        (costs_by_meld.get(mid, Decimal(0)) for mid in closed_meld_ids),
+        Decimal(0),
+    )
 
     return {
-        "open_melds": [_meld_to_dict(m) for m in open_melds],
-        "closed_melds": [_meld_to_dict(m) for m in closed_melds],
-        "canceled_melds": [_meld_to_dict(m) for m in canceled_melds],
+        "open_melds": [_meld_to_dict(m, costs_by_meld) for m in open_melds],
+        "closed_melds": [_meld_to_dict(m, costs_by_meld) for m in closed_melds],
+        "canceled_melds": [_meld_to_dict(m, costs_by_meld) for m in canceled_melds],
         "total_spend": total_spend,
         "unit_count": len(unit_ids),
     }
 
 
-def _meld_to_dict(meld: Meld) -> dict:
+def _meld_to_dict(meld: Meld, costs_by_meld: dict) -> dict:
     """Convert a Meld instance to a dict for template rendering."""
-    from maintenance.models import Expenditure
-
-    # Calculate cost for this meld
-    cost = (
-        Expenditure.objects.filter(
-            meld=meld, status__in=["BILLED", "APPROVED"]
-        ).aggregate(total=Sum("amount"))["total"]
-        or 0
-    )
+    cost = costs_by_meld.get(meld.pk)  # None if no charges
 
     # Determine display summary
     summary = meld.staff_summary or meld.ai_summary or ""

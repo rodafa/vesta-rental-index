@@ -1,33 +1,27 @@
 """
-Management command: sync Property Meld melds and expenditures into local tables.
+Management command: sync Property Meld melds into local tables.
 
 Usage:
     python manage.py sync_property_meld_melds
     python manage.py sync_property_meld_melds --dry-run
     python manage.py sync_property_meld_melds --resolve-units
-    python manage.py sync_property_meld_melds --with-expenditures
 """
 
 from django.core.management.base import BaseCommand
 
-from integrations.property_meld.services import ExpenditureSyncService, MeldSyncService
+from integrations.property_meld.services import MeldSyncService
 from maintenance.models import Meld
 from maintenance.services.unit_resolver import resolve_all_melds
 
 
 class Command(BaseCommand):
-    help = "Sync melds (and optionally expenditures) from Property Meld API."
+    help = "Sync melds from Property Meld API."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Fetch and map records but do not write to the database.",
-        )
-        parser.add_argument(
-            "--with-expenditures",
-            action="store_true",
-            help="Also sync expenditures after melds.",
         )
         parser.add_argument(
             "--resolve-units",
@@ -59,20 +53,6 @@ class Command(BaseCommand):
             self.stdout.write(f"\nAll distinct PM meld statuses ({len(all_statuses)}):")
             for s in all_statuses:
                 self.stdout.write(f"  - {s}")
-
-        # Sync expenditures
-        if options["with_expenditures"]:
-            self.stdout.write("\nSyncing expenditures...")
-            exp_service = ExpenditureSyncService()
-            exp_result = exp_service.sync(dry_run=dry_run)
-            self.stdout.write(
-                self.style.SUCCESS(
-                    "Expenditure sync complete: fetched={fetched}  created={created}  "
-                    "updated={updated}  skipped={skipped}  errors={errors}".format(
-                        **exp_result
-                    )
-                )
-            )
 
         # Resolve units
         if options["resolve_units"] and not dry_run:
