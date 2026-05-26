@@ -522,7 +522,7 @@ class LeaseSyncService(_BaseSyncService):
 
 import re
 
-_MELD_REF_PATTERN = re.compile(r"\bMeld\s+([A-Z0-9]+)", re.IGNORECASE)
+_MELD_REF_PATTERN = re.compile(r"\bMeld\s*#?\s*([A-Z0-9]+)", re.IGNORECASE)
 
 
 class BillSyncService(_BaseSyncService):
