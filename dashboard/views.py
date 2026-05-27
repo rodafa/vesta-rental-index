@@ -3,6 +3,7 @@ import datetime
 from collections import defaultdict
 from decimal import Decimal
 
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.db.models import Avg
 from django.http import HttpResponse
@@ -252,3 +253,35 @@ def owner_dashboard(request, portfolio_slug):
             "notes_by_unit": dict(notes_by_unit),
         },
     )
+
+
+@staff_member_required
+def owner_email_send(request):
+    """Weekly owner email control center.
+
+    GET — preview who will receive emails and who is excluded.
+    POST — trigger the batch send via the existing send service.
+    """
+    from weekly_reports.services.send_owner_emails import (
+        build_send_preview,
+        send_approved_emails,
+    )
+    from weekly_reports.services.weekly_update import default_date_range
+
+    week_start, week_end = default_date_range()
+    result = None
+
+    if request.method == "POST":
+        send_result = send_approved_emails(
+            week_start, week_end, user=request.user,
+        )
+        result = send_result
+
+    preview = build_send_preview(week_start, week_end)
+
+    return render(request, "dashboard/owner_email_send.html", {
+        "preview": preview,
+        "week_start": week_start,
+        "week_end": week_end,
+        "result": result,
+    })

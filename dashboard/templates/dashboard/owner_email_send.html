@@ -1,0 +1,268 @@
+{% extends "dashboard/_base.html" %}
+{% load static %}
+
+{% block nav_owner_email_send %}active{% endblock %}
+{% block title %}Send Owner Emails{% endblock %}
+{% block topbar_title %}Send Owner Emails{% endblock %}
+
+{% block head_extra %}
+<style>
+  .send-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .send-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .send-header .week-range {
+    font-size: .85rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+  .send-count {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+  }
+  .send-count span {
+    color: var(--primary);
+  }
+
+  /* Result banner */
+  .result-banner {
+    padding: .75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 1.25rem;
+    font-size: .9rem;
+    font-weight: 500;
+  }
+  .result-banner.success {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
+  }
+  .result-banner.failure {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+  }
+
+  /* Recipients table */
+  .recipients-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+  }
+  .recipients-table th {
+    text-align: left;
+    padding: .5rem .75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border-bottom: 2px solid var(--border);
+  }
+  .recipients-table td {
+    padding: .6rem .75rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    vertical-align: top;
+  }
+  .recipients-table tbody tr:hover {
+    background: var(--hover-bg, #f9fafb);
+  }
+  .property-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .property-list li {
+    padding: .1rem 0;
+    color: var(--text-secondary);
+    font-size: .8rem;
+  }
+
+  /* Skipped section */
+  .skipped-section {
+    margin-top: 2rem;
+  }
+  .skipped-section h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0 0 .75rem;
+  }
+  .skipped-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+  }
+  .skipped-table th {
+    text-align: left;
+    padding: .5rem .75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border-bottom: 2px solid var(--border);
+  }
+  .skipped-table td {
+    padding: .5rem .75rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    vertical-align: top;
+  }
+  .reason-badge {
+    display: inline-block;
+    padding: .15rem .5rem;
+    border-radius: 4px;
+    font-size: .78rem;
+    font-weight: 500;
+  }
+  .reason-badge.entity {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .reason-badge.no-email {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+    font-size: .9rem;
+  }
+
+  /* Send button */
+  .send-form {
+    display: inline;
+  }
+  .btn-send {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    padding: .55rem 1.25rem;
+    border-radius: 6px;
+    font-size: .9rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-send:hover {
+    opacity: .9;
+  }
+  .btn-send:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="send-header">
+    <div>
+      <h2>Weekly Owner Email Send <span class="week-range">{{ week_start|date:"M d" }} &ndash; {{ week_end|date:"M d, Y" }}</span></h2>
+    </div>
+    {% if preview.total_recipients > 0 %}
+    <form method="post" class="send-form" onsubmit="return confirm('Send {{ preview.total_recipients }} email{{ preview.total_recipients|pluralize }} now?');">
+      {% csrf_token %}
+      <button type="submit" class="btn-send">Send All Emails ({{ preview.total_recipients }})</button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if result %}
+    {% if result.failed > 0 %}
+    <div class="result-banner failure">
+      Sent {{ result.sent }}, failed {{ result.failed }}.
+      {% for e in result.errors %} {{ e.owner }}: {{ e.error }}{% endfor %}
+    </div>
+    {% else %}
+    <div class="result-banner success">
+      Sent {{ result.sent }} email{{ result.sent|pluralize }} successfully.
+      {% if result.skipped %} {{ result.skipped }} skipped (already sent or dry run).{% endif %}
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {% if preview.total_recipients > 0 %}
+  <div class="send-count"><span>{{ preview.total_recipients }}</span> owner{{ preview.total_recipients|pluralize }} will receive an email this week.</div>
+
+  <table class="recipients-table">
+    <thead>
+      <tr>
+        <th style="width:25%">Owner Name</th>
+        <th style="width:25%">Email Address</th>
+        <th>Properties Covered</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in preview.recipients %}
+      <tr>
+        <td>{{ r.name }}</td>
+        <td>{{ r.email }}</td>
+        <td>
+          <ul class="property-list">
+            {% for addr in r.properties %}
+            <li>{{ addr }}</li>
+            {% endfor %}
+          </ul>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No owners are eligible to receive an email this week. Check that notes have been approved.</div>
+  {% endif %}
+
+  {% if preview.skipped %}
+  <div class="skipped-section">
+    <h3>Not receiving an email ({{ preview.skipped|length }})</h3>
+    <table class="skipped-table">
+      <thead>
+        <tr>
+          <th style="width:25%">Owner Name</th>
+          <th style="width:20%">Reason</th>
+          <th>Properties</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in preview.skipped %}
+        <tr>
+          <td>{{ s.name }}</td>
+          <td>
+            {% if 'entity' in s.reason|lower %}
+            <span class="reason-badge entity">{{ s.reason }}</span>
+            {% else %}
+            <span class="reason-badge no-email">{{ s.reason }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <ul class="property-list">
+              {% for addr in s.properties %}
+              <li>{{ addr }}</li>
+              {% endfor %}
+            </ul>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from dashboard.models import PropertyWeeklyNote
 from properties.models import Owner
+from properties.utils.name_classification import is_person_name
 from weekly_reports.models import OwnerEmailSend
 from weekly_reports.services.marketing_report import build_marketing_report
 from weekly_reports.services.owner_email_html import build_owner_email_html
@@ -19,24 +20,18 @@ from weekly_reports.services.owner_email_html import build_owner_email_html
 logger = logging.getLogger(__name__)
 
 
-def send_approved_emails(
-    week_start, week_end, user=None, dry_run=False,
-    test_recipient=None, owner_id=None,
-):
-    """Send weekly leasing emails to all owners with approved notes.
+def group_properties_by_owner(week_start, week_end):
+    """Group approved-note properties by owner, applying all exclusion filters.
 
-    Args:
-        week_start: Start date of reporting week.
-        week_end: End date of reporting week.
-        user: Optional User who triggered the send.
-        dry_run: If True, log but don't actually send.
-        test_recipient: When set, deliver every email to this address
-            instead of the owner's, skip idempotency checks, and do
-            not write OwnerEmailSend records.  Used for test sends.
-        owner_id: When set, only process this owner ID.
+    This is the single source of truth for both the send-preview UI and
+    the actual send — both call this function so the preview is an exact
+    mirror of what the send will do.
 
     Returns:
-        dict: {sent, skipped, failed, errors}.
+        dict with keys:
+            recipients: list of dicts {owner, units_data, properties}
+            skipped: list of dicts {name, email, reason, properties}
+            report: the full marketing report (rows + benchmarks)
     """
     # Monday anchor — must match PropertyWeeklyNote.week_date convention
     monday = week_start - timedelta(days=week_start.weekday())
@@ -49,17 +44,15 @@ def send_approved_emails(
     # Filter to approved notes only
     approved_rows = [r for r in rows if r.get("note_approved")]
     if not approved_rows:
-        logger.info("No approved notes for week %s — nothing to send", monday)
-        return {"sent": 0, "skipped": 0, "failed": 0, "errors": []}
+        return {"recipients": [], "skipped": [], "report": report}
 
-    # Group rows by owner
-    # Unit → Property → Portfolio → Owner (via the row data)
+    # Group rows by owner via Unit → Property → Portfolio → Owner
     approved_unit_ids = [r["unit_id"] for r in approved_rows]
     notes_qs = PropertyWeeklyNote.objects.filter(
         unit_id__in=approved_unit_ids, week_date=monday, approved=True
     ).select_related("unit__property__portfolio")
 
-    # Build portfolio_id → [unit rows] and find owners
+    # Build portfolio_id → [unit rows]
     portfolio_units = {}
     for note in notes_qs:
         portfolio = note.unit.property.portfolio if note.unit.property else None
@@ -82,26 +75,13 @@ def send_approved_emails(
                     "owner": owner, "units": []
                 })["units"].extend(portfolio_units.get(p.id, []))
 
-    sent = 0
-    skipped = 0
-    failed = 0
-    errors = []
-
-    # Filter to a single owner when requested
-    if owner_id:
-        owner_portfolios = {
-            k: v for k, v in owner_portfolios.items() if k == owner_id
-        }
+    # Now apply exclusion filters
+    recipients = []
+    skipped = []
 
     for oid, data in owner_portfolios.items():
         owner = data["owner"]
         units_data = data["units"]
-
-        # For test sends we don't need the owner's real address
-        if not test_recipient and not owner.email:
-            logger.warning("Owner %s has no email — skipping", owner.name)
-            skipped += 1
-            continue
 
         # Deduplicate units (owner may have multiple portfolios with same unit)
         seen_unit_ids = set()
@@ -111,6 +91,120 @@ def send_approved_emails(
                 seen_unit_ids.add(u["unit_id"])
                 unique_units.append(u)
         units_data = unique_units
+
+        # Extract property addresses for display
+        properties_list = [u.get("address", "") for u in units_data]
+
+        # Filter: LLC / entity name
+        if not is_person_name(owner.name):
+            skipped.append({
+                "name": owner.name,
+                "email": owner.email or "",
+                "reason": "Flagged as entity (LLC/Corp/Trust)",
+                "properties": properties_list,
+            })
+            continue
+
+        # Filter: no email address on file
+        if not owner.email:
+            skipped.append({
+                "name": owner.name,
+                "email": "",
+                "reason": "No email address on file",
+                "properties": properties_list,
+            })
+            continue
+
+        recipients.append({
+            "owner": owner,
+            "units_data": units_data,
+            "properties": properties_list,
+        })
+
+    return {"recipients": recipients, "skipped": skipped, "report": report}
+
+
+def build_send_preview(week_start, week_end):
+    """Build a preview of who will receive emails and who is excluded.
+
+    Used by the dashboard pre-send review page. Calls the same
+    group_properties_by_owner() that the actual send uses.
+
+    Returns:
+        dict with keys:
+            recipients: list of {owner_id, name, email, properties}
+            skipped: list of {name, email, reason, properties}
+            total_recipients: int
+    """
+    grouped = group_properties_by_owner(week_start, week_end)
+
+    recipients = [
+        {
+            "owner_id": r["owner"].id,
+            "name": r["owner"].name,
+            "email": r["owner"].email,
+            "properties": r["properties"],
+        }
+        for r in grouped["recipients"]
+    ]
+
+    return {
+        "recipients": recipients,
+        "skipped": grouped["skipped"],
+        "total_recipients": len(recipients),
+    }
+
+
+def send_approved_emails(
+    week_start, week_end, user=None, dry_run=False,
+    test_recipient=None, owner_id=None,
+):
+    """Send weekly leasing emails to all owners with approved notes.
+
+    Args:
+        week_start: Start date of reporting week.
+        week_end: End date of reporting week.
+        user: Optional User who triggered the send.
+        dry_run: If True, log but don't actually send.
+        test_recipient: When set, deliver every email to this address
+            instead of the owner's, skip idempotency checks, and do
+            not write OwnerEmailSend records.  Used for test sends.
+        owner_id: When set, only process this owner ID.
+
+    Returns:
+        dict: {sent, skipped, failed, errors}.
+    """
+    # Monday anchor
+    monday = week_start - timedelta(days=week_start.weekday())
+
+    # Use the shared grouping function — same logic as preview
+    grouped = group_properties_by_owner(week_start, week_end)
+    all_recipients = grouped["recipients"]
+    report = grouped["report"]
+    benchmarks = report["benchmarks"]
+
+    # Filter to a single owner when requested
+    if owner_id:
+        all_recipients = [r for r in all_recipients if r["owner"].id == owner_id]
+
+    if not all_recipients:
+        logger.info("No eligible recipients for week %s — nothing to send", monday)
+        return {"sent": 0, "skipped": 0, "failed": 0, "errors": []}
+
+    sent = 0
+    skipped = 0
+    failed = 0
+    errors = []
+
+    for recipient_data in all_recipients:
+        owner = recipient_data["owner"]
+        units_data = recipient_data["units_data"]
+
+        # For test sends we don't need the owner's real address
+        if not test_recipient and not owner.email:
+            logger.warning("Owner %s has no email — skipping", owner.name)
+            skipped += 1
+            continue
 
         # Idempotency: skip if already sent — unless this is a test send
         if not test_recipient and OwnerEmailSend.objects.filter(
@@ -161,6 +255,9 @@ def send_approved_emails(
                         "sent_by": user,
                         "error_detail": "",
                         "units_included": [u["unit_id"] for u in units_data],
+                        "recipient_name": owner.name,
+                        "recipient_email": owner.email,
+                        "email_type": "weekly_leasing",
                     },
                 )
             sent += 1
@@ -182,6 +279,9 @@ def send_approved_emails(
                         "error_detail": error_msg,
                         "units_included": [u["unit_id"] for u in units_data],
                         "sent_by": user,
+                        "recipient_name": owner.name,
+                        "recipient_email": owner.email,
+                        "email_type": "weekly_leasing",
                     },
                 )
 

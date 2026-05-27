@@ -18,6 +18,7 @@ urlpatterns = [
     path("owner-notes/", views.owner_notes, name="owner_notes"),
     path("monthly-notes/", views.monthly_notes, name="monthly_notes"),
     path("weekly-reports/", views.weekly_reports, name="weekly_reports"),
+    path("owner-email-send/", views.owner_email_send, name="owner_email_send"),
     path("weekly-reports/<int:unit_id>/", views.weekly_report_detail, name="weekly_report_detail"),
     # Redirect old bookmark
     path("weekly-sheets/", RedirectView.as_view(pattern_name="dashboard:weekly_reports", permanent=True), name="weekly_sheets"),

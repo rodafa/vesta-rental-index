@@ -75,6 +75,11 @@ class OwnerEmailSend(models.Model):
     error_detail = models.TextField(blank=True, default="")
     units_included = models.JSONField(default=list)
 
+    # Denormalised snapshot of what was actually sent — survives owner edits.
+    recipient_name = models.CharField(max_length=255, blank=True, default="")
+    recipient_email = models.EmailField(blank=True, default="")
+    email_type = models.CharField(max_length=50, blank=True, default="weekly_leasing")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
