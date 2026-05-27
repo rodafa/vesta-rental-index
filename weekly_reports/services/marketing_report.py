@@ -9,10 +9,12 @@ and owner information.
 import logging
 from datetime import timedelta
 
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+
 from dashboard.models import PropertyWeeklyNote
+from leasing.models import DailyLeasingMetric
 from market.services.leasing_queries import (
-    dls_alltime,
-    dls_delta,
     get_latest_snapshots,
     showing_outcome_counts,
 )
@@ -21,6 +23,29 @@ from properties.models import Owner, Unit
 from weekly_reports.services.unit_data import get_portfolio_benchmark
 
 logger = logging.getLogger(__name__)
+
+
+def _dlm_period_sums(unit_ids, date_gte=None, date_lte=None):
+    """SUM per-day raw counts from DailyLeasingMetric, keyed by unit_id.
+
+    When date_gte/date_lte are None, sums all-time.
+    Returns dict[unit_id] -> {leads, showings, apps, missed}.
+    """
+    qs = DailyLeasingMetric.objects.filter(unit_id__in=unit_ids)
+    if date_gte is not None:
+        qs = qs.filter(date__gte=date_gte)
+    if date_lte is not None:
+        qs = qs.filter(date__lte=date_lte)
+
+    result = {}
+    for row in qs.values("unit_id").annotate(
+        leads=Coalesce(Sum("new_prospects"), 0),
+        showings=Coalesce(Sum("showings_completed"), 0),
+        apps=Coalesce(Sum("applications_submitted"), 0),
+        missed=Coalesce(Sum("showings_missed_or_failed"), 0),
+    ):
+        result[row["unit_id"]] = row
+    return result
 
 
 def build_marketing_report(week_start, week_end):
@@ -53,14 +78,14 @@ def build_marketing_report(week_start, week_end):
     if not listed_ids:
         return {"rows": [], "benchmarks": get_portfolio_benchmark([], week_start, week_end)}
 
-    # 2. This-week metrics
-    this_week = dls_delta(listed_ids, week_start, week_end)
+    # 2. This-week metrics (SUM of per-day counts from DailyLeasingMetric)
+    this_week = _dlm_period_sums(listed_ids, week_start, week_end)
 
     # 3. Prior-week metrics
-    prev_week = dls_delta(listed_ids, prev_start, prev_end)
+    prev_week = _dlm_period_sums(listed_ids, prev_start, prev_end)
 
     # 4. All-time totals
-    alltime = dls_alltime(listed_ids)
+    alltime = _dlm_period_sums(listed_ids)
 
     # 4b. Cancelled/missed showing counts (from Showing model)
     tw_outcomes = showing_outcome_counts(listed_ids, week_start, week_end)

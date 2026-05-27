@@ -76,17 +76,17 @@ def _seed_and_compute(unit, rows):
 @pytest.mark.django_db
 class TestGetUnitMetrics:
     def test_window_sum_correctness(self, unit):
-        """SUMming deltas over a window gives correct totals."""
+        """SUMming raw per-day counts over a window gives correct totals."""
         _seed_and_compute(unit, [
             (date(2026, 5, 1), {"new_prospects": 2, "showings_completed": 1}),
-            (date(2026, 5, 2), {"new_prospects": 5, "showings_completed": 3}),
-            (date(2026, 5, 3), {"new_prospects": 5, "showings_completed": 6}),
+            (date(2026, 5, 2), {"new_prospects": 3, "showings_completed": 2}),
+            (date(2026, 5, 3), {"new_prospects": 0, "showings_completed": 3}),
         ])
 
         results = get_unit_metrics(date(2026, 5, 1), date(2026, 5, 3))
         assert len(results) == 1
         row = results[0]
-        # Total leads = 2 + 3 + 0 = 5 (the final cumulative)
+        # Total leads = 2 + 3 + 0 = 5
         assert row["leads"] == 5
         # Total showings = 1 + 2 + 3 = 6
         assert row["showings"] == 6
@@ -95,8 +95,8 @@ class TestGetUnitMetrics:
         """Rows on date_from and date_to are both included."""
         _seed_and_compute(unit, [
             (date(2026, 5, 1), {"new_prospects": 3}),
-            (date(2026, 5, 2), {"new_prospects": 5}),
-            (date(2026, 5, 3), {"new_prospects": 8}),
+            (date(2026, 5, 2), {"new_prospects": 2}),
+            (date(2026, 5, 3), {"new_prospects": 3}),
         ])
 
         # Query just 5/1 to 5/2
@@ -174,19 +174,19 @@ class TestGetPortfolioKpis:
         # Prior window: 5/1-5/3 (3 days)
         _seed_and_compute(unit, [
             (date(2026, 5, 1), {"new_prospects": 2}),
-            (date(2026, 5, 2), {"new_prospects": 4}),
-            (date(2026, 5, 3), {"new_prospects": 6}),
+            (date(2026, 5, 2), {"new_prospects": 2}),
+            (date(2026, 5, 3), {"new_prospects": 2}),
             # Current window: 5/4-5/6 (3 days)
-            (date(2026, 5, 4), {"new_prospects": 9}),
-            (date(2026, 5, 5), {"new_prospects": 11}),
-            (date(2026, 5, 6), {"new_prospects": 14}),
+            (date(2026, 5, 4), {"new_prospects": 3}),
+            (date(2026, 5, 5), {"new_prospects": 2}),
+            (date(2026, 5, 6), {"new_prospects": 3}),
         ])
 
         kpis = get_portfolio_kpis(date(2026, 5, 4), date(2026, 5, 6))
 
-        # Current: deltas 3 + 2 + 3 = 8
+        # Current: 3 + 2 + 3 = 8
         assert kpis["current"]["total_leads"] == 8
-        # Prior: deltas 2 + 2 + 2 = 6
+        # Prior: 2 + 2 + 2 = 6
         assert kpis["prior"]["total_leads"] == 6
         # Delta: 8 - 6 = 2
         assert kpis["deltas"]["total_leads"] == 2
@@ -195,12 +195,12 @@ class TestGetPortfolioKpis:
         """A single-day window should have a single-day prior window."""
         _seed_and_compute(unit, [
             (date(2026, 5, 4), {"new_prospects": 3}),
-            (date(2026, 5, 5), {"new_prospects": 7}),
+            (date(2026, 5, 5), {"new_prospects": 4}),
         ])
 
         kpis = get_portfolio_kpis(date(2026, 5, 5), date(2026, 5, 5))
 
-        # Current: delta for 5/5 = 7 - 3 = 4
+        # Current: raw count for 5/5 = 4
         assert kpis["current"]["total_leads"] == 4
-        # Prior window is 5/4-5/4: delta = 3
+        # Prior window is 5/4-5/4: raw count = 3
         assert kpis["prior"]["total_leads"] == 3

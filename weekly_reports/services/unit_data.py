@@ -8,10 +8,12 @@ weekly_reports-specific queries (portfolio benchmark, recent history).
 import logging
 from datetime import timedelta
 
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+
 from dashboard.models import PropertyWeeklyNote
+from leasing.models import DailyLeasingMetric
 from market.services.leasing_queries import (
-    dls_alltime,
-    dls_delta,
     get_latest_snapshots,
     get_showing_feedback,
     showing_outcome_counts,
@@ -20,12 +22,34 @@ from market.services.leasing_queries import (
 logger = logging.getLogger(__name__)
 
 
+def _dlm_sums(unit_ids, date_gte=None, date_lte=None):
+    """SUM per-day raw counts from DailyLeasingMetric, keyed by unit_id.
+
+    Returns dict[unit_id] -> {leads, showings, apps, missed}.
+    """
+    qs = DailyLeasingMetric.objects.filter(unit_id__in=unit_ids)
+    if date_gte is not None:
+        qs = qs.filter(date__gte=date_gte)
+    if date_lte is not None:
+        qs = qs.filter(date__lte=date_lte)
+
+    result = {}
+    for row in qs.values("unit_id").annotate(
+        leads=Coalesce(Sum("new_prospects"), 0),
+        showings=Coalesce(Sum("showings_completed"), 0),
+        apps=Coalesce(Sum("applications_submitted"), 0),
+        missed=Coalesce(Sum("showings_missed_or_failed"), 0),
+    ):
+        result[row["unit_id"]] = row
+    return result
+
+
 def get_weekly_metrics(unit_ids, start_date, end_date):
     """Get weekly leasing metrics for units in a date range.
 
-    Returns dict keyed by unit_id: {leads, showings, apps}.
+    Returns dict keyed by unit_id: {leads, showings, apps, missed}.
     """
-    return dls_delta(unit_ids, start_date, end_date)
+    return _dlm_sums(unit_ids, start_date, end_date)
 
 
 def get_snapshot_data(unit_ids):
@@ -90,19 +114,19 @@ def get_portfolio_benchmark(unit_ids, start_date, end_date):
     if not unit_ids:
         return base
 
-    deltas = dls_delta(unit_ids, start_date, end_date)
+    period_sums = _dlm_sums(unit_ids, start_date, end_date)
     snapshots, _ = get_latest_snapshots(unit_ids, status="active")
 
-    n = len(deltas) or len(unit_ids)
-    total_leads = sum(d.get("leads", 0) for d in deltas.values())
-    total_showings = sum(d.get("showings", 0) for d in deltas.values())
-    total_apps = sum(d.get("apps", 0) for d in deltas.values())
+    n = len(period_sums) or len(unit_ids)
+    total_leads = sum(d.get("leads", 0) for d in period_sums.values())
+    total_showings = sum(d.get("showings", 0) for d in period_sums.values())
+    total_apps = sum(d.get("apps", 0) for d in period_sums.values())
 
     dom_values = [s.get("days_on_market", 0) for s in snapshots.values() if s.get("days_on_market")]
     avg_dom = round(sum(dom_values) / len(dom_values), 1) if dom_values else 0
 
-    # All-time cumulative totals and per-week rates
-    alltime = dls_alltime(unit_ids)
+    # All-time totals (no date filter)
+    alltime = _dlm_sums(unit_ids)
     at_total_leads = sum(a.get("leads", 0) for a in alltime.values())
     at_total_showings = sum(a.get("showings", 0) for a in alltime.values())
     at_total_apps = sum(a.get("apps", 0) for a in alltime.values())

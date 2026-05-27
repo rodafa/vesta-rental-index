@@ -42,13 +42,13 @@ def get_unit_metrics(date_from, date_to, portfolio=None):
     rows = (
         qs.values("unit", "unit__property__address_line_1", "unit__name")
         .annotate(
-            leads=Sum("new_prospects_delta"),
-            showings=Sum("showings_completed_delta"),
-            apps_submitted=Sum("applications_submitted_delta"),
-            apps_requested=Sum("applications_requested_delta"),
-            missed_failed=Sum("showings_missed_or_failed_delta"),
-            outbound_texts=Sum("outbound_texts_delta"),
-            total_calls=Sum("total_calls_delta"),
+            leads=Sum("new_prospects"),
+            showings=Sum("showings_completed"),
+            apps_submitted=Sum("applications_submitted"),
+            apps_requested=Sum("applications_requested"),
+            missed_failed=Sum("showings_missed_or_failed"),
+            outbound_texts=Sum("outbound_texts"),
+            total_calls=Sum("total_calls"),
             dom=Subquery(nearest.values("days_on_market")[:1]),
             health=Subquery(nearest.values("property_health")[:1]),
         )
@@ -104,11 +104,11 @@ def _aggregate_window(date_from, date_to, portfolio=None):
         qs = qs.filter(unit__property__portfolio=portfolio)
 
     agg = qs.aggregate(
-        total_leads=Sum("new_prospects_delta"),
-        total_showings=Sum("showings_completed_delta"),
-        total_apps=Sum("applications_submitted_delta"),
-        total_apps_requested=Sum("applications_requested_delta"),
-        total_missed=Sum("showings_missed_or_failed_delta"),
+        total_leads=Sum("new_prospects"),
+        total_showings=Sum("showings_completed"),
+        total_apps=Sum("applications_submitted"),
+        total_apps_requested=Sum("applications_requested"),
+        total_missed=Sum("showings_missed_or_failed"),
         active_units=Count("unit", distinct=True),
         avg_dom=Avg("days_on_market"),
     )
