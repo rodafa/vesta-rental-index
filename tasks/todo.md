@@ -65,6 +65,49 @@
 - [x] Render all 7 scoring categories, auto-deny flags, notes
 - [x] Auto-refresh guard for open detail panel
 
+## Phase 7: Webhook-Primary DailyLeasingMetric — Pre-build Verification
+
+### Timezone boundary verification
+- [x] Create `verify_tz_boundaries` management command
+- [ ] Run command against production, compare UTC vs Eastern totals
+- [ ] Whichever sums to 8 matches RentEngine's PDF → adopt that boundary
+
+### Duplicate rentengine_id audit
+- [ ] Run duplicate-check snippet in production Django shell
+- [ ] If duplicates exist, plan dedup data migration before adding unique constraints
+
+### Duplicate check snippet (paste into `manage.py shell`):
+```python
+from django.db.models import Count
+from leasing.models import LeasingEvent, Showing
+
+# LeasingEvent duplicates
+le_dupes = (
+    LeasingEvent.objects
+    .filter(rentengine_id__isnull=False)
+    .values("rentengine_id")
+    .annotate(cnt=Count("id"))
+    .filter(cnt__gt=1)
+    .order_by("-cnt")
+)
+print(f"LeasingEvent: {le_dupes.count()} duplicate rentengine_ids")
+for d in le_dupes[:10]:
+    print(f"  rentengine_id={d['rentengine_id']}  count={d['cnt']}")
+
+# Showing duplicates
+sh_dupes = (
+    Showing.objects
+    .filter(rentengine_id__isnull=False)
+    .values("rentengine_id")
+    .annotate(cnt=Count("id"))
+    .filter(cnt__gt=1)
+    .order_by("-cnt")
+)
+print(f"\nShowing: {sh_dupes.count()} duplicate rentengine_ids")
+for d in sh_dupes[:10]:
+    print(f"  rentengine_id={d['rentengine_id']}  count={d['cnt']}")
+```
+
 ## Files Modified/Created
 | Action | File |
 |---|---|
