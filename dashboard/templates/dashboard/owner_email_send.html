@@ -171,6 +171,21 @@
 {% endblock %}
 
 {% block content %}
+<!-- Date range filter -->
+<div class="card" style="margin-bottom:1rem;">
+  <form method="get" style="display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap;">
+    <div class="filter-group">
+      <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">Week Start</label>
+      <input type="date" name="date_from" value="{{ week_start|date:'Y-m-d' }}" class="input" style="width:160px;">
+    </div>
+    <div class="filter-group">
+      <label style="font-size:.75rem;font-weight:600;color:var(--text-secondary);">Week End</label>
+      <input type="date" name="date_to" value="{{ week_end|date:'Y-m-d' }}" class="input" style="width:160px;">
+    </div>
+    <button type="submit" class="btn btn-primary">Load</button>
+  </form>
+</div>
+
 <div class="card">
   <div class="send-header">
     <div>
@@ -179,6 +194,8 @@
     {% if preview.total_recipients > 0 %}
     <form method="post" class="send-form" onsubmit="return confirm('Send {{ preview.total_recipients }} email{{ preview.total_recipients|pluralize }} now?');">
       {% csrf_token %}
+      <input type="hidden" name="date_from" value="{{ week_start|date:'Y-m-d' }}">
+      <input type="hidden" name="date_to" value="{{ week_end|date:'Y-m-d' }}">
       <button type="submit" class="btn-send">Send All Emails ({{ preview.total_recipients }})</button>
     </form>
     {% endif %}

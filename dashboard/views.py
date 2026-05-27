@@ -261,6 +261,9 @@ def owner_email_send(request):
 
     GET — preview who will receive emails and who is excluded.
     POST — trigger the batch send via the existing send service.
+
+    Accepts optional date_from / date_to query params (GET) or form
+    fields (POST) to override the auto-derived week window.
     """
     from weekly_reports.services.send_owner_emails import (
         build_send_preview,
@@ -268,14 +271,29 @@ def owner_email_send(request):
     )
     from weekly_reports.services.weekly_update import default_date_range
 
-    week_start, week_end = default_date_range()
+    # Resolve dates: prefer user-supplied, fall back to auto-derived.
+    default_start, default_end = default_date_range()
+    params = request.POST if request.method == "POST" else request.GET
+
+    date_from_str = params.get("date_from")
+    date_to_str = params.get("date_to")
+
+    try:
+        week_start = datetime.date.fromisoformat(date_from_str) if date_from_str else default_start
+    except ValueError:
+        week_start = default_start
+
+    try:
+        week_end = datetime.date.fromisoformat(date_to_str) if date_to_str else default_end
+    except ValueError:
+        week_end = default_end
+
     result = None
 
     if request.method == "POST":
-        send_result = send_approved_emails(
+        result = send_approved_emails(
             week_start, week_end, user=request.user,
         )
-        result = send_result
 
     preview = build_send_preview(week_start, week_end)
 

@@ -124,18 +124,28 @@ def group_properties_by_owner(week_start, week_end):
     return {"recipients": recipients, "skipped": skipped, "report": report}
 
 
-def build_send_preview(week_start, week_end):
+def build_send_preview(week_start=None, week_end=None):
     """Build a preview of who will receive emails and who is excluded.
 
     Used by the dashboard pre-send review page. Calls the same
     group_properties_by_owner() that the actual send uses.
+
+    Args:
+        week_start: Optional start date. Auto-derived if not provided.
+        week_end: Optional end date. Auto-derived if not provided.
 
     Returns:
         dict with keys:
             recipients: list of {owner_id, name, email, properties}
             skipped: list of {name, email, reason, properties}
             total_recipients: int
+            week_start: date used
+            week_end: date used
     """
+    if not week_start or not week_end:
+        from weekly_reports.services.weekly_update import default_date_range
+        week_start, week_end = default_date_range()
+
     grouped = group_properties_by_owner(week_start, week_end)
 
     recipients = [
@@ -152,18 +162,20 @@ def build_send_preview(week_start, week_end):
         "recipients": recipients,
         "skipped": grouped["skipped"],
         "total_recipients": len(recipients),
+        "week_start": week_start,
+        "week_end": week_end,
     }
 
 
 def send_approved_emails(
-    week_start, week_end, user=None, dry_run=False,
+    week_start=None, week_end=None, user=None, dry_run=False,
     test_recipient=None, owner_id=None,
 ):
     """Send weekly leasing emails to all owners with approved notes.
 
     Args:
-        week_start: Start date of reporting week.
-        week_end: End date of reporting week.
+        week_start: Start date of reporting week. Auto-derived if not provided.
+        week_end: End date of reporting week. Auto-derived if not provided.
         user: Optional User who triggered the send.
         dry_run: If True, log but don't actually send.
         test_recipient: When set, deliver every email to this address
@@ -174,6 +186,10 @@ def send_approved_emails(
     Returns:
         dict: {sent, skipped, failed, errors}.
     """
+    if not week_start or not week_end:
+        from weekly_reports.services.weekly_update import default_date_range
+        week_start, week_end = default_date_range()
+
     # Monday anchor
     monday = week_start - timedelta(days=week_start.weekday())
 
