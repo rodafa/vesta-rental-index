@@ -23,7 +23,7 @@ from integrations.rentengine.client import RentEngineClient
 from properties.models import Unit
 
 UTC = timezone.utc
-EASTERN = ZoneInfo("US/Eastern")
+EASTERN = ZoneInfo("America/New_York")
 
 
 def _fetch_new_prospects(client, rentengine_id, start_utc_str, end_utc_str):
