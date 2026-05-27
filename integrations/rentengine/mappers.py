@@ -5,6 +5,7 @@ Reuses _safe_* helpers from integrations.rentvine.mappers to avoid duplication.
 """
 
 import logging
+from zoneinfo import ZoneInfo
 
 from integrations.rentvine.mappers import (
     _safe_decimal,
@@ -16,6 +17,8 @@ from integrations.rentvine.mappers import (
 )
 
 import re
+
+EASTERN = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
@@ -378,7 +381,7 @@ def map_leasing_event_webhook(record):
         )
         event_timestamp = timezone.now()
 
-    event_date = event_timestamp.date()
+    event_date = event_timestamp.astimezone(EASTERN).date()
     # Override with explicit date if provided
     explicit_date = _safe_date(
         _get(record, "event_date", "eventDate", "date", default=None)

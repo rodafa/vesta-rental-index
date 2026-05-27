@@ -17,6 +17,7 @@ from django.conf import settings
 
 from leasing.models import DailyLeasingMetric, ShowingFeedback
 from leasing.services.leasing_performance import (
+    fetch_daily_performance,
     import_historical_csv,
     ingest_day,
     upsert_daily_metric,
@@ -399,6 +400,52 @@ class TestCSVImport:
 
         assert result["rows_imported"] == 1
         assert result["units_matched"] == 1
+
+
+# ---------------------------------------------------------------------------
+# fetch_daily_performance — Eastern timezone boundaries
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestFetchDailyPerformanceTimezone:
+    """Verify the API call uses Eastern midnight-to-midnight boundaries."""
+
+    @responses.activate
+    def test_eastern_boundaries_in_edt(self, unit):
+        """
+        May 20 2026 is EDT (UTC-4).
+        Eastern midnight = 04:00 UTC, end = 03:59:59 UTC next day.
+        """
+        base_url = settings.RENTENGINE["BASE_URL"]
+        url = f"{base_url}/reporting/leasing-performance/units/{unit.rentengine_id}"
+
+        responses.add(responses.GET, url, json={"new_prospects": 0}, status=200)
+
+        fetch_daily_performance(unit.rentengine_id, date(2026, 5, 20))
+
+        assert len(responses.calls) == 1
+        params = responses.calls[0].request.params
+        assert params["start"] == "2026-05-20T04:00:00Z"
+        assert params["end"] == "2026-05-21T03:59:59Z"
+
+    @responses.activate
+    def test_eastern_boundaries_in_est(self, unit):
+        """
+        Jan 15 2026 is EST (UTC-5).
+        Eastern midnight = 05:00 UTC, end = 04:59:59 UTC next day.
+        """
+        base_url = settings.RENTENGINE["BASE_URL"]
+        url = f"{base_url}/reporting/leasing-performance/units/{unit.rentengine_id}"
+
+        responses.add(responses.GET, url, json={"new_prospects": 0}, status=200)
+
+        fetch_daily_performance(unit.rentengine_id, date(2026, 1, 15))
+
+        assert len(responses.calls) == 1
+        params = responses.calls[0].request.params
+        assert params["start"] == "2026-01-15T05:00:00Z"
+        assert params["end"] == "2026-01-16T04:59:59Z"
 
 
 # ---------------------------------------------------------------------------

@@ -183,7 +183,7 @@ class LeasingEvent(models.Model):
     "Moved In" and everything in between.
     """
 
-    rentengine_id = models.IntegerField(null=True, blank=True, db_index=True)
+    rentengine_id = models.IntegerField(unique=True, null=True, blank=True)
 
     prospect = models.ForeignKey(
         Prospect,
@@ -264,13 +264,32 @@ class LeasingEvent(models.Model):
         return f"{self.get_event_type_display()} - {self.event_date}"
 
 
+class CountedLeasingEvent(models.Model):
+    """
+    Idempotency ledger for webhook-driven metric increments.
+    Tracks which (rentengine_event_id, event_type) pairs have already been
+    counted toward DailyLeasingMetric, preventing double-counting when
+    LeasingEvent rows mutate in place.
+    """
+
+    rentengine_event_id = models.IntegerField()
+    event_type = models.CharField(max_length=50)
+    counted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("rentengine_event_id", "event_type")]
+
+    def __str__(self):
+        return f"Counted {self.event_type} for event {self.rentengine_event_id}"
+
+
 class Showing(models.Model):
     """
     Showing record from RentEngine. Tracks scheduled, completed, missed,
     and canceled showings for units.
     """
 
-    rentengine_id = models.IntegerField(null=True, blank=True, db_index=True)
+    rentengine_id = models.IntegerField(unique=True, null=True, blank=True)
 
     prospect = models.ForeignKey(
         Prospect,
@@ -464,6 +483,7 @@ class DailyLeasingMetric(models.Model):
     SOURCE_CHOICES = [
         ("csv_backfill", "CSV Backfill"),
         ("rentengine_api", "RentEngine API"),
+        ("webhook_realtime", "Webhook Realtime"),
     ]
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
     raw_payload = models.JSONField(null=True, blank=True)

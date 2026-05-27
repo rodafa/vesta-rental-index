@@ -9,7 +9,8 @@ DailyLeasingMetric and ShowingFeedback, and handles CSV backfill.
 import csv
 import logging
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone as dt_tz
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.utils.dateparse import parse_datetime
@@ -20,6 +21,8 @@ from leasing.services.leasing_deltas import recompute_deltas_for_unit
 from properties.models import Unit
 
 logger = logging.getLogger(__name__)
+
+EASTERN = ZoneInfo("America/New_York")
 
 
 # ---------------------------------------------------------------------------
@@ -81,18 +84,19 @@ def fetch_daily_performance(unit_id: int, day: date) -> dict:
     """
     Fetch one unit's leasing performance for a single day from RentEngine.
 
-    Calls GET /reporting/leasing-performance/units/{unitId} with
-    start=day 00:00:00Z, end=day 23:59:59Z.
+    Uses America/New_York midnight-to-midnight boundaries converted to UTC
+    for the API call, so events near midnight ET are assigned to the correct
+    calendar day.
     The RentEngineClient handles 429 retries with Retry-After.
     """
     client = RentEngineClient()
-    day_str = day.isoformat()
+    local_start = datetime(day.year, day.month, day.day, tzinfo=EASTERN)
+    local_end = local_start + timedelta(days=1) - timedelta(seconds=1)
+    start_utc = local_start.astimezone(dt_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_utc = local_end.astimezone(dt_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return client.get(
         f"/reporting/leasing-performance/units/{unit_id}",
-        params={
-            "start": f"{day_str}T00:00:00Z",
-            "end": f"{day_str}T23:59:59Z",
-        },
+        params={"start": start_utc, "end": end_utc},
     )
 
 

@@ -7,6 +7,8 @@ table_name, creating or updating Prospect / LeasingEvent records.
 
 import logging
 
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from integrations.models import WebhookEvent
@@ -15,10 +17,43 @@ from integrations.rentengine.mappers import (
     map_prospect_webhook,
     map_showing_webhook,
 )
-from leasing.models import LeasingEvent, Prospect, Showing
+from leasing.models import (
+    CountedLeasingEvent,
+    DailyLeasingMetric,
+    LeasingEvent,
+    Prospect,
+    Showing,
+)
 from properties.models import Unit
 
 logger = logging.getLogger(__name__)
+
+# Maps LeasingEvent.event_type values to DailyLeasingMetric field names
+# for webhook-driven atomic increments.
+_COUNTABLE_EVENT_TYPES = {
+    "new": "new_prospects",
+    "showing_complete": "showings_completed",
+    "application_received": "applications_submitted",
+    "missed_showing": "showings_missed_or_failed",
+    "showing_failed": "showings_missed_or_failed",
+}
+
+
+def _increment_daily_metric(unit, event_date, field_name):
+    """
+    Atomically increment a single counter field on DailyLeasingMetric.
+
+    Uses get_or_create with source="webhook_realtime" to satisfy the
+    non-nullable constraint, then F() expression for the increment.
+    """
+    metric, _ = DailyLeasingMetric.objects.get_or_create(
+        unit=unit,
+        date=event_date,
+        defaults={"source": "webhook_realtime"},
+    )
+    DailyLeasingMetric.objects.filter(pk=metric.pk).update(
+        **{field_name: F(field_name) + 1}
+    )
 
 
 def process_webhook_event(event: WebhookEvent):
@@ -115,16 +150,39 @@ def _handle_leasing_event(event: WebhookEvent):
     if unit_id:
         defaults["unit"] = Unit.objects.filter(rentengine_id=unit_id).first()
 
-    obj, created = LeasingEvent.objects.update_or_create(
-        rentengine_id=rentengine_id,
-        defaults=defaults,
-    )
-    logger.info(
-        "LeasingEvent %s (rentengine_id=%s) via webhook %s",
-        "created" if created else "updated",
-        rentengine_id,
-        event.pk,
-    )
+    with transaction.atomic():
+        obj, created = LeasingEvent.objects.update_or_create(
+            rentengine_id=rentengine_id,
+            defaults=defaults,
+        )
+        logger.info(
+            "LeasingEvent %s (rentengine_id=%s) via webhook %s",
+            "created" if created else "updated",
+            rentengine_id,
+            event.pk,
+        )
+
+        # Idempotent metric increment via CountedLeasingEvent ledger
+        event_type = defaults["event_type"]
+        field_name = _COUNTABLE_EVENT_TYPES.get(event_type)
+        unit = defaults.get("unit")
+        if field_name and unit:
+            event_date = defaults["event_date"]
+            _, is_new = CountedLeasingEvent.objects.get_or_create(
+                rentengine_event_id=rentengine_id,
+                event_type=event_type,
+            )
+            if is_new:
+                _increment_daily_metric(unit, event_date, field_name)
+                logger.info(
+                    "Incremented %s for unit %s on %s (event %s)",
+                    field_name, unit, event_date, rentengine_id,
+                )
+            else:
+                logger.debug(
+                    "Skipping already-counted %s for event %s",
+                    event_type, rentengine_id,
+                )
 
 
 def _handle_showing(event: WebhookEvent):
