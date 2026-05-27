@@ -21,7 +21,8 @@ services:
     environment: &app-env
       DJANGO_SECRET_KEY: change-me-in-production
       DJANGO_DEBUG: "True"
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
       POSTGRES_DB: vesta_rental_index
       POSTGRES_USER: vesta
       POSTGRES_PASSWORD: vesta
