@@ -108,5 +108,24 @@ class Command(BaseCommand):
                     "Backfill aggregation failed for %s", gap_date
                 )
 
+            # 4. DLM application counts
+            try:
+                call_command(
+                    "sync_application_counts",
+                    start_date=gap_date.isoformat(),
+                    end_date=gap_date.isoformat(),
+                    stdout=self.stdout,
+                )
+                self.stdout.write(self.style.SUCCESS(
+                    f"    DLMApplicationCounts: OK"
+                ))
+            except Exception as exc:
+                self.stdout.write(self.style.ERROR(
+                    f"    DLMApplicationCounts FAILED: {exc}"
+                ))
+                logger.exception(
+                    "Backfill DLM application counts failed for %s", gap_date
+                )
+
             elapsed = time.time() - date_start
             self.stdout.write(f"    {gap_date} done ({elapsed:.1f}s)")

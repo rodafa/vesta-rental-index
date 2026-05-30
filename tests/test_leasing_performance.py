@@ -134,7 +134,8 @@ class TestUpsertDailyMetric:
         assert metric.date == date(2026, 5, 4)
         assert metric.new_prospects == 5
         assert metric.showings_completed == 2
-        assert metric.applications_submitted == 1
+        # applications_submitted is no longer written by RentEngine batch
+        assert metric.applications_submitted == 0
         assert metric.days_on_market == 14
         assert metric.property_health == "Healthy"
         assert metric.source == "rentengine_api"
@@ -204,6 +205,44 @@ class TestUpsertDailyMetric:
         }
         metric, _ = upsert_daily_metric(unit, date(2026, 5, 4), payload)
         assert metric.showing_feedback_summary == []
+
+    def test_ignores_applications_submitted_in_payload(self, unit):
+        """upsert_daily_metric does not write applications_submitted."""
+        payload = {
+            "new_prospects": 3,
+            "showings_scheduled": 1,
+            "showings_completed": 1,
+            "upcoming_showings": 0,
+            "applications_submitted": 7,
+        }
+        metric, _ = upsert_daily_metric(unit, date(2026, 5, 4), payload)
+        # Field should be the model default (0), not the payload value
+        assert metric.applications_submitted == 0
+
+    def test_preserves_boompay_value_on_update(self, unit):
+        """Existing BoomPay applications_submitted is not overwritten by RentEngine batch."""
+        # Simulate BoomPay having already written the value
+        DailyLeasingMetric.objects.create(
+            unit=unit,
+            date=date(2026, 5, 4),
+            applications_submitted=3,
+            source="boompay",
+        )
+
+        payload = {
+            "new_prospects": 5,
+            "showings_scheduled": 2,
+            "showings_completed": 1,
+            "upcoming_showings": 1,
+            "applications_submitted": 10,
+        }
+        metric, created = upsert_daily_metric(unit, date(2026, 5, 4), payload)
+
+        assert created is False
+        # BoomPay's value should be preserved
+        assert metric.applications_submitted == 3
+        # Other fields should be updated
+        assert metric.new_prospects == 5
 
 
 # ---------------------------------------------------------------------------

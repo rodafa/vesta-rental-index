@@ -227,3 +227,35 @@ class TestEasternDateBoundary:
         metric = DailyLeasingMetric.objects.get(unit=unit, date=date(2026, 5, 22))
         assert metric.new_prospects == 1
         assert metric.source == "webhook_realtime"
+
+
+# ---------------------------------------------------------------------------
+# TestApplicationReceivedNotCounted
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestApplicationReceivedNotCounted:
+    """
+    application_received events create a LeasingEvent but do NOT
+    increment DailyLeasingMetric.applications_submitted (BoomPay
+    is the sole writer for that field).
+    """
+
+    def test_application_received_creates_event_not_metric(self, unit):
+        from leasing.models import LeasingEvent
+
+        ev = _make_webhook(
+            rentengine_id=5001,
+            event_type="Application Received",
+            timestamp="2026-05-22T14:00:00Z",
+            unit_rentengine_id=unit.rentengine_id,
+        )
+        process_webhook_event(ev)
+
+        # LeasingEvent should exist
+        assert LeasingEvent.objects.filter(rentengine_id=5001).exists()
+
+        # No DLM row created (no countable field was incremented)
+        assert DailyLeasingMetric.objects.count() == 0
+        assert CountedLeasingEvent.objects.count() == 0

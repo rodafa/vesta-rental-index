@@ -484,6 +484,7 @@ class DailyLeasingMetric(models.Model):
         ("csv_backfill", "CSV Backfill"),
         ("rentengine_api", "RentEngine API"),
         ("webhook_realtime", "Webhook Realtime"),
+        ("boompay", "BoomPay"),
     ]
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES)
     raw_payload = models.JSONField(null=True, blank=True)

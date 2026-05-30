@@ -10,12 +10,14 @@ Each service:
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from django.db.models import Count
 from django.utils import timezone
 
 from integrations.models import APISyncLog
+from leasing.models import DailyLeasingMetric
 from market.models import DailyLeasingSummary
 from properties.models import Unit
 from screening.models import ScreeningApplication, ScreeningReport
@@ -352,4 +354,203 @@ class ApplicationCountService:
             "created": created_count,
             "updated": updated_count,
             "errors": len(errors),
+        }
+
+
+class DLMApplicationCountService:
+    """
+    Populate DailyLeasingMetric.applications_submitted from local
+    ScreeningApplication records, using Eastern day boundaries.
+
+    This is the single source of truth for application counts —
+    neither the RentEngine batch nor webhooks write this field.
+    """
+
+    EASTERN = ZoneInfo("America/New_York")
+
+    source = "boompay"
+    endpoint = "dlm_application_counts"
+
+    def _create_log(self):
+        return APISyncLog.objects.create(
+            source=self.source,
+            endpoint=self.endpoint,
+            sync_type="derived",
+            status="started",
+        )
+
+    def _complete_log(self, log, *, created, updated, zero_filled, errors=None):
+        log.status = "completed" if not errors else "partial"
+        log.records_created = created
+        log.records_updated = updated
+        if errors:
+            log.error_message = "\n".join(errors[:50])
+        log.completed_at = timezone.now()
+        log.save()
+
+    def _fail_log(self, log, error_message):
+        log.status = "failed"
+        log.error_message = str(error_message)[:2000]
+        log.completed_at = timezone.now()
+        log.save()
+
+    def sync(self, start_date=None, end_date=None, dry_run=False):
+        yesterday = date.today() - timedelta(days=1)
+        start_date = start_date or yesterday
+        end_date = end_date or yesterday
+
+        log = self._create_log()
+        try:
+            return self._do_sync(log, start_date, end_date, dry_run)
+        except Exception as exc:
+            self._fail_log(log, exc)
+            raise
+
+    def _do_sync(self, log, start_date, end_date, dry_run):
+        total_created = 0
+        total_updated = 0
+        total_zero_filled = 0
+        total_skipped_null_unit = 0
+        errors = []
+
+        # One-time warning: apps with null submitted_at
+        null_submitted = ScreeningApplication.objects.filter(
+            submitted_at__isnull=True,
+        ).count()
+        if null_submitted:
+            logger.warning(
+                "DLMApplicationCountService: %d ScreeningApplication(s) "
+                "with null submitted_at (excluded globally)",
+                null_submitted,
+            )
+
+        day = start_date
+        while day <= end_date:
+            try:
+                result = self._sync_day(day, dry_run)
+                total_created += result["created"]
+                total_updated += result["updated"]
+                total_zero_filled += result["zero_filled"]
+                total_skipped_null_unit += result["skipped_null_unit"]
+            except Exception as exc:
+                msg = f"Error syncing day {day}: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+            day += timedelta(days=1)
+
+        self._complete_log(
+            log,
+            created=total_created,
+            updated=total_updated,
+            zero_filled=total_zero_filled,
+            errors=errors,
+        )
+
+        totals = {
+            "created": total_created,
+            "updated": total_updated,
+            "zero_filled": total_zero_filled,
+            "skipped_null_unit": total_skipped_null_unit,
+            "skipped_null_submitted_at": null_submitted,
+            "errors": len(errors),
+        }
+        logger.info("DLMApplicationCountService: %s", totals)
+        return totals
+
+    def _sync_day(self, day, dry_run):
+        # Eastern midnight-to-midnight boundaries in UTC
+        local_start = datetime(day.year, day.month, day.day, tzinfo=self.EASTERN)
+        local_end = local_start + timedelta(days=1)
+
+        # Per-unit application counts for this Eastern day
+        qs = (
+            ScreeningApplication.objects.filter(
+                unit__isnull=False,
+                submitted_at__isnull=False,
+                submitted_at__gte=local_start,
+                submitted_at__lt=local_end,
+            )
+            .values("unit_id")
+            .annotate(count=Count("id"))
+        )
+        unit_counts = {row["unit_id"]: row["count"] for row in qs}
+
+        # Warn about null-unit apps in this day window
+        null_unit_count = ScreeningApplication.objects.filter(
+            unit__isnull=True,
+            submitted_at__isnull=False,
+            submitted_at__gte=local_start,
+            submitted_at__lt=local_end,
+        ).count()
+        if null_unit_count:
+            logger.warning(
+                "DLMApplicationCountService: %d app(s) on %s with null unit (skipped)",
+                null_unit_count,
+                day,
+            )
+
+        created = 0
+        updated = 0
+
+        for unit_id, count in unit_counts.items():
+            if dry_run:
+                existing = DailyLeasingMetric.objects.filter(
+                    unit_id=unit_id, date=day,
+                ).first()
+                old_val = existing.applications_submitted if existing else 0
+                logger.info(
+                    "DRY RUN unit_id=%s date=%s: applications_submitted %d -> %d",
+                    unit_id, day, old_val, count,
+                )
+                continue
+
+            metric, was_created = DailyLeasingMetric.objects.get_or_create(
+                unit_id=unit_id,
+                date=day,
+                defaults={"source": "boompay"},
+            )
+            if was_created:
+                metric.applications_submitted = count
+                metric.save(update_fields=["applications_submitted"])
+                created += 1
+            elif metric.applications_submitted != count:
+                metric.applications_submitted = count
+                metric.save(update_fields=["applications_submitted"])
+                updated += 1
+
+        # Zero-fill: existing DLM rows with nonzero applications_submitted
+        # where the unit had no BoomPay apps this day. Exclude csv_backfill.
+        zero_filled = 0
+        if not dry_run:
+            stale = DailyLeasingMetric.objects.filter(
+                date=day,
+                applications_submitted__gt=0,
+            ).exclude(
+                unit_id__in=unit_counts.keys(),
+            ).exclude(
+                source="csv_backfill",
+            )
+            zero_filled = stale.update(applications_submitted=0)
+        else:
+            stale = DailyLeasingMetric.objects.filter(
+                date=day,
+                applications_submitted__gt=0,
+            ).exclude(
+                unit_id__in=unit_counts.keys(),
+            ).exclude(
+                source="csv_backfill",
+            )
+            for m in stale:
+                logger.info(
+                    "DRY RUN zero-fill unit_id=%s date=%s: "
+                    "applications_submitted %d -> 0",
+                    m.unit_id, day, m.applications_submitted,
+                )
+            zero_filled = stale.count()
+
+        return {
+            "created": created,
+            "updated": updated,
+            "zero_filled": zero_filled,
+            "skipped_null_unit": null_unit_count,
         }
