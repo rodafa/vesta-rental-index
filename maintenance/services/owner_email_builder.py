@@ -84,15 +84,20 @@ def build_maintenance_email_data(owner: Owner, date_start: date, date_end: date)
         .order_by("-completion_date", "-marked_complete")
     )
 
-    # Canceled: status in CANCELED bucket, source_modified_at within date range
+    # Canceled / could-not-complete: terminal date is source_modified_at,
+    # falling back to marked_complete for melds that lack source_modified_at.
     canceled_melds = list(
-        base_qs.filter(
-            status__in=EMAIL_CANCELED_BUCKET,
-            source_modified_at__date__gte=date_start,
-            source_modified_at__date__lte=date_end,
+        base_qs.filter(status__in=EMAIL_CANCELED_BUCKET)
+        .filter(
+            Q(source_modified_at__date__gte=date_start, source_modified_at__date__lte=date_end)
+            | Q(
+                source_modified_at__isnull=True,
+                marked_complete__date__gte=date_start,
+                marked_complete__date__lte=date_end,
+            )
         )
         .select_related("unit_fk", "unit_fk__property")
-        .order_by("-source_modified_at")
+        .order_by("-source_modified_at", "-marked_complete")
     )
 
     # Batch cost lookup — single query for all melds

@@ -73,6 +73,9 @@ def build_meld_prompt(meld: Meld, total_cost: Decimal | None) -> str:
     if meld.assigned_vendor_name:
         lines.append(f"  Vendor: {meld.assigned_vendor_name}")
 
+    if meld.scheduled_date:
+        lines.append(f"  Scheduled: {meld.scheduled_date.strftime('%b %d, %Y')}")
+
     if is_closed:
         completion = meld.completion_date or meld.marked_complete
         date_str = completion.strftime("%b %d, %Y") if completion else "Unknown"
@@ -87,11 +90,14 @@ def build_meld_prompt(meld: Meld, total_cost: Decimal | None) -> str:
     lines.append("")
 
     if is_closed:
-        lines.append("Write the summary now. State the cost for closed work orders.")
+        lines.append("Write the summary now. State the completion date and cost for closed work orders.")
     elif is_canceled:
-        lines.append("Write the summary now. Note that this work order was canceled.")
+        if "COULD_NOT_COMPLETE" in meld.status:
+            lines.append("Write the summary now. Note that the vendor or maintenance team was unable to complete this work order. Do NOT call it canceled.")
+        else:
+            lines.append("Write the summary now. Note that this work order was canceled.")
     else:
-        lines.append("Write the summary now. For open work orders, do not mention cost.")
+        lines.append("Write the summary now. For open work orders, do not mention cost. If a scheduled date is provided, mention it.")
 
     return "\n".join(lines)
 

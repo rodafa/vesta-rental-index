@@ -40,14 +40,18 @@ AWAITING_OWNER_APPROVAL_STATUS = "OWNER_APPROVAL_REQUESTED"
 
 # ---------------------------------------------------------------------------
 # Email status buckets — used for owner maintenance summary emails.
-# Could-not-complete → Open bucket (per spec).
 # ---------------------------------------------------------------------------
 
 EMAIL_CLOSED_BUCKET = {"COMPLETED"}
 
-EMAIL_CANCELED_BUCKET = {"MANAGER_CANCELED", "TENANT_CANCELED"}
+EMAIL_CANCELED_BUCKET = {
+    "MANAGER_CANCELED",
+    "TENANT_CANCELED",
+    "MAINTENANCE_COULD_NOT_COMPLETE",
+    "VENDOR_COULD_NOT_COMPLETE",
+}
 
-# Everything else (including COULD_NOT_COMPLETE variants) → open
+# Everything else → open
 # Check: status NOT in EMAIL_CLOSED_BUCKET and NOT in EMAIL_CANCELED_BUCKET
 
 # ---------------------------------------------------------------------------
