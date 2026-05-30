@@ -359,8 +359,10 @@ def get_property_detail(request, unit_id: int):
     from datetime import timedelta
 
     from django.db.models import Avg, Sum
+    from django.db.models.functions import Coalesce
 
     from dashboard.models import PropertyWeeklyNote
+    from leasing.models import DailyLeasingMetric
     from market.models import DailyLeasingSummary, DailyUnitSnapshot
     from properties.models import Unit
 
@@ -380,7 +382,12 @@ def get_property_detail(request, unit_id: int):
     latest_dls = DailyLeasingSummary.objects.filter(unit_id=unit_id).order_by("-summary_date").first()
     alltime_leads = latest_dls.leads_count if latest_dls else 0
     alltime_showings = latest_dls.showings_completed_count if latest_dls else 0
-    alltime_apps = latest_dls.applications_count if latest_dls else 0
+
+    # Total Apps from DailyLeasingMetric (not DailyLeasingSummary, whose
+    # applications_count depends on BoomPay unit resolution which is broken).
+    alltime_apps = DailyLeasingMetric.objects.filter(unit_id=unit_id).aggregate(
+        s=Coalesce(Sum("applications_submitted"), 0)
+    )["s"]
 
     # Avg per week over last 8 weeks
     today = date.today()
