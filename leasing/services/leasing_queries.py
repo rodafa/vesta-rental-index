@@ -40,7 +40,7 @@ def get_unit_metrics(date_from, date_to, portfolio=None):
     )
 
     rows = (
-        qs.values("unit", "unit__property__address_line_1", "unit__name")
+        qs.values("unit", "unit__property__address_line_1", "unit__name", "unit__address_line_2")
         .annotate(
             leads=Sum("new_prospects"),
             showings=Sum("showings_completed"),
@@ -52,7 +52,7 @@ def get_unit_metrics(date_from, date_to, portfolio=None):
             dom=Subquery(nearest.values("days_on_market")[:1]),
             health=Subquery(nearest.values("property_health")[:1]),
         )
-        .order_by("unit__property__address_line_1", "unit__name")
+        .order_by("unit__property__address_line_1", "unit__address_line_2", "unit__name")
     )
 
     # Cancelled showings from Showing model for the window
@@ -70,10 +70,24 @@ def get_unit_metrics(date_from, date_to, portfolio=None):
 
     results = []
     for row in rows:
-        address = row["unit__property__address_line_1"] or ""
-        unit_name = row["unit__name"] or ""
-        if unit_name and unit_name.lower() != "default":
-            address = f"{address} - {unit_name}"
+        base = row["unit__property__address_line_1"] or ""
+        line2 = (row["unit__address_line_2"] or "").strip()
+        unit_name = (row["unit__name"] or "").strip()
+
+        # Mirror Unit.display_address logic:
+        # prefer address_line_2 as suffix, fall back to name
+        suffix = line2
+        if not suffix and unit_name:
+            name_lower = unit_name.casefold()
+            base_lower = base.casefold()
+            # suppress if name duplicates line2 or is a word-subset of base
+            if name_lower == base_lower:
+                pass
+            elif set(name_lower.split()) <= set(base_lower.split()):
+                pass
+            else:
+                suffix = unit_name
+        address = f"{base} - {suffix}" if suffix else base
 
         results.append({
             "unit_id": row["unit"],
