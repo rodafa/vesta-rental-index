@@ -238,6 +238,7 @@ var ME = (function () {
     // Top row: ref + description + priority/cost
     html += '<div style="display:flex;align-items:flex-start;gap:.5rem;">';
     html += '<div style="flex:1;">';
+    html += '<div style="font-size:.72rem;color:#9ca3af;">' + _esc(m.unit_address || '') + '</div>';
     html += '<span style="font-size:.75rem;color:#6b7280;">';
     if (m.reference_id) html += '#' + _esc(m.reference_id) + ' &bull; ';
     html += _esc(m.category || '') + '</span>';
@@ -264,8 +265,7 @@ var ME = (function () {
 
     // Meta row
     html += '<div style="display:flex;align-items:center;gap:.75rem;margin-top:.3rem;font-size:.72rem;color:#9ca3af;">';
-    html += '<span>' + _esc(m.unit_address || '') + '</span>';
-    if (m.assigned_vendor_name) html += '<span>&bull; ' + _esc(m.assigned_vendor_name) + '</span>';
+    if (m.assigned_vendor_name) html += '<span>' + _esc(m.assigned_vendor_name) + '</span>';
     if (m.completion_date) html += '<span>&bull; ' + _fmtDate(m.completion_date) + '</span>';
     if (m.tenant_rating) html += '<span>&bull; Rating: ' + m.tenant_rating + '/5</span>';
     if (m.owner_approval_status === 'Requested') {
@@ -499,7 +499,8 @@ var ME = (function () {
           html += '<div style="font-size:.75rem;font-weight:700;color:' + color + ';text-transform:uppercase;margin:1rem 0 .3rem;">' + section + ' (' + melds.length + ')</div>';
           melds.forEach(function (m) {
             html += '<div style="background:#f9fafb;border-left:3px solid ' + color + ';padding:.5rem .75rem;margin-bottom:.4rem;border-radius:4px;">';
-            html += '<div style="font-size:.78rem;color:#6b7280;">' + (m.meld_reference_id ? '#' + _esc(m.meld_reference_id) : '') + ' &bull; ' + _esc(m.unit_label) + '</div>';
+            html += '<div style="font-size:.72rem;color:#9ca3af;">' + _esc(m.unit_label) + '</div>';
+            html += '<div style="font-size:.78rem;color:#6b7280;">' + (m.meld_reference_id ? '#' + _esc(m.meld_reference_id) : '') + '</div>';
             html += '<div style="font-size:.85rem;margin-top:.2rem;">' + _esc(m.summary_text) + '</div>';
             if (m.cost) html += '<div style="font-size:.78rem;color:#1f2937;font-weight:600;margin-top:.2rem;">$' + Number(m.cost).toFixed(2) + '</div>';
             html += '</div>';

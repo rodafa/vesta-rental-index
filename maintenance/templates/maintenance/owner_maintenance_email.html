@@ -94,7 +94,10 @@
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                       <tr>
                         <td>
-                          <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
+                          <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+                            {{ meld.unit_address|truncatechars:40 }}
+                          </p>
+                          <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
                             {% if meld.reference_id %}#{{ meld.reference_id }} &bull; {% endif %}{{ meld.category }}
                           </p>
                           <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
@@ -118,8 +121,7 @@
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
                       <tr>
                         <td style="font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
-                          {{ meld.unit_address|truncatechars:40 }}
-                          {% if meld.assigned_vendor_name %} &bull; {{ meld.assigned_vendor_name }}{% endif %}
+                          {% if meld.assigned_vendor_name %}{{ meld.assigned_vendor_name }}{% endif %}
                         </td>
                         {% if meld.owner_approval_status == 'Requested' %}
                         <td style="text-align:right;">
@@ -154,7 +156,10 @@
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                       <tr>
                         <td>
-                          <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
+                          <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+                            {{ meld.unit_address|truncatechars:40 }}
+                          </p>
+                          <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
                             {% if meld.reference_id %}#{{ meld.reference_id }} &bull; {% endif %}{{ meld.category }}
                           </p>
                           <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
@@ -176,9 +181,8 @@
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
                       <tr>
                         <td style="font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
-                          {{ meld.unit_address|truncatechars:40 }}
-                          {% if meld.assigned_vendor_name %} &bull; {{ meld.assigned_vendor_name }}{% endif %}
-                          {% if meld.completion_date %} &bull; {{ meld.completion_date|date:"M d" }}{% endif %}
+                          {% if meld.assigned_vendor_name %}{{ meld.assigned_vendor_name }}{% endif %}
+                          {% if meld.completion_date %}{% if meld.assigned_vendor_name %} &bull; {% endif %}{{ meld.completion_date|date:"M d" }}{% endif %}
                         </td>
                         {% if meld.tenant_rating %}
                         <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
@@ -210,7 +214,10 @@
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fafafa; border-radius:6px; border-left:4px solid #cccccc;">
                 <tr>
                   <td style="padding:12px 16px;">
-                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#aaaaaa;">
+                      {{ meld.unit_address|truncatechars:40 }}
+                    </p>
+                    <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
                       {% if meld.reference_id %}#{{ meld.reference_id }} &bull; {% endif %}{{ meld.category }}
                     </p>
                     <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#888888;">
@@ -221,9 +228,6 @@
                       {{ meld.summary }}
                     </p>
                     {% endif %}
-                    <p style="margin:6px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#aaaaaa;">
-                      {{ meld.unit_address|truncatechars:40 }}
-                    </p>
                   </td>
                 </tr>
               </table>
