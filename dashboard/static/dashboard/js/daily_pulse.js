@@ -135,7 +135,7 @@ function renderListingsTable(items) {
         }
 
         return (
-          '<tr class="clickable-row ' + rowClass + '" onclick="location=\'/dashboard/property/' + item.unit_id + '/\'">' +
+          '<tr class="clickable-row ' + rowClass + '" onclick="location=VestaAPI.unitDetailUrl(' + item.unit_id + ')">' +
           '<td>' + (item.address || '\u2014') + '</td>' +
           '<td class="num">' + (item.bedrooms != null ? item.bedrooms : '\u2014') + '</td>' +
           '<td class="num">' + VestaAPI.$(item.listed_price) + '</td>' +

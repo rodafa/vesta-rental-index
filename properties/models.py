@@ -1,4 +1,5 @@
 from django.db import models
+from django.urls import reverse
 
 # Unit.property (ForeignKey) shadows the built-in; alias for decorator use.
 _property = property
@@ -279,6 +280,9 @@ class Unit(models.Model):
 
     def __str__(self):
         return self.display_address
+
+    def get_absolute_url(self):
+        return reverse("dashboard:unit_detail", kwargs={"pk": self.pk})
 
 
 class MultifamilyProperty(models.Model):

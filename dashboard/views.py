@@ -22,8 +22,8 @@ def daily_pulse(request):
 
 
 @login_required
-def property_detail(request, unit_id):
-    return render(request, "dashboard/property_detail.html", {"unit_id": unit_id})
+def unit_detail(request, pk):
+    return render(request, "dashboard/unit_detail.html", {"unit_id": pk})
 
 
 @login_required
@@ -76,11 +76,6 @@ def weekly_reports(request):
         "show_showing_outcomes": getattr(django_settings, "SHOW_SHOWING_OUTCOMES", True),
         "user_email": request.user.email if request.user.is_authenticated else "",
     })
-
-
-@login_required
-def weekly_report_detail(request, unit_id):
-    return render(request, "dashboard/weekly_report_detail.html", {"unit_id": unit_id})
 
 
 class PasswordChangeCompleteView(View):

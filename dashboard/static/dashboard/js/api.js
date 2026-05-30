@@ -117,5 +117,10 @@ const VestaAPI = (() => {
     return el;
   }
 
-  return { get, post, put, patch, delete: del, list, $, $dec, pct, num, dateStr, daysAgo, today, toast, render };
+  // Canonical unit detail URL — single source of truth for all link callers.
+  function unitDetailUrl(unitId) {
+    return '/dashboard/units/' + unitId + '/';
+  }
+
+  return { get, post, put, patch, delete: del, list, $, $dec, pct, num, dateStr, daysAgo, today, toast, render, unitDetailUrl };
 })();

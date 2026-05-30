@@ -299,7 +299,7 @@ function _renderRows(rows) {
     actions += '</div>';
 
     return '<tr' + rowCls + '>' +
-      '<td><a href="/dashboard/weekly-reports/' + r.unit_id + '/">' + _esc(r.address) + '</a>' +
+      '<td><a href="' + VestaAPI.unitDetailUrl(r.unit_id) + '?tab=weekly-reports">' + _esc(r.address) + '</a>' +
         '<div style="font-size:.7rem;color:var(--text-muted);">' + r.beds + 'bd / ' + r.baths + 'ba</div></td>' +
       '<td style="font-size:.78rem;">' + _esc(r.owner_names || '—') +
         '<div style="font-size:.68rem;color:var(--text-muted);">' + _esc(r.portfolio_name || '') + '</div></td>' +

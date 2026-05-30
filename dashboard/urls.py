@@ -7,7 +7,7 @@ app_name = "dashboard"
 
 urlpatterns = [
     path("", views.daily_pulse, name="daily_pulse"),
-    path("property/<int:unit_id>/", views.property_detail, name="property_detail"),
+    path("units/<int:pk>/", views.unit_detail, name="unit_detail"),
     path("portfolio/", views.portfolio_analytics, name="portfolio_analytics"),
     path("renewals/month/<str:month>/", views.renewal_month_detail, name="renewal_month_detail"),
     path("renewals/", views.renewal_pipeline, name="renewal_pipeline"),
@@ -19,7 +19,6 @@ urlpatterns = [
     path("monthly-notes/", views.monthly_notes, name="monthly_notes"),
     path("weekly-reports/", views.weekly_reports, name="weekly_reports"),
     path("owner-email-send/", views.owner_email_send, name="owner_email_send"),
-    path("weekly-reports/<int:unit_id>/", views.weekly_report_detail, name="weekly_report_detail"),
     # Redirect old bookmark
     path("weekly-sheets/", RedirectView.as_view(pattern_name="dashboard:weekly_reports", permanent=True), name="weekly_sheets"),
 ]

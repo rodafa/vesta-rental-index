@@ -113,7 +113,7 @@
   <tbody>
     {% for row in unit_rows %}
     <tr>
-      <td>{{ row.address }}</td>
+      <td>{% if row.unit_id %}<a href="{% url 'dashboard:unit_detail' pk=row.unit_id %}">{{ row.address }}</a>{% else %}{{ row.address }}{% endif %}</td>
       <td>
         {% if row.health == "Healthy" %}
           <span style="color:#39B54A">{{ row.health }}</span>
