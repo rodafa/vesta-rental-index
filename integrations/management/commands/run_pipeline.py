@@ -13,7 +13,6 @@ PIPELINE = [
     ("RentVine sync", "sync_rentvine_all", [], {}),
     ("RentEngine sync", "sync_rentengine_all", [], {}),
     ("BoomPay sync", "sync_boompay_all", [], {}),
-    ("DLM application counts", "sync_application_counts", [], {}),
     ("Market aggregation", "aggregate_market_data", [], {"all": True}),
     ("Owner-portfolio links", "link_owner_portfolios", [], {}),
     ("Property Meld sync", "sync_property_meld_melds", [], {}),
@@ -36,7 +35,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip",
             nargs="+",
-            choices=["backfill", "rentvine", "rentengine", "boompay", "dlm_apps", "aggregate", "links"],
+            choices=["backfill", "rentvine", "rentengine", "boompay", "aggregate", "links"],
             default=[],
             help="Skip specific pipeline steps.",
         )
@@ -50,7 +49,6 @@ class Command(BaseCommand):
             "rentvine": "RentVine sync",
             "rentengine": "RentEngine sync",
             "boompay": "BoomPay sync",
-            "dlm_apps": "DLM application counts",
             "aggregate": "Market aggregation",
             "links": "Owner-portfolio links",
         }

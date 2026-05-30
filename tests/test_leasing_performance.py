@@ -134,8 +134,7 @@ class TestUpsertDailyMetric:
         assert metric.date == date(2026, 5, 4)
         assert metric.new_prospects == 5
         assert metric.showings_completed == 2
-        # applications_submitted is no longer written by RentEngine batch
-        assert metric.applications_submitted == 0
+        assert metric.applications_submitted == 1
         assert metric.days_on_market == 14
         assert metric.property_health == "Healthy"
         assert metric.source == "rentengine_api"
@@ -206,8 +205,8 @@ class TestUpsertDailyMetric:
         metric, _ = upsert_daily_metric(unit, date(2026, 5, 4), payload)
         assert metric.showing_feedback_summary == []
 
-    def test_ignores_applications_submitted_in_payload(self, unit):
-        """upsert_daily_metric does not write applications_submitted."""
+    def test_writes_applications_submitted_from_payload(self, unit):
+        """upsert_daily_metric writes applications_submitted from RentEngine payload."""
         payload = {
             "new_prospects": 3,
             "showings_scheduled": 1,
@@ -216,17 +215,15 @@ class TestUpsertDailyMetric:
             "applications_submitted": 7,
         }
         metric, _ = upsert_daily_metric(unit, date(2026, 5, 4), payload)
-        # Field should be the model default (0), not the payload value
-        assert metric.applications_submitted == 0
+        assert metric.applications_submitted == 7
 
-    def test_preserves_boompay_value_on_update(self, unit):
-        """Existing BoomPay applications_submitted is not overwritten by RentEngine batch."""
-        # Simulate BoomPay having already written the value
+    def test_overwrites_applications_submitted_on_update(self, unit):
+        """RentEngine batch overwrites applications_submitted on existing rows."""
         DailyLeasingMetric.objects.create(
             unit=unit,
             date=date(2026, 5, 4),
             applications_submitted=3,
-            source="boompay",
+            source="rentengine_api",
         )
 
         payload = {
@@ -239,9 +236,7 @@ class TestUpsertDailyMetric:
         metric, created = upsert_daily_metric(unit, date(2026, 5, 4), payload)
 
         assert created is False
-        # BoomPay's value should be preserved
-        assert metric.applications_submitted == 3
-        # Other fields should be updated
+        assert metric.applications_submitted == 10
         assert metric.new_prospects == 5
 
 

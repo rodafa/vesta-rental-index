@@ -135,6 +135,7 @@ def upsert_daily_metric(unit, day, payload):
     defaults = {
         "new_prospects": payload.get("new_prospects", 0) or 0,
         "showings_completed": completed,
+        "applications_submitted": payload.get("applications_submitted", 0) or 0,
         "showings_missed_or_failed": missed,
         "days_on_market": payload.get("days_on_market"),
         "property_health": payload.get("property_health"),

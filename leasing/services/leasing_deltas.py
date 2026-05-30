@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 CUMULATIVE_FIELDS = [
     "new_prospects",
     "showings_completed",
+    "applications_submitted",
     "showings_missed_or_failed",
     "applications_requested",
     "outbound_texts",

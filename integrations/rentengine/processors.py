@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 _COUNTABLE_EVENT_TYPES = {
     "new": "new_prospects",
     "showing_complete": "showings_completed",
+    "application_received": "applications_submitted",
     "missed_showing": "showings_missed_or_failed",
     "showing_failed": "showings_missed_or_failed",
 }
