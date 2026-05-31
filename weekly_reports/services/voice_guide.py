@@ -3,15 +3,22 @@
 import os
 from functools import lru_cache
 
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+_DEFAULT_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "voice_guide.md"
+)
 
 
-@lru_cache(maxsize=1)
-def load_voice_guide() -> str:
-    """Read voice_guide.md from the data directory. Cached after first read."""
-    path = os.path.join(_DATA_DIR, "voice_guide.md")
+@lru_cache(maxsize=4)
+def load_voice_guide(path: str = "") -> str:
+    """Read a voice guide markdown file. Cached after first read per path.
+
+    Args:
+        path: Absolute path to the voice guide file. Defaults to the
+              weekly-leasing guide for backward compatibility.
+    """
+    resolved = path or _DEFAULT_PATH
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(resolved, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return ""

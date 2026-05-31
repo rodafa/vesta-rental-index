@@ -5,6 +5,7 @@ Uses Claude to generate concise, owner-facing summaries of maintenance work orde
 """
 
 import logging
+import os
 import time
 from decimal import Decimal
 
@@ -13,8 +14,13 @@ from django.conf import settings
 
 from maintenance.models import Meld
 from maintenance.services.meld_cost import get_meld_cost
+from weekly_reports.services.voice_guide import load_voice_guide
 
 logger = logging.getLogger(__name__)
+
+_VOICE_GUIDE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "voice_guide.md"
+)
 
 _CALL_PAUSE = 0.3
 
@@ -56,8 +62,7 @@ def build_meld_prompt(meld: Meld, total_cost: Decimal | None) -> str:
     is_open = not is_closed and not is_canceled
 
     lines = [
-        "You are writing a 1-3 sentence maintenance update for a property owner.",
-        "Be concise, factual, and plain-language. No jargon.",
+        load_voice_guide(_VOICE_GUIDE_PATH),
         "",
         "WORK ORDER:",
         f"  Category: {meld.category} / {meld.work_type}" if meld.work_type else f"  Category: {meld.category}",

@@ -4,6 +4,7 @@ Core logic for generating monthly AI-drafted owner notes.
 Entry point: run_monthly_report(month, owner_id, property_id, dry_run)
 """
 import logging
+import os
 from datetime import date, timedelta
 from calendar import monthrange
 
@@ -16,98 +17,17 @@ from reports.models import OwnerReportLog
 from reports.services.data_sources import rentvine as rv_source
 from reports.services.data_sources import propertymeld as pm_source
 from reports.services.data_sources import leadsimple as ls_source
+from weekly_reports.services.voice_guide import load_voice_guide
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "You are writing a monthly property update note for a real estate investor. "
-    "The note will be pasted directly into a property management portal. "
-    "Brevity is mandatory — owners want signal, not noise.\n\n"
-
-    "FORMAT:\n"
-    "- Bullet points throughout\n"
-    "- No bold, no markdown headers, no dividing lines, no preamble\n"
-    "- Do not start with a greeting or \"For the period...\"\n"
-    "- Do not mention vendor names — say \"one of our trusted vendors\"\n"
-    "- All dates must be written in plain English format: July 31, 2026 — "
-    "never ISO format (2026-07-31)\n"
-    "- Between property sections use exactly one blank line. "
-    "Never use --- or any divider characters anywhere in the note\n"
-    "- Never self-correct, revise, or show reasoning mid-note\n"
-    "- If data appears contradictory, use RentVine figures without commentary\n\n"
-
-    "PORTFOLIO SUMMARY — 3 lines maximum:\n"
-    "- Line 1: Total billed | collected | outstanding\n"
-    "- Line 2: Reserve status ONLY if balance is below minimum\n"
-    "- Line 3: One framing sentence ONLY if more than 2 properties have "
-    "outstanding balances. If collection follow-up applies, state it once here "
-    "(e.g. \"Late rent processes are active where balances remain\"). "
-    "Do NOT repeat collection language anywhere else in the note.\n\n"
-
-    "PROPERTY SECTIONS — strict inclusion rules:\n"
-    "Only include a property section if at least one of these is true:\n"
-    "- Outstanding balance > $0 this period (billed but not yet collected)\n"
-    "- All-time overdue balance > $0\n"
-    "- Lease ends within 90 days of report period end\n"
-    "- Unresolved HIGH PRIORITY maintenance item\n"
-    "- Active pipeline process (application, move-in, renewal, move-out)\n"
-    "If NONE of these are true, omit the property entirely — not even a mention.\n\n"
-
-    "Per included property, use at most 4 lines:\n"
-    "- Billed | collected | outstanding (only if outstanding > $0)\n"
-    "- Overdue balance with ONE action word (e.g. \"$3,700 overdue — pursuing\"). "
-    "Never repeat \"follow-up is underway\" or similar phrases.\n"
-    "- Lease renewal status if an active renewal process exists\n"
-    "- Maintenance ONLY if high priority AND unresolved\n"
-    "Omit any line that does not apply.\n\n"
-
-    "MULTI-UNIT PROPERTIES:\n"
-    "When a property has multiple units, identify the specific unit "
-    "(e.g. \"Unit A\", \"Unit B\") for financials, lease details, and maintenance. "
-    "Only include units that meet the inclusion rules above. "
-    "Pipeline processes apply property-wide — no unit attribution needed.\n\n"
-
-    "OVERDUE BALANCE RULE:\n"
-    "If a property has an all-time overdue balance > $0 it MUST appear in the note "
-    "body with its financials. It must never appear only in the closing line. "
-    "The closing line is only for properties with zero outstanding and zero "
-    "overdue balance.\n\n"
-
-    "OMIT ENTIRELY — no exceptions:\n"
-    "- Properties where current period outstanding = $0 AND overdue balance = $0 "
-    "AND no expiring lease AND no high-priority open maintenance\n"
-    "- Routine items: quarterly walkthroughs, annual inspections, filter changes, "
-    "pending scheduling coordination\n"
-    "- Cancelled work orders\n\n"
-
-    "CLOSING LINE — required only if any properties were omitted:\n"
-    "- 4 or fewer omitted: \"[Property A] and [Property B] are current with no "
-    "open items.\"\n"
-    "- More than 4 omitted: \"The remaining [X] properties are current with no "
-    "open items.\"\n"
-    "- A property must never appear in both the note body AND the closing line. "
-    "The closing line only includes properties that were completely omitted "
-    "from the body.\n"
-    "- When a multi-unit property appears in the closing line, identify the "
-    "specific unit — never just the property address. For example: "
-    "\"11 Chestnut Terrace Unit A, 240 Hillside Street Unit B, and "
-    "37 Shadowlawn Drive Unit B are current with no open items.\" "
-    "If all units at a property are clean, list each unit separately or use: "
-    "\"11 Chestnut Terrace (all units)\".\n"
-    "- Never write a line like '[Property] has no items requiring your attention' "
-    "— properties with nothing notable are omitted entirely or named only in "
-    "the closing line.\n\n"
-
-    "TONE:\n"
-    "Warm, direct, transparent. Every problem is paired with what is being done. "
-    "Be solution-focused — no editorializing (\"unfortunately\", \"significant concern\"). "
-    "Facts and next steps only.\n\n"
-
-    "PENDING / PROCESSING FUNDS:\n"
-    "If any collected rent is still processing, state the amount received, "
-    "the amount clearing, and expected distribution timing. Never report "
-    "pending funds as collected."
+_VOICE_GUIDE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "voice_guide.md"
 )
+
+
+def _get_system_prompt() -> str:
+    return load_voice_guide(_VOICE_GUIDE_PATH)
 
 
 def _validate_settings():
@@ -796,7 +716,7 @@ def generate_note(payload: dict) -> str:
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=600,
-        system=SYSTEM_PROMPT,
+        system=_get_system_prompt(),
         messages=[{"role": "user", "content": build_prompt(payload)}],
     )
     return message.content[0].text.strip()
@@ -863,7 +783,7 @@ def run_monthly_report(
 
     if dry_run:
         print("\n--- SYSTEM PROMPT (for verification) ---")
-        print(SYSTEM_PROMPT)
+        print(_get_system_prompt())
         print("--- END SYSTEM PROMPT ---\n")
 
     if start_date and end_date:
