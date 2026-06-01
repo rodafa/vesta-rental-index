@@ -1,95 +1,37 @@
-# Vesta Rental Index
+# CLAUDE.md — Vesta Dashboard
 
-## Project Overview
-Django app for Vesta Property Management — internal rental performance index.
-Aggregates data from RentVine (portfolio/lease management) and RentEngine (market/leasing activity) into a unified analytics platform.
+Operating rules for Claude Code in this repo. Read `ARCHITECTURE.md` for the full plan and target structure. This file is the working discipline — follow it every session.
 
-## Architecture
-- **Django 5.2** + **django-ninja** for API, **psycopg** for Postgres, **gunicorn** for production
-- **uv** for dependency management (pyproject.toml + uv.lock)
-- Docker: `Dockerfile` uses gunicorn (production), `docker-compose.yml` overrides with `runserver` + volume mount for live reload in dev
-- Entrypoint auto-runs migrations on container start
+## Golden rules
+- **Build forward in small, testable steps.** Never refactor or "match" the whole codebase in one operation. One concern per step.
+- **No code changes without explicit approval.** Propose the plan with reasoning first, wait for go-ahead, then implement.
+- **Every step ends green:** migrations apply, tests pass, the app runs. Don't start the next step until the current one is clean.
+- **Logic lives in `services.py` / `selectors.py`.** Views, webhooks, and management commands are thin orchestrators with no business logic in them.
 
-## Dev Workflow
-- `docker compose up -d` — starts with live reload (no rebuild needed for code changes)
-- `docker compose up -d --build` — only needed for dependency or Dockerfile changes
-- `docker compose exec web python manage.py shell` — Django shell
-- `docker compose exec web python manage.py seed_data --clear` — reset seed data (100 properties, 30% with leasing)
+## `_salvage/` — read-only reference
+- `_salvage/` holds proven code from the previous build: core models, integration clients, and sync/reconciliation logic.
+- It is **reference to port FROM, never to import.** Do not add it to `INSTALLED_APPS`, do not wire it into the running app, and keep it out of test collection. Its code contains intentional broken imports.
+- Port code out of it into clean apps as each step calls for it. It gets deleted once everything worth keeping has been ported.
 
-## Key Design Decisions
-- **ListingCycle** (market app) bridges RentEngine market data to RentVine lease outcomes — tracks full lifecycle from listing to signed lease
-- **DailyUnitSnapshot** status choices: Active, Leased Pending, Occupied, Make Ready
-- **DailyMarketStats.average_price** tracks list prices; **average_portfolio_rent** tracks signed lease amounts for occupied units
-- **PriceDrop** model only logs downward price changes — PriceChangeDetector must enforce this
-- **Property.service_type**: Full Management, Leasing Only, Maintenance Only (default Full Management)
+## Standards
+- **Dependencies:** `uv` + `pyproject.toml`. Never create `requirements.txt`.
+- **Logging:** structured JSON via `python-json-logger`.
+- **Secrets:** environment variables only — `.env` locally, Railway env in prod. Never hardcode, never commit `.env`, never overwrite the existing `.env`.
+- **Webhooks:** HMAC-verified.
+- **Email sends:** staff-authenticated and role-gated. Nothing sends without a human triggering it — every email is draft → human review → send.
+- **Async:** no Celery yet. Scheduling via GitHub Actions cron. Keep service functions pure and callable so they are Celery-ready later.
 
-## Data Sources
-- **RentVine**: portfolios, owners, properties, units, tenants, leases, applications
-- **RentEngine**: prospects, leasing events, showings, multifamily properties, floorplans, market data
-- **BoomPay/BoomScreen**: screening applications and reports
+## Roles
+- **ADMIN** (Rodrigo) — everything.
+- **LEASING** (Bill) — leasing only.
+- **MAINTENANCE** (Zach, Camilo) — maintenance only.
+- Owners never log in; they only receive email.
 
-## Apps
-- `properties` — Property, Unit, Portfolio, Owner, MultifamilyProperty, Floorplan
-- `leasing` — Tenant, Lease, Prospect, LeasingEvent, Showing, Application, Applicant
-- `market` — DailyUnitSnapshot, DailyMarketStats, DailyLeasingSummary, WeeklyLeasingSummary, MonthlyMarketReport, DailySegmentStats, PriceDrop, ListingCycle
-- `screening` — ScreeningApplication, ScreeningReport
-- `maintenance` — Vendor, VendorTrade, Inspection, Meld, MaintenanceEmailSend, MaintenanceEmailMeld
-- `accounting` — ChartOfAccounts, Ledger, Transaction, TransactionEntry, Bill, BillCharge
-- `integrations` — WebhookEvent, APISyncLog + all sync management commands
-
-## VS Code
-- Auto-save on focus change enabled (.vscode/settings.json)
-- .gitattributes enforces LF for .py, .sh, .html, Dockerfile
-
-## Workflow Orchestration
-
-### 1. Plan Node Default
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately - don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
-
-### 2. Subagent Strategy
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
-
-### 3. Self-Improvement Loop
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
-
-### 4. Verification Before Done
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
-
-### 5. Demand Elegance (Balanced)
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes - don't over-engineer
-- Challenge your own work before presenting it
-
-### 6. Autonomous Bug Fixing
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests - then resolve them
-- Zero context switching required from the user
-- Go fix failing CI tests without being told how
-
-## Task Management
-
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
-
-## Core Principles
-
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+## Build order (detail in ARCHITECTURE.md)
+1. Scaffold + standards
+2. Port `core` models (from `_salvage/`)
+3. Port `integrations` — PropertyMeld first
+4. Comms engine against **maintenance** (the pilot product)
+5. Owner report (second product)
+6. Leasing (last — hardest data: three-system reconciliation)
+7. Dashboard + role-scoping
