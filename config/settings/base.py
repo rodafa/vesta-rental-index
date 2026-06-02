@@ -43,6 +43,10 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Local
     "accounts",
+    "core",
+    "integrations",
+    "maintenance",
+    "comms",
 ]
 
 MIDDLEWARE = [
@@ -110,3 +114,32 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # --- Misc ---
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- Integration credentials ---
+
+RENTVINE = {
+    "SUBDOMAIN": os.environ.get("RENTVINE_SUBDOMAIN", ""),
+    "API_KEY": os.environ.get("RENTVINE_API_KEY", ""),
+    "API_SECRET": os.environ.get("RENTVINE_API_SECRET", ""),
+}
+
+PROPERTY_MELD = {
+    "BASE_URL": os.environ.get(
+        "PROPERTY_MELD_BASE_URL", "https://api.propertymeld.com/api/v2"
+    ),
+    "CLIENT_ID": os.environ.get("PROPERTY_MELD_CLIENT_ID", ""),
+    "CLIENT_SECRET": os.environ.get("PROPERTY_MELD_CLIENT_SECRET", ""),
+    "MANAGEMENT_ID": os.environ.get("PROPERTY_MELD_MANAGEMENT_ID", ""),
+}
+
+# --- AI ---
+
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
+# --- SendGrid ---
+
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+COMMS_FROM_EMAIL = os.environ.get(
+    "COMMS_FROM_EMAIL",
+    "Vesta Property Management <support@vestapm.com>",
+)
