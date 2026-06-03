@@ -517,3 +517,72 @@ def map_tenant_from_lease(data):
     }
 
     return rentvine_contact_id, is_primary, defaults
+
+
+# ---------------------------------------------------------------------------
+# Bill & BillCharge mappers
+# ---------------------------------------------------------------------------
+
+
+def map_bill(data):
+    """
+    Map a RentVine bill record to (rentvine_id, defaults_dict).
+
+    API envelope: {"bill": {...}, "contact": {...}}.
+    """
+    bill = data.get("bill", data) if isinstance(data, dict) else data
+
+    rentvine_id = _safe_int(
+        _get(bill, "billID", "bill_id", "id", default=None)
+    )
+    if rentvine_id is None:
+        raise ValueError(f"Bill record missing billID: {list(bill.keys())[:5]}")
+
+    defaults = {
+        "bill_date": _safe_date(_get(bill, "billDate", "bill_date", default=None)),
+        "date_due": _safe_date(_get(bill, "dateDue", "date_due", default=None)),
+        "reference": str(_get(bill, "reference", default="") or "")[:255],
+        "payment_memo": str(_get(bill, "paymentMemo", "payment_memo", default="") or ""),
+        "description": str(_get(bill, "description", default="") or ""),
+        "is_voided": _safe_bool(_get(bill, "isVoided", "is_voided", default="0")),
+        "raw_data": data,
+    }
+
+    return rentvine_id, defaults
+
+
+def map_bill_charge(data):
+    """
+    Map a RentVine type-7 transaction (bill charge) to
+    (rentvine_transaction_id, rentvine_bill_id, defaults_dict).
+
+    API envelope: {"transaction": {...}, "token": "..."}.
+    """
+    tx = data.get("transaction", data) if isinstance(data, dict) else data
+
+    rentvine_transaction_id = _safe_int(
+        _get(tx, "transactionID", "transaction_id", "id", default=None)
+    )
+    if rentvine_transaction_id is None:
+        raise ValueError(
+            f"Transaction record missing transactionID: {list(tx.keys())[:5]}"
+        )
+
+    rentvine_bill_id = _safe_int(
+        _get(tx, "billID", "bill_id", default=None)
+    )
+
+    defaults = {
+        "amount": _safe_decimal(_get(tx, "amount", default="0")) or Decimal("0"),
+        "amount_paid": _safe_decimal(
+            _get(tx, "amountPaid", "amount_paid", default=None)
+        ),
+        "description": str(_get(tx, "description", default="") or ""),
+        "date_posted": _safe_date(
+            _get(tx, "datePosted", "date_posted", default=None)
+        ),
+        "is_voided": _safe_bool(_get(tx, "isVoided", "is_voided", default="0")),
+        "raw_data": data,
+    }
+
+    return rentvine_transaction_id, rentvine_bill_id, defaults

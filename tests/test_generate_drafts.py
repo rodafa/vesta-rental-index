@@ -155,6 +155,60 @@ class TestGenerateDrafts:
         assert "Glass Co to repair a broken window" in draft.body_html
         assert "1 open work order" in draft.body_html
 
+    def test_rerun_updates_existing_draft(
+        self, owner, open_meld, mock_anthropic_response
+    ):
+        """Re-running generate for the same week updates, not duplicates."""
+        with patch("comms.services.anthropic.Anthropic", mock_anthropic_response):
+            generate_drafts(
+                "maintenance",
+                Owner.objects.filter(pk=owner.pk),
+                date(2026, 5, 25),
+                date(2026, 5, 31),
+            )
+        assert EmailDraft.objects.count() == 1
+        first_id = EmailDraft.objects.first().pk
+
+        with patch("comms.services.anthropic.Anthropic", mock_anthropic_response):
+            result = generate_drafts(
+                "maintenance",
+                Owner.objects.filter(pk=owner.pk),
+                date(2026, 5, 25),
+                date(2026, 5, 31),
+            )
+
+        assert result["generated"] == 1
+        assert EmailDraft.objects.count() == 1
+        assert EmailDraft.objects.first().pk == first_id
+
+    def test_rerun_skips_sent_draft(
+        self, owner, open_meld, mock_anthropic_response
+    ):
+        """Re-running generate skips an already-sent draft."""
+        with patch("comms.services.anthropic.Anthropic", mock_anthropic_response):
+            generate_drafts(
+                "maintenance",
+                Owner.objects.filter(pk=owner.pk),
+                date(2026, 5, 25),
+                date(2026, 5, 31),
+            )
+        draft = EmailDraft.objects.first()
+        draft.status = "sent"
+        draft.save(update_fields=["status"])
+
+        with patch("comms.services.anthropic.Anthropic", mock_anthropic_response):
+            result = generate_drafts(
+                "maintenance",
+                Owner.objects.filter(pk=owner.pk),
+                date(2026, 5, 25),
+                date(2026, 5, 31),
+            )
+
+        assert result["generated"] == 0
+        assert result["skipped"] == 1
+        draft.refresh_from_db()
+        assert draft.status == "sent"
+
     def test_unknown_product_raises(self):
         with pytest.raises(ValueError, match="Unknown product"):
             generate_drafts(

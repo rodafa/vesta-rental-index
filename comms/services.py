@@ -231,13 +231,32 @@ def generate_drafts(product_name, owner_queryset, week_start, week_end):
             body_html = render_to_string(template_name, context)
             subject = f"Weekly Maintenance Update — {week_label}"
 
-            EmailDraft.objects.create(
+            # Skip if a draft for this owner/week was already sent
+            existing = EmailDraft.objects.filter(
                 product=product_name,
                 owner=owner,
-                subject=subject,
-                body_html=body_html,
                 week_start=week_start,
-                week_end=week_end,
+            ).first()
+            if existing and existing.status == "sent":
+                logger.info(
+                    "comms_draft_already_sent",
+                    extra={"owner": owner.name, "draft_id": existing.pk},
+                )
+                skipped += 1
+                continue
+
+            EmailDraft.objects.update_or_create(
+                product=product_name,
+                owner=owner,
+                week_start=week_start,
+                defaults={
+                    "subject": subject,
+                    "body_html": body_html,
+                    "week_end": week_end,
+                    "status": "draft",
+                    "sent_at": None,
+                    "sent_by": None,
+                },
             )
             generated += 1
 

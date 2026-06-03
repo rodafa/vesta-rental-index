@@ -11,16 +11,20 @@ Each service:
 
 import json
 import logging
+import re
 from datetime import date
 from decimal import Decimal
 
 from django.utils import timezone
 
+from accounting.models import Bill, BillCharge
 from core.models import Lease, Owner, Portfolio, Property, Tenant, Unit
 from integrations.models import APISyncLog
 
 from .client import RentvineClient
 from .mappers import (
+    map_bill,
+    map_bill_charge,
     map_lease,
     map_owner,
     map_portfolio,
@@ -28,6 +32,14 @@ from .mappers import (
     map_tenant_from_lease,
     map_unit,
 )
+
+# RentVine transactionTypeID=7 identifies bill charge transactions
+# (vendor payables posted against a bill).
+BILL_CHARGE_TRANSACTION_TYPE = 7
+
+# RentVine bill descriptions include "Meld <ref>" when the bill is for
+# a PropertyMeld work order.  Used to link Bill → Meld during sync.
+_MELD_REF_PATTERN = re.compile(r"\bMeld\s*#?\s*([A-Z0-9]+)", re.IGNORECASE)
 
 logger = logging.getLogger(__name__)
 
@@ -518,6 +530,270 @@ class LeaseSyncService(_BaseSyncService):
             lease_obj.rent_amount = rent_total
             lease_obj.pet_rent_amount = pet_rent_total or None
             lease_obj.save(update_fields=["rent_amount", "pet_rent_amount"])
+
+
+class BillSyncService(_BaseSyncService):
+    """
+    Sync bills from RentVine /accounting/bills.
+
+    Links each bill to a Meld by parsing "Meld <ref>" from the bill
+    description and matching against Meld.reference_id.
+    """
+
+    endpoint = "accounting/bills"
+
+    def sync(self, dry_run=False, from_date=None):
+        log = self._create_log()
+        try:
+            if from_date:
+                records = self._fetch_bills_from(from_date)
+            else:
+                records = self.client.get_all("/accounting/bills", page_size=100)
+        except Exception as exc:
+            self._fail_log(log, exc)
+            raise
+
+        created_count = 0
+        updated_count = 0
+        linked_count = 0
+        unlinked_count = 0
+        no_ref_count = 0
+        errors = []
+
+        # Pre-fetch meld reference_id -> pk mapping for fast lookup
+        from maintenance.models import Meld
+
+        meld_lookup = {}
+        for ref_id, pk in Meld.objects.values_list("reference_id", "pk"):
+            if ref_id:
+                meld_lookup[ref_id.upper()] = pk
+
+        for record in records:
+            try:
+                rentvine_id, defaults = map_bill(record)
+
+                # Client-side date guard (belt-and-suspenders for server filter)
+                if from_date and defaults.get("bill_date") and defaults["bill_date"] < from_date:
+                    continue
+
+                if dry_run:
+                    logger.info(
+                        "DRY RUN bill %s: %s",
+                        rentvine_id,
+                        defaults.get("description", "")[:60],
+                    )
+                    continue
+
+                # Meld linkage via regex on description
+                meld_fk = None
+                description = defaults.get("description", "")
+                match = _MELD_REF_PATTERN.search(description)
+                if match:
+                    ref = match.group(1).upper()
+                    meld_pk = meld_lookup.get(ref)
+                    if meld_pk:
+                        meld_fk = meld_pk
+                        linked_count += 1
+                    else:
+                        unlinked_count += 1
+                        logger.info(
+                            "Bill %s references meld '%s' but no matching "
+                            "Meld.reference_id found",
+                            rentvine_id,
+                            ref,
+                        )
+                else:
+                    no_ref_count += 1
+
+                defaults["meld_id"] = meld_fk
+
+                _, was_created = Bill.objects.update_or_create(
+                    rentvine_id=rentvine_id,
+                    defaults=defaults,
+                )
+                if was_created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+            except Exception as exc:
+                msg = f"Error syncing bill record: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            fetched=len(records),
+            errors=errors,
+        )
+        result = {
+            "fetched": len(records),
+            "created": created_count,
+            "updated": updated_count,
+            "linked": linked_count,
+            "unlinked": unlinked_count,
+            "no_ref": no_ref_count,
+            "errors": len(errors),
+        }
+        logger.info("BillSync result: %s", result)
+        return result
+
+    def _fetch_bills_from(self, from_date):
+        """Paginate /accounting/bills with server-side billDateFrom filter."""
+        all_records = []
+        page = 1
+        page_size = 100
+        while True:
+            params = {
+                "page": page,
+                "pageSize": page_size,
+                "billDateFrom": str(from_date),
+            }
+            data = self.client.get("/accounting/bills", params=params)
+            records = self.client._extract_records(data)
+            if not records:
+                break
+            all_records.extend(records)
+            logger.info(
+                "Fetched page %d from /accounting/bills (%d records, %d total)",
+                page, len(records), len(all_records),
+            )
+            if len(records) < page_size:
+                break
+            page += 1
+        logger.info(
+            "Fetched %d bills from %s onward", len(all_records), from_date
+        )
+        return all_records
+
+
+class BillChargeSyncService(_BaseSyncService):
+    """
+    Sync bill charges (transactionTypeID=7) from RentVine.
+
+    Fetches all transactions from /accounting/transactions, keeps only
+    type-7 records (bill charges), and links each to its parent Bill
+    via billID.
+    """
+
+    endpoint = "accounting/transactions"
+
+    def sync(self, dry_run=False, from_date=None):
+        log = self._create_log()
+
+        try:
+            records = self._fetch_type7_transactions(from_date=from_date)
+        except Exception as exc:
+            self._fail_log(log, exc)
+            raise
+
+        created_count = 0
+        updated_count = 0
+        orphaned_count = 0
+        errors = []
+
+        # Pre-fetch bill rentvine_id -> pk mapping
+        bill_lookup = dict(Bill.objects.values_list("rentvine_id", "pk"))
+
+        for record in records:
+            try:
+                tx_id, rentvine_bill_id, defaults = map_bill_charge(record)
+
+                if dry_run:
+                    logger.info(
+                        "DRY RUN charge %s: bill=%s amount=%s",
+                        tx_id,
+                        rentvine_bill_id,
+                        defaults.get("amount"),
+                    )
+                    continue
+
+                # Resolve bill FK
+                bill_pk = None
+                if rentvine_bill_id:
+                    bill_pk = bill_lookup.get(rentvine_bill_id)
+                    if not bill_pk:
+                        orphaned_count += 1
+                        logger.info(
+                            "Charge %s references billID %s with no matching Bill",
+                            tx_id,
+                            rentvine_bill_id,
+                        )
+
+                defaults["bill_id"] = bill_pk
+
+                _, was_created = BillCharge.objects.update_or_create(
+                    rentvine_transaction_id=tx_id,
+                    defaults=defaults,
+                )
+                if was_created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+
+            except Exception as exc:
+                msg = f"Error syncing bill charge record: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            fetched=len(records),
+            errors=errors,
+        )
+        result = {
+            "fetched": len(records),
+            "created": created_count,
+            "updated": updated_count,
+            "orphaned": orphaned_count,
+            "errors": len(errors),
+        }
+        logger.info("BillChargeSync result: %s", result)
+        return result
+
+    def _fetch_type7_transactions(self, from_date=None):
+        """
+        Paginate /accounting/transactions, keeping only transactionTypeID=7.
+
+        The transactions endpoint does not support server-side date filtering,
+        so from_date is applied client-side on each record's datePosted.
+        """
+        from integrations.utils import safe_date
+
+        all_records = []
+        page = 1
+        page_size = 100
+        while True:
+            data = self.client.get(
+                "/accounting/transactions",
+                params={"page": page, "pageSize": page_size},
+            )
+            if not isinstance(data, list) or not data:
+                break
+            for record in data:
+                tx = (
+                    record.get("transaction", record)
+                    if isinstance(record, dict)
+                    else record
+                )
+                if (
+                    str(tx.get("transactionTypeID"))
+                    != str(BILL_CHARGE_TRANSACTION_TYPE)
+                ):
+                    continue
+                # Client-side date filter
+                if from_date:
+                    posted = safe_date(tx.get("datePosted"))
+                    if posted and posted < from_date:
+                        continue
+                all_records.append(record)
+            if len(data) < page_size:
+                break
+            page += 1
+        return all_records
 
 
 def link_owners_from_portfolio_contacts():

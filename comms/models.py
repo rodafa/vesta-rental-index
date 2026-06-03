@@ -61,7 +61,12 @@ class EmailDraft(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["product", "status"]),
-            models.Index(fields=["owner", "week_start"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "owner", "week_start"],
+                name="unique_draft_per_owner_per_week",
+            ),
         ]
 
     def __str__(self):

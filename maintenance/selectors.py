@@ -5,8 +5,9 @@ Logic lives here; views and commands are thin orchestrators.
 """
 
 import logging
+from decimal import Decimal
 
-from django.db.models import Q
+from django.db.models import Q, Sum
 
 from integrations.property_meld.mappers import EMAIL_CANCELED_BUCKET, EMAIL_CLOSED_BUCKET
 
@@ -146,3 +147,44 @@ def _first_name(owner):
     if owner.name:
         return owner.name.split()[0]
     return "Owner"
+
+
+# ---------------------------------------------------------------------------
+# Meld cost aggregation (from RentVine bills / bill charges)
+# ---------------------------------------------------------------------------
+
+
+def get_meld_cost(meld) -> Decimal | None:
+    """
+    Total non-voided charge amount across all non-voided bills linked to
+    a single meld, or None if no charges exist.
+    """
+    from accounting.models import BillCharge
+
+    return BillCharge.objects.filter(
+        bill__meld=meld,
+        bill__is_voided=False,
+        is_voided=False,
+    ).aggregate(total=Sum("amount"))["total"]
+
+
+def get_meld_costs(meld_ids: list[int]) -> dict[int, Decimal]:
+    """
+    Batch cost lookup.  Returns {meld_pk: Decimal} for melds that have
+    charges.  Missing keys mean no charges (None semantics).
+    """
+    from accounting.models import BillCharge
+
+    if not meld_ids:
+        return {}
+
+    rows = (
+        BillCharge.objects.filter(
+            bill__meld_id__in=meld_ids,
+            bill__is_voided=False,
+            is_voided=False,
+        )
+        .values("bill__meld_id")
+        .annotate(total=Sum("amount"))
+    )
+    return {row["bill__meld_id"]: row["total"] for row in rows}

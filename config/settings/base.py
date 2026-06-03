@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "integrations",
     "maintenance",
     "comms",
+    "accounting",
 ]
 
 MIDDLEWARE = [
