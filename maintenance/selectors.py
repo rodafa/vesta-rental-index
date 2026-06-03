@@ -44,14 +44,15 @@ def _meld_to_dict(meld):
     }
 
 
-def get_owner_maintenance_data(owner, week_start, week_end):
+def get_owner_maintenance_data(owner, period_start, period_end):
     """
     Gather melds for a single owner, grouped into email sections.
 
     Path: Owner -> portfolios -> properties -> Meld.property FK.
 
     Returns dict with keys:
-        owner_first_name, open_melds, closed_melds, canceled_melds, needs_approval
+        owner_first_name, open_melds, closed_melds, canceled_melds,
+        needs_approval, _has_data
     """
     portfolio_ids = owner.portfolios.values_list("id", flat=True)
     if not portfolio_ids:
@@ -61,6 +62,7 @@ def get_owner_maintenance_data(owner, week_start, week_end):
             "closed_melds": [],
             "canceled_melds": [],
             "needs_approval": [],
+            "_has_data": False,
         }
 
     # Base queryset: melds linked to owner's properties via property FK
@@ -90,36 +92,36 @@ def get_owner_maintenance_data(owner, week_start, week_end):
         .order_by("-source_created_at")
     )
 
-    # Closed: completed within the week window
+    # Closed: completed within the period window
     closed_melds = list(
         base_qs.filter(status__in=EMAIL_CLOSED_BUCKET)
         .filter(
             Q(
-                completion_date__date__gte=week_start,
-                completion_date__date__lte=week_end,
+                completion_date__date__gte=period_start,
+                completion_date__date__lte=period_end,
             )
             | Q(
                 completion_date__isnull=True,
-                marked_complete__date__gte=week_start,
-                marked_complete__date__lte=week_end,
+                marked_complete__date__gte=period_start,
+                marked_complete__date__lte=period_end,
             )
         )
         .select_related("unit", "property")
         .order_by("-completion_date", "-marked_complete")
     )
 
-    # Canceled: terminal date within the week window
+    # Canceled: terminal date within the period window
     canceled_melds = list(
         base_qs.filter(status__in=EMAIL_CANCELED_BUCKET)
         .filter(
             Q(
-                source_modified_at__date__gte=week_start,
-                source_modified_at__date__lte=week_end,
+                source_modified_at__date__gte=period_start,
+                source_modified_at__date__lte=period_end,
             )
             | Q(
                 source_modified_at__isnull=True,
-                marked_complete__date__gte=week_start,
-                marked_complete__date__lte=week_end,
+                marked_complete__date__gte=period_start,
+                marked_complete__date__lte=period_end,
             )
         )
         .select_related("unit", "property")
@@ -131,12 +133,17 @@ def get_owner_maintenance_data(owner, week_start, week_end):
         m for m in open_melds if m.owner_approval_status == "Requested"
     ]
 
+    open_dicts = [_meld_to_dict(m) for m in open_melds]
+    closed_dicts = [_meld_to_dict(m) for m in closed_melds]
+    canceled_dicts = [_meld_to_dict(m) for m in canceled_melds]
+
     return {
         "owner_first_name": _first_name(owner),
-        "open_melds": [_meld_to_dict(m) for m in open_melds],
-        "closed_melds": [_meld_to_dict(m) for m in closed_melds],
-        "canceled_melds": [_meld_to_dict(m) for m in canceled_melds],
+        "open_melds": open_dicts,
+        "closed_melds": closed_dicts,
+        "canceled_melds": canceled_dicts,
         "needs_approval": [_meld_to_dict(m) for m in needs_approval],
+        "_has_data": bool(open_dicts or closed_dicts or canceled_dicts),
     }
 
 

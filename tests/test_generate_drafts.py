@@ -98,12 +98,17 @@ class TestGenerateDrafts:
 
         assert result["generated"] == 1
         assert result["skipped"] == 0
+        assert result["degraded"] == 0
         assert result["errors"] == 0
 
         draft = EmailDraft.objects.get(owner=owner)
         assert draft.product == "maintenance"
         assert draft.status == "draft"
         assert draft.sent_at is None
+        # Period fields populated
+        assert draft.period_type == "weekly"
+        assert draft.period_start == date(2026, 5, 25)
+        assert draft.period_end == date(2026, 5, 31)
         assert "Weekly Maintenance Update" in draft.subject
         assert "May 25" in draft.subject
         assert "Jane" in draft.body_html
@@ -158,7 +163,7 @@ class TestGenerateDrafts:
     def test_rerun_updates_existing_draft(
         self, owner, open_meld, mock_anthropic_response
     ):
-        """Re-running generate for the same week updates, not duplicates."""
+        """Re-running generate for the same period updates, not duplicates."""
         with patch("comms.services.anthropic.Anthropic", mock_anthropic_response):
             generate_drafts(
                 "maintenance",
@@ -217,3 +222,54 @@ class TestGenerateDrafts:
                 date(2026, 5, 25),
                 date(2026, 5, 31),
             )
+
+    def test_degraded_skips_owner(self, owner, mock_anthropic_response):
+        """Selector returning _degraded=True skips the owner without calling AI."""
+        degraded_data = {
+            "owner_first_name": "Jane",
+            "open_melds": [],
+            "closed_melds": [],
+            "canceled_melds": [],
+            "_has_data": True,
+            "_degraded": True,
+        }
+        with patch("comms.services.anthropic.Anthropic", mock_anthropic_response), \
+             patch("comms.services._load_selector") as mock_sel:
+            mock_sel.return_value = lambda *a: degraded_data
+            result = generate_drafts(
+                "maintenance",
+                Owner.objects.filter(pk=owner.pk),
+                date(2026, 5, 25),
+                date(2026, 5, 31),
+            )
+
+        assert result["degraded"] == 1
+        assert result["generated"] == 0
+        assert result["skipped"] == 0
+        assert EmailDraft.objects.count() == 0
+        mock_anthropic_response.return_value.messages.create.assert_not_called()
+
+    def test_has_data_false_skips_owner(self, owner, mock_anthropic_response):
+        """Selector returning _has_data=False skips the owner without calling AI."""
+        no_data = {
+            "owner_first_name": "Jane",
+            "open_melds": [],
+            "closed_melds": [],
+            "canceled_melds": [],
+            "_has_data": False,
+        }
+        with patch("comms.services.anthropic.Anthropic", mock_anthropic_response), \
+             patch("comms.services._load_selector") as mock_sel:
+            mock_sel.return_value = lambda *a: no_data
+            result = generate_drafts(
+                "maintenance",
+                Owner.objects.filter(pk=owner.pk),
+                date(2026, 5, 25),
+                date(2026, 5, 31),
+            )
+
+        assert result["skipped"] == 1
+        assert result["degraded"] == 0
+        assert result["generated"] == 0
+        assert EmailDraft.objects.count() == 0
+        mock_anthropic_response.return_value.messages.create.assert_not_called()

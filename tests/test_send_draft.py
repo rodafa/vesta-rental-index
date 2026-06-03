@@ -47,8 +47,9 @@ def draft(owner):
         subject="Weekly Maintenance Update",
         body_html="<p>Hello</p>",
         status="draft",
-        week_start=date(2026, 5, 25),
-        week_end=date(2026, 5, 31),
+        period_type="weekly",
+        period_start=date(2026, 5, 25),
+        period_end=date(2026, 5, 31),
     )
 
 

@@ -1,0 +1,194 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monthly Portfolio Notes — Vesta</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f4f6; color: #1f2937; font-size: 14px; }
+
+    /* Top bar */
+    .mn-topbar { background: #1E3D58; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .mn-topbar h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+    .mn-topbar label { font-size: 12px; color: #6EA5CD; display: flex; flex-direction: column; gap: 2px; }
+    .mn-topbar input[type="date"],
+    .mn-topbar input[type="text"],
+    .mn-topbar input[type="number"] { padding: 4px 8px; border: 1px solid #4a7a9e; border-radius: 4px; font-size: 13px; background: #fff; color: #1f2937; width: 140px; }
+    .mn-topbar input[type="text"] { width: 120px; }
+    .mn-topbar input[type="number"] { width: 80px; }
+
+    .mn-topbar-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    .mn-topbar .mn-check-label { flex-direction: row; align-items: center; gap: 4px; font-size: 13px; color: #ddd; cursor: pointer; }
+    .mn-topbar .mn-check-label input { cursor: pointer; }
+
+    .mn-btn { padding: 6px 14px; border: none; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .mn-btn-primary { background: #2563eb; color: #fff; }
+    .mn-btn-primary:hover { background: #1d4ed8; }
+    .mn-btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .mn-btn-success { background: #059669; color: #fff; }
+    .mn-btn-success:hover { background: #047857; }
+    .mn-btn-success:disabled { background: #6ee7b7; cursor: not-allowed; }
+    .mn-btn-danger { background: #dc2626; color: #fff; }
+    .mn-btn-danger:hover { background: #b91c1c; }
+    .mn-btn-danger:disabled { background: #fca5a5; cursor: not-allowed; }
+    .mn-btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
+    .mn-btn-outline:hover { background: #f3f4f6; }
+
+    /* Status bar */
+    .mn-status { padding: 8px 24px; background: #fff; border-bottom: 1px solid #e5e7eb; font-size: 13px; color: #6b7280; }
+
+    /* Main layout */
+    .mn-main { display: flex; height: calc(100vh - 120px); }
+
+    /* Left panel */
+    .mn-left { width: 360px; min-width: 280px; border-right: 1px solid #e5e7eb; background: #fff; overflow-y: auto; }
+    .mn-empty { padding: 32px 16px; text-align: center; color: #9ca3af; }
+
+    .mn-row { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; cursor: pointer; transition: background .15s; }
+    .mn-row:hover { background: #f9fafb; }
+    .mn-row.active { background: #eff6ff; border-left: 3px solid #2563eb; }
+    .mn-row-name { font-weight: 600; font-size: 14px; color: #1E3D58; }
+    .mn-row-meta { font-size: 12px; color: #6b7280; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+    .mn-row-words { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+    .mn-row-actions { margin-top: 6px; display: flex; gap: 4px; }
+
+    .mn-action-btn { padding: 3px 8px; font-size: 11px; border-radius: 3px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }
+    .mn-action-approve { color: #059669; border-color: #6ee7b7; }
+    .mn-action-approve:hover { background: #ecfdf5; }
+    .mn-action-send { color: #2563eb; border-color: #93c5fd; }
+    .mn-action-send:hover { background: #eff6ff; }
+    .mn-action-delete { color: #dc2626; border-color: #fca5a5; }
+    .mn-action-delete:hover { background: #fef2f2; }
+
+    /* Badges */
+    .mn-badge { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+    .mn-badge-pending { background: #fef3c7; color: #92400e; }
+    .mn-badge-approved { background: #d1fae5; color: #065f46; }
+    .mn-badge-sent { background: #dbeafe; color: #1e40af; }
+    .mn-badge-skipped { background: #f3f4f6; color: #6b7280; }
+    .mn-badge-failed { background: #fee2e2; color: #991b1b; }
+
+    /* Right panel */
+    .mn-right { flex: 1; display: flex; flex-direction: column; background: #fff; }
+    .mn-detail-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #9ca3af; font-size: 15px; }
+
+    .mn-detail { display: none; flex-direction: column; height: 100%; }
+    .mn-detail-header { padding: 16px 24px; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 12px; }
+    .mn-detail-title { font-size: 16px; font-weight: 600; color: #1E3D58; flex: 1; }
+    .mn-detail-body { flex: 1; padding: 16px 24px; display: flex; flex-direction: column; }
+    .mn-detail-body textarea { flex: 1; width: 100%; resize: none; padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-family: Georgia, serif; font-size: 14px; line-height: 1.6; color: #374151; }
+    .mn-detail-body textarea:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .mn-detail-body textarea:disabled { background: #f9fafb; color: #6b7280; }
+    .mn-word-count { font-size: 11px; color: #9ca3af; margin-top: 4px; text-align: right; }
+
+    .mn-financials { padding: 0 24px 12px; }
+    .mn-financials table { width: 100%; font-size: 13px; }
+    .mn-financials td { padding: 2px 8px; }
+    .mn-financials .fin-label { color: #6b7280; }
+    .mn-financials .fin-value { text-align: right; font-weight: 500; color: #1f2937; }
+
+    .mn-detail-footer { padding: 12px 24px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; align-items: center; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; border-radius: 6px; color: #fff; font-size: 13px; opacity: 0; transition: opacity .3s; z-index: 999; }
+    .toast.show { opacity: 1; }
+    .toast-success { background: #059669; }
+    .toast-error { background: #dc2626; }
+    .toast-warn { background: #d97706; }
+  </style>
+</head>
+<body>
+
+  <!-- Top bar -->
+  <div class="mn-topbar">
+    <h1>Monthly Portfolio Notes</h1>
+
+    <label>
+      Start
+      <input type="date" id="start-date-input">
+    </label>
+    <label>
+      End
+      <input type="date" id="end-date-input">
+    </label>
+    <label>
+      Portfolio
+      <input type="text" id="portfolio-name-input" placeholder="All">
+    </label>
+    <label>
+      Owner ID
+      <input type="number" id="owner-id-input" placeholder="All">
+    </label>
+    <label>
+      Property ID
+      <input type="number" id="property-id-input" placeholder="All">
+    </label>
+
+    <div class="mn-topbar-actions">
+      <label class="mn-check-label">
+        <input type="checkbox" id="dry-run-check"> Dry run
+      </label>
+      <button id="run-btn" class="mn-btn mn-btn-primary">Run (filtered)</button>
+      <button id="run-all-btn" class="mn-btn mn-btn-primary">Run All</button>
+      <button id="approve-all-btn" class="mn-btn mn-btn-success">Approve All</button>
+      <button id="send-all-btn" class="mn-btn mn-btn-success">Send All</button>
+      <button id="delete-all-btn" class="mn-btn mn-btn-danger">Delete All</button>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="mn-status" id="status-bar">Ready.</div>
+
+  <!-- Main layout -->
+  <div class="mn-main">
+
+    <!-- Left panel: note list -->
+    <div class="mn-left" id="note-list">
+      <div class="mn-empty">No notes for this month. Run generation to create them.</div>
+    </div>
+
+    <!-- Right panel: note detail -->
+    <div class="mn-right">
+      <div class="mn-detail-placeholder" id="detail-placeholder">
+        Select a note from the list to view or edit.
+      </div>
+
+      <div class="mn-detail" id="note-detail">
+        <div class="mn-detail-header">
+          <div class="mn-detail-title" id="note-title"></div>
+        </div>
+
+        <!-- Financial summary (hidden when no data) -->
+        <div class="mn-financials" id="note-financials" style="display:none;">
+          <table>
+            <tr><td class="fin-label" id="fin-period" colspan="2"></td></tr>
+            <tr><td class="fin-label">Income</td><td class="fin-value" id="fin-income"></td></tr>
+            <tr><td class="fin-label">Expenses</td><td class="fin-value" id="fin-expenses"></td></tr>
+            <tr><td class="fin-label">Distribution</td><td class="fin-value" id="fin-distribution"></td></tr>
+            <tr><td class="fin-label">Ending Balance</td><td class="fin-value" id="fin-ending"></td></tr>
+          </table>
+        </div>
+
+        <div class="mn-detail-body">
+          <textarea id="note-textarea" placeholder="Note content will appear here after generation..."></textarea>
+          <div class="mn-word-count" id="word-count">0 words</div>
+        </div>
+
+        <div class="mn-detail-footer">
+          <button id="copy-btn" class="mn-btn mn-btn-outline">Copy</button>
+          <button id="save-btn" class="mn-btn mn-btn-primary">Save</button>
+          <button id="approve-btn" class="mn-btn mn-btn-success" style="display:none;">Approve</button>
+          <button id="note-send-btn" class="mn-btn mn-btn-success" style="display:none;">Send</button>
+          <button id="delete-btn" class="mn-btn mn-btn-danger" style="display:none;">Delete</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="{% static 'dashboard/js/api.js' %}"></script>
+  <script src="{% static 'dashboard/js/monthly_notes.js' %}"></script>
+</body>
+</html>

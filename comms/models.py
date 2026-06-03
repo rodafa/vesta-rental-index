@@ -32,6 +32,7 @@ class EmailDraft(models.Model):
 
     STATUS_CHOICES = [
         ("draft", "Draft"),
+        ("approved", "Approved"),
         ("sent", "Sent"),
     ]
 
@@ -43,6 +44,7 @@ class EmailDraft(models.Model):
     )
     subject = models.CharField(max_length=500)
     body_html = models.TextField()
+    generated_note = models.TextField(blank=True, default="")
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
     )
@@ -55,8 +57,15 @@ class EmailDraft(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    week_start = models.DateField()
-    week_end = models.DateField()
+    PERIOD_TYPE_CHOICES = [
+        ("weekly", "Weekly"),
+        ("monthly", "Monthly"),
+    ]
+    period_type = models.CharField(
+        max_length=10, choices=PERIOD_TYPE_CHOICES, default="weekly", db_index=True
+    )
+    period_start = models.DateField()
+    period_end = models.DateField()
 
     class Meta:
         indexes = [
@@ -64,10 +73,10 @@ class EmailDraft(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["product", "owner", "week_start"],
-                name="unique_draft_per_owner_per_week",
+                fields=["product", "owner", "period_type", "period_start"],
+                name="unique_draft_per_owner_per_period",
             ),
         ]
 
     def __str__(self):
-        return f"{self.product} draft for {self.owner} ({self.week_start})"
+        return f"{self.product} draft for {self.owner} ({self.period_start})"

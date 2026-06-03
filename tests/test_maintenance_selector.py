@@ -62,6 +62,7 @@ class TestGetOwnerMaintenanceData:
         data = get_owner_maintenance_data(owner, date(2026, 5, 25), date(2026, 5, 31))
         assert len(data["open_melds"]) == 1
         assert data["open_melds"][0]["brief_description"] == "Leaky faucet"
+        assert data["_has_data"] is True
 
     def test_closed_melds_within_window(self, owner, prop, unit):
         Meld.objects.create(
@@ -163,7 +164,24 @@ class TestGetOwnerMaintenanceData:
         )
         assert data["open_melds"] == []
         assert data["closed_melds"] == []
+        assert data["_has_data"] is False
 
     def test_owner_first_name(self, owner, prop, unit):
         data = get_owner_maintenance_data(owner, date(2026, 5, 25), date(2026, 5, 31))
         assert data["owner_first_name"] == "John"
+
+    def test_has_data_true_with_activity(self, owner, prop, unit):
+        Meld.objects.create(
+            property_meld_id="DATA1",
+            brief_description="Something open",
+            status="PENDING_COMPLETION",
+            property=prop,
+            unit=unit,
+        )
+        data = get_owner_maintenance_data(owner, date(2026, 5, 25), date(2026, 5, 31))
+        assert data["_has_data"] is True
+
+    def test_has_data_false_no_activity(self, owner, prop, unit):
+        """Owner has portfolios but no melds — _has_data should be False."""
+        data = get_owner_maintenance_data(owner, date(2026, 5, 25), date(2026, 5, 31))
+        assert data["_has_data"] is False

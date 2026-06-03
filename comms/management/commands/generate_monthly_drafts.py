@@ -1,10 +1,10 @@
 """
-Management command: generate maintenance email drafts.
+Management command: generate monthly owner notes email drafts.
 
 Usage:
-    python manage.py generate_maintenance_drafts
-    python manage.py generate_maintenance_drafts --owner-id 42
-    python manage.py generate_maintenance_drafts --period-start 2026-05-25 --period-end 2026-05-31
+    python manage.py generate_monthly_drafts
+    python manage.py generate_monthly_drafts --owner-id 42
+    python manage.py generate_monthly_drafts --period-start 2026-05-01 --period-end 2026-05-31
 """
 
 from datetime import date, timedelta
@@ -16,7 +16,7 @@ from core.models import Owner
 
 
 class Command(BaseCommand):
-    help = "Generate maintenance email drafts for owners."
+    help = "Generate monthly owner notes email drafts."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -27,12 +27,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--period-start",
             type=str,
-            help="Period start date (YYYY-MM-DD). Defaults to last Monday.",
+            help="Period start date (YYYY-MM-DD). Defaults to first of previous month.",
         )
         parser.add_argument(
             "--period-end",
             type=str,
-            help="Period end date (YYYY-MM-DD). Defaults to last Sunday.",
+            help="Period end date (YYYY-MM-DD). Defaults to last of previous month.",
         )
         parser.add_argument(
             "--limit",
@@ -44,21 +44,30 @@ class Command(BaseCommand):
         period_start_str = options["period_start"]
         period_end_str = options["period_end"]
 
-        # Default period: the most recent full week (Mon-Sun)
+        # Default period: the previous calendar month
         today = date.today()
         if period_start_str:
             period_start = date.fromisoformat(period_start_str)
         else:
-            # Last Monday
-            period_start = today - timedelta(days=today.weekday() + 7)
+            first_of_this_month = today.replace(day=1)
+            # Last day of previous month
+            last_of_prev = first_of_this_month - timedelta(days=1)
+            period_start = last_of_prev.replace(day=1)
 
         if period_end_str:
             period_end = date.fromisoformat(period_end_str)
         else:
-            period_end = period_start + timedelta(days=6)
+            # Last day of the period_start's month
+            if period_start.month == 12:
+                period_end = period_start.replace(month=12, day=31)
+            else:
+                next_month_first = period_start.replace(
+                    month=period_start.month + 1, day=1
+                )
+                period_end = next_month_first - timedelta(days=1)
 
         self.stdout.write(
-            f"Generating maintenance drafts for {period_start} to {period_end}..."
+            f"Generating monthly owner notes for {period_start} to {period_end}..."
         )
 
         owners = Owner.objects.filter(is_active=True)
@@ -71,7 +80,8 @@ class Command(BaseCommand):
             owners = owners[: options["limit"]]
 
         result = generate_drafts(
-            "maintenance", owners, period_start, period_end, period_type="weekly"
+            "monthly_owner_notes", owners, period_start, period_end,
+            period_type="monthly",
         )
 
         self.stdout.write(
