@@ -12,6 +12,8 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=20, choices=Role.choices)
 
+    REQUIRED_FIELDS = ["email", "role"]
+
     ROLE_PRODUCT_ACCESS = {
         Role.ADMIN: {"leasing", "maintenance", "monthly_owner_notes", "reporting"},
         Role.LEASING: {"leasing"},
