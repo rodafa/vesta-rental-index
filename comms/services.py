@@ -1126,7 +1126,9 @@ def generate_monthly_notes(
             # Build portfolio sections
             from core.models import Portfolio
 
-            portfolios = Portfolio.objects.filter(pk__in=portfolio_pks).order_by("name")
+            portfolios = Portfolio.objects.filter(
+                pk__in=portfolio_pks, is_active=True,
+            ).order_by("name")
             portfolio_sections = []
             has_any_data = False
 
@@ -1249,8 +1251,10 @@ def generate_monthly_notes(
 # ---------------------------------------------------------------------------
 
 # In-process guard — prevents concurrent generate_portfolio_notes() runs.
+# Uses a monotonic timestamp instead of a boolean so a stuck flag auto-expires.
 _portfolio_gen_lock = threading.Lock()
-_portfolio_gen_running = False
+_portfolio_gen_started_at = None  # monotonic timestamp or None
+_PORTFOLIO_GEN_TTL = 1800  # seconds — auto-expire a stuck lock
 
 
 def _build_single_portfolio_context(section, ai_result, period_label):
@@ -1353,9 +1357,12 @@ def generate_portfolio_notes(portfolio_queryset, period_start, period_end, dry_r
 
     Returns dict: {generated, skipped, errors, error_details}.
     """
-    global _portfolio_gen_running
+    global _portfolio_gen_started_at
 
     product_name = "monthly_owner_notes"
+
+    # Enforce: never generate for inactive portfolios
+    portfolio_queryset = portfolio_queryset.filter(is_active=True)
     period_type = "monthly"
     voice_guide = _get_or_create_voice_guide(product_name)
 
@@ -1477,7 +1484,7 @@ def generate_portfolio_notes(portfolio_queryset, period_start, period_end, dry_r
             logger.exception(msg)
             errors.append(msg)
 
-    _portfolio_gen_running = False
+    _portfolio_gen_started_at = None
 
     return {
         "generated": generated,
@@ -1563,7 +1570,9 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
     # Fetch portfolio notes for this period, ordered alphabetically
     from core.models import Portfolio
 
-    portfolios = Portfolio.objects.filter(pk__in=portfolio_pks).order_by("name")
+    portfolios = Portfolio.objects.filter(
+        pk__in=portfolio_pks, is_active=True,
+    ).order_by("name")
 
     financials_parts = []
     notes_parts = []
@@ -1664,7 +1673,9 @@ def get_recipients_for_period(period_start, period_type="monthly"):
         # Check each portfolio's note status
         from core.models import Portfolio
 
-        portfolios = Portfolio.objects.filter(pk__in=portfolio_pks).order_by("name")
+        portfolios = Portfolio.objects.filter(
+            pk__in=portfolio_pks, is_active=True,
+        ).order_by("name")
         portfolio_info = []
         all_approved = True
 

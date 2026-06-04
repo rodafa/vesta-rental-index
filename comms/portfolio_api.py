@@ -23,6 +23,7 @@ Owner-grain send (assembled from PortfolioMonthlyNote):
 import json
 import logging
 import threading
+import time
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -39,7 +40,8 @@ from .services import (
     get_recipients_for_period,
     send_draft,
     _portfolio_gen_lock,
-    _portfolio_gen_running,
+    _portfolio_gen_started_at,
+    _PORTFOLIO_GEN_TTL,
 )
 
 logger = logging.getLogger(__name__)
@@ -171,6 +173,7 @@ def list_portfolio_notes(request):
         PortfolioMonthlyNote.objects.filter(
             period_type="monthly",
             period_start=period_start,
+            portfolio__is_active=True,
         )
         .select_related("portfolio")
         .order_by("portfolio__name")
@@ -275,13 +278,19 @@ def generate_portfolio_notes_api(request):
 
     is_dry_run = body.get("dry_run", False)
 
-    # Concurrency guard (Amendment 4)
+    # Concurrency guard with TTL auto-expiry
     with svc._portfolio_gen_lock:
-        if svc._portfolio_gen_running:
-            return JsonResponse(
-                {"ok": False, "error": "Generation already in progress"}, status=409
+        if svc._portfolio_gen_started_at is not None:
+            elapsed = time.monotonic() - svc._portfolio_gen_started_at
+            if elapsed < svc._PORTFOLIO_GEN_TTL:
+                return JsonResponse(
+                    {"ok": False, "error": "Generation already in progress"}, status=409
+                )
+            logger.warning(
+                "comms_portfolio_gen_lock_expired",
+                extra={"elapsed_seconds": round(elapsed)},
             )
-        svc._portfolio_gen_running = True
+        svc._portfolio_gen_started_at = time.monotonic()
 
     # Build portfolio queryset
     from core.models import Portfolio
@@ -303,7 +312,7 @@ def generate_portfolio_notes_api(request):
         except Exception:
             logger.exception("comms_portfolio_gen_background_error")
         finally:
-            svc._portfolio_gen_running = False
+            svc._portfolio_gen_started_at = None
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()

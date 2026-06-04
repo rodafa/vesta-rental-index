@@ -10,6 +10,7 @@ Mirrors PRODUCTION data shapes:
 """
 
 import json
+import time
 from datetime import date
 from unittest.mock import patch, MagicMock
 
@@ -26,6 +27,7 @@ from comms.services import (
     _normalize_email,
     _render_notes_html_from_text,
 )
+import comms.services as svc
 from core.models import Owner, Portfolio, Property
 
 
@@ -542,3 +544,176 @@ class TestEmailDraftUntouched:
             "period_type", "period_start", "period_end",
         }
         assert expected.issubset(field_names)
+
+
+# ---------------------------------------------------------------------------
+# is_active filtering tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def inactive_portfolio():
+    """An inactive portfolio that should be excluded everywhere."""
+    p = Portfolio.objects.create(
+        rentvine_id=999, name="Ghost Portfolio", is_active=False,
+    )
+    return p
+
+
+class TestIsActiveFiltering:
+    @patch("comms.services._call_anthropic")
+    @patch("comms.services.build_portfolio_section")
+    def test_generate_skips_inactive(self, mock_build, mock_ai, portfolios, inactive_portfolio, statements):
+        """generate_portfolio_notes skips inactive portfolios."""
+        mock_build.return_value = {
+            "portfolio_name": "Test",
+            "financials": {"total_income": 5000, "period_start": PERIOD_START, "period_end": PERIOD_END},
+            "maintenance": {"_has_data": False},
+            "pipeline": {"_has_data": False, "processes_by_category": {}},
+        }
+        mock_ai.return_value = {"intro": "Test.", "process_summaries": {}}
+
+        # Pass ALL portfolios including the inactive one
+        all_pks = [p.pk for p in portfolios] + [inactive_portfolio.pk]
+        qs = Portfolio.objects.filter(pk__in=all_pks)
+
+        result = generate_portfolio_notes(qs, PERIOD_START, PERIOD_END)
+
+        # The 3 active portfolios are processed, the inactive one is not
+        assert not PortfolioMonthlyNote.objects.filter(
+            portfolio=inactive_portfolio
+        ).exists()
+
+    def test_list_endpoint_excludes_inactive(self, client, admin_user, portfolios, inactive_portfolio):
+        """GET /api/reports/portfolio-notes excludes notes for inactive portfolios."""
+        # Create notes for an active and an inactive portfolio
+        PortfolioMonthlyNote.objects.create(
+            portfolio=portfolios[0], period_type="monthly",
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            generated_note="Active.", status="draft",
+        )
+        PortfolioMonthlyNote.objects.create(
+            portfolio=inactive_portfolio, period_type="monthly",
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            generated_note="Ghost.", status="draft",
+        )
+
+        client.force_login(admin_user)
+        resp = client.get("/api/reports/portfolio-notes?month=2026-05")
+        data = resp.json()
+
+        names = [n["portfolio_name"] for n in data]
+        assert "Alpha Portfolio" in names
+        assert "Ghost Portfolio" not in names
+
+    def test_assemble_excludes_inactive_portfolio(self, portfolios, inactive_portfolio, owners, portfolio_notes):
+        """assemble_owner_email omits inactive portfolios."""
+        # Link owner_a to the inactive portfolio too
+        owner_a = owners[0]
+        owner_a.portfolios.add(inactive_portfolio)
+        PortfolioMonthlyNote.objects.create(
+            portfolio=inactive_portfolio, period_type="monthly",
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            financials_html="<p>Ghost financials</p>",
+            notes_html="<p>Ghost notes</p>",
+            generated_note="Ghost.",
+            status="approved",
+        )
+
+        result = assemble_owner_email("shared@example.com", PERIOD_START)
+        portfolio_names = [p["name"] for p in result["portfolios"]]
+        assert "Ghost Portfolio" not in portfolio_names
+
+    def test_recipients_excludes_inactive_portfolio(self, portfolios, inactive_portfolio, owners, portfolio_notes):
+        """get_recipients_for_period ignores inactive portfolios."""
+        owner_a = owners[0]
+        owner_a.portfolios.add(inactive_portfolio)
+
+        recipients = get_recipients_for_period(PERIOD_START)
+        shared = [r for r in recipients if r["recipient_email"] == "shared@example.com"][0]
+        portfolio_names = [p["name"] for p in shared["portfolios"]]
+        assert "Ghost Portfolio" not in portfolio_names
+
+    def test_recipients_excludes_inactive_owner(self, portfolios, owners, portfolio_notes):
+        """Inactive owner doesn't appear as a recipient."""
+        # Deactivate owner_c (carol@example.com)
+        owner_c = owners[2]
+        owner_c.is_active = False
+        owner_c.save()
+
+        recipients = get_recipients_for_period(PERIOD_START)
+        emails = [r["recipient_email"] for r in recipients]
+        assert "carol@example.com" not in emails
+
+
+# ---------------------------------------------------------------------------
+# Generation lock / TTL tests
+# ---------------------------------------------------------------------------
+
+
+class TestGenerationLockTTL:
+    def setup_method(self):
+        """Ensure clean lock state before each test."""
+        svc._portfolio_gen_started_at = None
+
+    def teardown_method(self):
+        """Ensure clean lock state after each test."""
+        svc._portfolio_gen_started_at = None
+
+    def test_lock_blocks_concurrent(self, client, admin_user):
+        """Second generation request returns 409 while first is running."""
+        client.force_login(admin_user)
+
+        # Simulate a running generation
+        svc._portfolio_gen_started_at = time.monotonic()
+
+        resp = client.post(
+            "/api/reports/portfolio-notes/generate",
+            data=json.dumps({"start_date": "2026-05-01", "end_date": "2026-05-31"}),
+            content_type="application/json",
+        )
+        assert resp.status_code == 409
+
+    def test_lock_expires_after_ttl(self, client, admin_user):
+        """A stuck lock auto-expires and allows a new generation."""
+        client.force_login(admin_user)
+
+        # Simulate a lock that started 11 minutes ago (past TTL)
+        svc._portfolio_gen_started_at = time.monotonic() - 660
+
+        with patch("comms.services.generate_portfolio_notes"):
+            resp = client.post(
+                "/api/reports/portfolio-notes/generate",
+                data=json.dumps({"start_date": "2026-05-01", "end_date": "2026-05-31"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_lock_released_on_error(self, admin_user):
+        """Lock is released even if generate_portfolio_notes raises."""
+        import comms.portfolio_api as api_mod
+
+        svc._portfolio_gen_started_at = time.monotonic()
+
+        # Simulate the _run() finally block
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            pass
+        finally:
+            svc._portfolio_gen_started_at = None
+
+        assert svc._portfolio_gen_started_at is None
+
+    def test_lock_not_stuck_after_normal_run(self):
+        """generate_portfolio_notes clears the lock on normal completion."""
+        svc._portfolio_gen_started_at = time.monotonic()
+
+        with patch("comms.services._call_anthropic"), \
+             patch("comms.services.build_portfolio_section"):
+            generate_portfolio_notes(
+                Portfolio.objects.none(), PERIOD_START, PERIOD_END,
+            )
+
+        assert svc._portfolio_gen_started_at is None
