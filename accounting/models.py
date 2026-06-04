@@ -1,4 +1,62 @@
+from decimal import Decimal
+
 from django.db import models
+
+
+class PortfolioStatement(models.Model):
+    """
+    Owner statement from RentVine for a single portfolio period.
+
+    Synced via GET /portfolios/{id}/statements?type=owner&sort=-endDate.
+    statementStatusID=2 = posted/published.
+    """
+
+    portfolio = models.ForeignKey(
+        "core.Portfolio",
+        on_delete=models.CASCADE,
+        related_name="statements",
+    )
+    rentvine_statement_id = models.IntegerField(unique=True, db_index=True)
+
+    period_start = models.DateField()
+    period_end = models.DateField()
+
+    beginning_balance = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0")
+    )
+    total_income = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0")
+    )
+    total_expenses = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0")
+    )
+    total_adjustments = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0")
+    )
+    ending_balance = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0")
+    )
+    total_distribution = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0")
+    )
+
+    status = models.CharField(
+        max_length=20,
+        help_text="Raw statementStatusID from RentVine (2 = posted).",
+    )
+    raw_data = models.JSONField(default=dict, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["portfolio", "-period_end"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"Statement {self.rentvine_statement_id} — "
+            f"{self.portfolio} ({self.period_start} to {self.period_end})"
+        )
 
 
 class Bill(models.Model):

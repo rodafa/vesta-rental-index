@@ -37,7 +37,128 @@
             </td>
           </tr>
 
-          <!-- Summary Stat -->
+          {% if portfolio_sections %}
+          <!-- Portfolio-organized sections -->
+          {% for section in portfolio_sections %}
+
+          <!-- Portfolio Header -->
+          <tr>
+            <td style="padding:24px 40px 8px;">
+              <h2 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:20px; font-weight:700; color:#1E3D58; border-bottom:3px solid #1E3D58; padding-bottom:8px;">
+                {{ section.portfolio_name }}
+              </h2>
+            </td>
+          </tr>
+
+          {% if section.has_financials %}
+          <!-- Financial Summary -->
+          <tr>
+            <td style="padding:8px 40px 16px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9; border-radius:6px;">
+                <tr>
+                  <td style="padding:16px;">
+                    {% if section.statement_period %}
+                    <p style="margin:0 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">
+                      Statement Period: {{ section.statement_period }}
+                    </p>
+                    {% endif %}
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:4px 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#555555;">Income</td>
+                        <td style="padding:4px 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; color:#1E3D58; text-align:right;">${{ section.total_income|floatformat:2|default:"0.00" }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#555555;">Expenses</td>
+                        <td style="padding:4px 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; color:#1E3D58; text-align:right;">${{ section.total_expenses|floatformat:2|default:"0.00" }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#555555;">Distribution</td>
+                        <td style="padding:4px 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; color:#059669; text-align:right;">${{ section.total_distribution|floatformat:2|default:"0.00" }}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0; border-top:1px solid #d1d5db; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#555555;">Ending Balance</td>
+                        <td style="padding:4px 0; border-top:1px solid #d1d5db; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:700; color:#1E3D58; text-align:right;">${{ section.ending_balance|floatformat:2|default:"0.00" }}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          {% if section.maintenance.has_data %}
+          <!-- Maintenance Summary -->
+          <tr>
+            <td style="padding:4px 40px 12px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="text-align:center; padding:8px; background-color:#fef3c7; border-radius:6px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#92400e;">
+                      Maintenance: {{ section.maintenance.open_count }} open &bull; {{ section.maintenance.closed_count }} closed &bull; {{ section.maintenance.canceled_count }} canceled
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          {% for category in section.categories %}
+          <!-- {{ category.label }} -->
+          <tr>
+            <td style="padding:12px 40px 8px;">
+              <h3 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:16px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:6px;">
+                {{ category.label }} ({{ category.count }})
+              </h3>
+            </td>
+          </tr>
+          {% for process in category.processes %}
+          <tr>
+            <td style="padding:4px 40px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fafafa; border-radius:6px; border-left:4px solid #6EA5CD;">
+                <tr>
+                  <td style="padding:12px 16px;">
+                    {% if process.address %}
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+                      {{ process.address }}{% if process.unit_number %} &bull; Unit {{ process.unit_number }}{% endif %}
+                    </p>
+                    {% endif %}
+                    <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
+                      {{ process.name }}
+                    </p>
+                    {% if process.stage_name %}
+                    <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#6EA5CD;">
+                      Stage: {{ process.stage_name }}
+                    </p>
+                    {% endif %}
+                    {% if process.ai_summary %}
+                    <p style="margin:8px 0 0; font-size:14px; line-height:1.4; color:#555555;">
+                      {{ process.ai_summary }}
+                    </p>
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {% endfor %}
+          {% endfor %}
+
+          {% if not section.has_financials and not section.maintenance.has_data and not section.categories %}
+          <tr>
+            <td style="padding:8px 40px 16px;">
+              <p style="margin:0; font-size:14px; color:#9ca3af; font-style:italic;">
+                No activity to report for this portfolio.
+              </p>
+            </td>
+          </tr>
+          {% endif %}
+
+          {% endfor %}
+
+          {% elif categories %}
+          <!-- Legacy: flat categories (fallback) -->
           {% if total_count %}
           <tr>
             <td style="padding:8px 40px 24px;">
@@ -54,7 +175,6 @@
           {% endif %}
 
           {% for category in categories %}
-          <!-- {{ category.label }} -->
           <tr>
             <td style="padding:{% if forloop.first %}8{% else %}24{% endif %}px 40px 8px;">
               <h2 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:8px;">
@@ -94,7 +214,7 @@
           {% endfor %}
           {% endfor %}
 
-          {% if not categories %}
+          {% else %}
           <!-- No activity -->
           <tr>
             <td style="padding:24px 40px;">

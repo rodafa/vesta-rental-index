@@ -147,6 +147,74 @@ def get_owner_maintenance_data(owner, period_start, period_end):
     }
 
 
+def get_portfolio_maintenance_summary(portfolio, period_start, period_end):
+    """
+    Light maintenance overview for a single portfolio's monthly section.
+
+    Returns dict with counts of open, closed, and canceled items for the period.
+    No detailed meld dicts, no dollar figures (those come from PortfolioStatement).
+
+    Used by monthly owner notes — does NOT replace get_owner_maintenance_data().
+    """
+    base_qs = Meld.objects.filter(property__portfolio=portfolio)
+
+    # Exclude merged melds
+    base_qs = base_qs.exclude(~Q(merged_meld_data={}))
+
+    # Exclude routine lawn/mowing melds
+    base_qs = base_qs.exclude(
+        Q(category__in=["EXTERIOR", "LANDSCAPING"])
+        & (
+            Q(brief_description__icontains="mow")
+            | Q(brief_description__icontains="lawn care")
+            | Q(brief_description__icontains="grass")
+        )
+    )
+
+    terminal_statuses = EMAIL_CLOSED_BUCKET | EMAIL_CANCELED_BUCKET
+
+    open_count = base_qs.exclude(status__in=terminal_statuses).count()
+
+    closed_count = (
+        base_qs.filter(status__in=EMAIL_CLOSED_BUCKET)
+        .filter(
+            Q(
+                completion_date__date__gte=period_start,
+                completion_date__date__lte=period_end,
+            )
+            | Q(
+                completion_date__isnull=True,
+                marked_complete__date__gte=period_start,
+                marked_complete__date__lte=period_end,
+            )
+        )
+        .count()
+    )
+
+    canceled_count = (
+        base_qs.filter(status__in=EMAIL_CANCELED_BUCKET)
+        .filter(
+            Q(
+                source_modified_at__date__gte=period_start,
+                source_modified_at__date__lte=period_end,
+            )
+            | Q(
+                source_modified_at__isnull=True,
+                marked_complete__date__gte=period_start,
+                marked_complete__date__lte=period_end,
+            )
+        )
+        .count()
+    )
+
+    return {
+        "open_count": open_count,
+        "closed_count": closed_count,
+        "canceled_count": canceled_count,
+        "_has_data": bool(open_count or closed_count or canceled_count),
+    }
+
+
 def _first_name(owner):
     """Extract a first name for greeting."""
     if owner.first_name:

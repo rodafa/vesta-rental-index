@@ -42,6 +42,12 @@ class EmailDraft(models.Model):
         on_delete=models.CASCADE,
         related_name="email_drafts",
     )
+    recipient_email = models.CharField(
+        max_length=254,
+        db_index=True,
+        default="",
+        help_text="Normalized (lowered, stripped) email address of the intended recipient.",
+    )
     subject = models.CharField(max_length=500)
     body_html = models.TextField()
     generated_note = models.TextField(blank=True, default="")
@@ -73,8 +79,8 @@ class EmailDraft(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["product", "owner", "period_type", "period_start"],
-                name="unique_draft_per_owner_per_period",
+                fields=["product", "recipient_email", "period_type", "period_start"],
+                name="unique_draft_per_email_per_period",
             ),
         ]
 

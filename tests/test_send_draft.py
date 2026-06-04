@@ -44,6 +44,7 @@ def draft(owner):
     return EmailDraft.objects.create(
         product="maintenance",
         owner=owner,
+        recipient_email="owner@example.com",
         subject="Weekly Maintenance Update",
         body_html="<p>Hello</p>",
         status="draft",

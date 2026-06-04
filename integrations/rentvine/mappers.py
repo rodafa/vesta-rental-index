@@ -586,3 +586,61 @@ def map_bill_charge(data):
     }
 
     return rentvine_transaction_id, rentvine_bill_id, defaults
+
+
+# ---------------------------------------------------------------------------
+# PortfolioStatement mapper
+# ---------------------------------------------------------------------------
+
+
+def map_portfolio_statement(data):
+    """
+    Map a RentVine portfolio statement JSON to PortfolioStatement model fields.
+
+    API envelope: {"statement": {...}} or flat dict.
+    Returns (rentvine_statement_id, portfolio_rentvine_id, defaults_dict).
+    """
+    stmt = data.get("statement", data) if isinstance(data, dict) else data
+
+    rentvine_statement_id = _safe_int(
+        _get(stmt, "ownerStatementID", "statementID", "statement_id", "id", default=None)
+    )
+    if rentvine_statement_id is None:
+        raise ValueError(f"Statement record missing ID: {list(stmt.keys())[:5]}")
+
+    portfolio_rentvine_id = _safe_int(
+        _get(stmt, "portfolioID", "portfolio_id", default=None)
+    )
+
+    defaults = {
+        "period_start": _safe_date(
+            _get(stmt, "beginDate", "startDate", "period_start", default=None)
+        ),
+        "period_end": _safe_date(
+            _get(stmt, "endDate", "period_end", default=None)
+        ),
+        "beginning_balance": _safe_decimal(
+            _get(stmt, "beginningBalance", "beginning_balance", default="0")
+        ) or Decimal("0"),
+        "total_income": _safe_decimal(
+            _get(stmt, "totalIncomeAmount", "total_income", default="0")
+        ) or Decimal("0"),
+        "total_expenses": _safe_decimal(
+            _get(stmt, "totalExpenseAmount", "total_expenses", default="0")
+        ) or Decimal("0"),
+        "total_adjustments": _safe_decimal(
+            _get(stmt, "totalAdjustmentAmount", "total_adjustments", default="0")
+        ) or Decimal("0"),
+        "ending_balance": _safe_decimal(
+            _get(stmt, "endingBalance", "ending_balance", default="0")
+        ) or Decimal("0"),
+        "total_distribution": _safe_decimal(
+            _get(stmt, "totalDistributionAmount", "total_distribution", default="0")
+        ) or Decimal("0"),
+        "status": str(
+            _get(stmt, "statementStatusID", "status", default="")
+        ),
+        "raw_data": data,
+    }
+
+    return rentvine_statement_id, portfolio_rentvine_id, defaults

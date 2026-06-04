@@ -28,6 +28,7 @@ from .mappers import (
     map_lease,
     map_owner,
     map_portfolio,
+    map_portfolio_statement,
     map_property,
     map_tenant_from_lease,
     map_unit,
@@ -794,6 +795,138 @@ class BillChargeSyncService(_BaseSyncService):
                 break
             page += 1
         return all_records
+
+
+class PortfolioStatementSyncService(_BaseSyncService):
+    """
+    Sync owner statements from RentVine for each portfolio.
+
+    Per-portfolio: GET /portfolios/{id}/statements?type=owner&sort=-endDate
+    Filters client-side to statementStatusID == "2" (posted), takes newest.
+    Idempotent upsert keyed on rentvine_statement_id.
+    """
+
+    endpoint = "portfolios/{id}/statements"
+
+    def sync(self, dry_run=False, portfolio_id=None, limit=None):
+        from accounting.models import PortfolioStatement
+
+        log = self._create_log()
+        portfolios = Portfolio.objects.filter(rentvine_id__isnull=False, is_active=True)
+        if portfolio_id:
+            portfolios = portfolios.filter(rentvine_id=portfolio_id)
+
+        total_fetched = 0
+        created_count = 0
+        updated_count = 0
+        errors = []
+        portfolios_processed = 0
+
+        for portfolio in portfolios:
+            if limit and portfolios_processed >= limit:
+                break
+
+            try:
+                data = self.client.get(
+                    f"/portfolios/{portfolio.rentvine_id}/statements",
+                    params={
+                        "type": "owner",
+                        "sort": "-endDate",
+                        "limit": 5,
+                    },
+                )
+                records = self.client._extract_records(data)
+            except Exception as exc:
+                msg = (
+                    f"Error fetching statements for portfolio "
+                    f"{portfolio.rentvine_id} ({portfolio.name}): {exc}"
+                )
+                logger.error(msg)
+                errors.append(msg)
+                continue
+
+            total_fetched += len(records)
+            posted_found = False
+
+            for record in records:
+                try:
+                    stmt_id, portfolio_rv_id, defaults = map_portfolio_statement(record)
+                    status_raw = defaults.get("status", "")
+
+                    if str(status_raw) != "2":
+                        logger.info(
+                            "rentvine_statement_non_posted_status",
+                            extra={
+                                "portfolio": portfolio.name,
+                                "statement_id": stmt_id,
+                                "status": status_raw,
+                            },
+                        )
+                        continue
+
+                    posted_found = True
+
+                    if dry_run:
+                        logger.info(
+                            "DRY RUN statement %s: portfolio=%s, period=%s to %s, "
+                            "income=%s, expenses=%s",
+                            stmt_id,
+                            portfolio.name,
+                            defaults.get("period_start"),
+                            defaults.get("period_end"),
+                            defaults.get("total_income"),
+                            defaults.get("total_expenses"),
+                        )
+                        continue
+
+                    defaults["portfolio"] = portfolio
+
+                    _, was_created = PortfolioStatement.objects.update_or_create(
+                        rentvine_statement_id=stmt_id,
+                        defaults=defaults,
+                    )
+                    if was_created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
+
+                    # Take only the newest posted statement per portfolio
+                    break
+
+                except Exception as exc:
+                    msg = (
+                        f"Error syncing statement for portfolio "
+                        f"{portfolio.rentvine_id}: {exc}"
+                    )
+                    logger.error(msg)
+                    errors.append(msg)
+
+            if not posted_found and records:
+                logger.info(
+                    "rentvine_no_posted_statement",
+                    extra={
+                        "portfolio": portfolio.name,
+                        "rentvine_id": portfolio.rentvine_id,
+                        "records_checked": len(records),
+                    },
+                )
+
+            portfolios_processed += 1
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            fetched=total_fetched,
+            errors=errors,
+        )
+        return {
+            "portfolios_processed": portfolios_processed,
+            "fetched": total_fetched,
+            "created": created_count,
+            "updated": updated_count,
+            "errors": len(errors),
+        }
 
 
 def link_owners_from_portfolio_contacts():

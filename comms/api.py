@@ -14,7 +14,7 @@ from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from .models import EmailDraft
-from .services import generate_drafts, send_draft, _format_period_label
+from .services import generate_drafts, generate_monthly_notes, send_draft, _format_period_label
 from core.models import Owner
 
 logger = logging.getLogger(__name__)
@@ -33,9 +33,9 @@ def _require_access(request):
 
 def _serialize_draft(draft):
     """Serialize an EmailDraft to the note object shape the JS expects."""
-    # Derive portfolio_name from owner's portfolios
-    portfolio = draft.owner.portfolios.first()
-    portfolio_name = portfolio.name if portfolio else "\u2014"
+    # Derive portfolio_name from owner's portfolios (all, comma-separated)
+    portfolios = list(draft.owner.portfolios.order_by("name").values_list("name", flat=True))
+    portfolio_name = ", ".join(portfolios) if portfolios else "\u2014"
 
     note_text = draft.generated_note or ""
     word_count = len(note_text.split()) if note_text.strip() else 0
@@ -44,20 +44,47 @@ def _serialize_draft(draft):
     status_map = {"draft": "pending", "approved": "approved", "sent": "sent"}
     js_status = status_map.get(draft.status, draft.status)
 
+    # Financial fields from latest posted PortfolioStatement
+    statement_period = None
+    total_income = None
+    total_expenses = None
+    total_distribution = None
+    ending_balance = None
+
+    from accounting.models import PortfolioStatement
+
+    portfolio_pks = draft.owner.portfolios.values_list("pk", flat=True)
+    latest_stmt = (
+        PortfolioStatement.objects.filter(
+            portfolio_id__in=portfolio_pks, status="2"
+        )
+        .order_by("-period_end")
+        .first()
+    )
+    if latest_stmt:
+        statement_period = (
+            f"{latest_stmt.period_start.strftime('%b %d')} – "
+            f"{latest_stmt.period_end.strftime('%b %d, %Y')}"
+        )
+        total_income = float(latest_stmt.total_income)
+        total_expenses = float(latest_stmt.total_expenses)
+        total_distribution = float(latest_stmt.total_distribution)
+        ending_balance = float(latest_stmt.ending_balance)
+
     return {
         "id": draft.pk,
         "portfolio_name": portfolio_name,
         "owner_name": draft.owner.name,
+        "recipient_email": draft.recipient_email,
         "status": js_status,
         "word_count": word_count,
         "generated_note": note_text,
         "error_message": None,
-        # Financial fields — not available yet, JS hides panel when null
-        "statement_period": None,
-        "total_income": None,
-        "total_expenses": None,
-        "total_distribution": None,
-        "ending_balance": None,
+        "statement_period": statement_period,
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "total_distribution": total_distribution,
+        "ending_balance": ending_balance,
     }
 
 
@@ -238,7 +265,14 @@ def generate_notes(request):
 
     is_dry_run = body.get("dry_run", False)
 
-    owners = Owner.objects.filter(is_active=True).prefetch_related("portfolios")
+    owners = Owner.objects.filter(
+        is_active=True,
+    ).exclude(
+        email=""
+    ).exclude(
+        email__isnull=True
+    ).prefetch_related("portfolios")
+
     owner_id = body.get("owner_id")
     if owner_id:
         try:
@@ -248,12 +282,10 @@ def generate_notes(request):
 
     def _run():
         try:
-            generate_drafts(
-                PRODUCT,
+            generate_monthly_notes(
                 owners,
                 period_start,
                 period_end,
-                period_type="monthly",
                 dry_run=is_dry_run,
             )
         except Exception:

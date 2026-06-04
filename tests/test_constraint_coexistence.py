@@ -22,6 +22,7 @@ def owner():
         rentvine_contact_id=800,
         name="Constraint Test Owner",
         first_name="Constraint",
+        email="constraint@example.com",
         is_active=True,
     )
 
@@ -33,6 +34,7 @@ class TestConstraintCoexistence:
         EmailDraft.objects.create(
             product="maintenance",
             owner=owner,
+            recipient_email="constraint@example.com",
             subject="Weekly Update",
             body_html="<p>Weekly</p>",
             status="draft",
@@ -43,6 +45,7 @@ class TestConstraintCoexistence:
         EmailDraft.objects.create(
             product="maintenance",
             owner=owner,
+            recipient_email="constraint@example.com",
             subject="Monthly Update",
             body_html="<p>Monthly</p>",
             status="draft",
@@ -58,6 +61,7 @@ class TestConstraintCoexistence:
         EmailDraft.objects.create(
             product="maintenance",
             owner=owner,
+            recipient_email="constraint@example.com",
             subject="Weekly Update",
             body_html="<p>First</p>",
             status="draft",
@@ -71,6 +75,7 @@ class TestConstraintCoexistence:
                 EmailDraft.objects.create(
                     product="maintenance",
                     owner=owner,
+                    recipient_email="constraint@example.com",
                     subject="Duplicate Weekly",
                     body_html="<p>Dupe</p>",
                     status="draft",

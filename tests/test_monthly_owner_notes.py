@@ -280,20 +280,19 @@ class TestMonthlyOwnerNotesDraftGeneration:
 class TestMonthlyDraftsManagementCommand:
     def test_command_with_limit(self, owner, mock_anthropic_response):
         with patch("comms.services.anthropic.Anthropic", mock_anthropic_response), \
-             patch("comms.services._load_selector") as mock_load:
-            from comms.services import (
-                _build_monthly_context,
-                _build_monthly_prompt,
-            )
-            def fake_load(path):
-                if "selector" in path:
-                    return lambda *a: _mock_selector_data()
-                if "prompt" in path:
-                    return _build_monthly_prompt
-                if "context" in path:
-                    return _build_monthly_context
-                raise ValueError(f"Unexpected path: {path}")
-            mock_load.side_effect = fake_load
+             patch("comms.services.build_portfolio_section") as mock_section:
+            # Mock portfolio section to return realistic data
+            mock_section.return_value = {
+                "portfolio_name": "Test Portfolio",
+                "financials": {},
+                "maintenance": {"_has_data": False, "open_count": 0, "closed_count": 0, "canceled_count": 0},
+                "pipeline": {
+                    "processes_by_category": _mock_selector_data()["processes_by_category"],
+                    "total_count": 2,
+                    "_has_data": True,
+                    "_degraded": False,
+                },
+            }
 
             out = StringIO()
             call_command(

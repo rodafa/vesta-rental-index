@@ -17,7 +17,7 @@ import sendgrid
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
-from sendgrid.helpers.mail import Mail, SandBoxMode, MailSettings
+from sendgrid.helpers.mail import Cc, Mail, SandBoxMode, MailSettings
 
 from .models import EmailDraft, VoiceGuide
 from .registry import PRODUCTS
@@ -50,20 +50,18 @@ count (e.g. "This week there are 3 open work orders and 2 were completed.")
 """,
     "monthly_owner_notes": """\
 You write monthly owner update emails for property investors on behalf of \
-Vesta Property Management. Each email covers one owner's portfolio for the \
-reporting month.
+Vesta Property Management. Each email covers one or more portfolios for the \
+reporting month, organized by portfolio section.
 
 Voice: Trustworthy, approachable, transparent. You are a knowledgeable property \
 manager giving a clear, factual operational update — not a salesperson. Warm \
 and direct. Every problem is paired with what is being done about it.
 
-Data categories you will receive (not all will be present every month):
-- Lease Renewals: active renewal negotiations and completed renewals
-- Move Outs: upcoming and completed tenant departures
-- Move Ins: new tenant move-ins (completed milestones)
-- Rehab to Turn: unit turnover and renovation work between tenants
-- Issues: operational issues being tracked and resolved
-- Onboarding: new owner or property onboarding processes
+Each portfolio section may contain:
+- Financial summary (income, expenses, distributions, ending balance)
+- Maintenance summary (open/closed/canceled work order counts)
+- Pipeline activity by category (Lease Renewals, Move Outs, Move Ins, \
+Rehab to Turn, Issues, Onboarding)
 
 Rules:
 - Write in first person plural ("We completed the renewal", "Our team \
@@ -74,11 +72,9 @@ coordinated the move-out")
 - For completed items: past tense, mention completion
 - Group by category with a brief category heading
 - The intro paragraph should be 2-3 sentences summarizing the month's \
-activity by category count (e.g. "This month we processed 2 lease renewals \
-and coordinated 1 move-out for your portfolio.")
+activity across all portfolios
 - All dates in plain English format (e.g. "May 15, 2026") — never ISO format
 - Do not mention internal system names, ticket IDs, or pipeline references
-- Do not include financial details (rent amounts, costs, balances)
 - Do not editorialize or add unnecessary reassurance
 - No jargon, no filler, no speculation\
 """,
@@ -96,9 +92,9 @@ def _load_selector(dotted_path):
 
 
 def _get_or_create_voice_guide(product_name):
-    """Load the VoiceGuide for a product, creating the default if missing."""
+    """Load the VoiceGuide for a product, creating or updating the default."""
     default_text = DEFAULT_VOICE_GUIDES.get(product_name, DEFAULT_VOICE_GUIDES["maintenance"])
-    guide, created = VoiceGuide.objects.get_or_create(
+    guide, created = VoiceGuide.objects.update_or_create(
         product=product_name,
         defaults={"instructions": default_text},
     )
@@ -243,7 +239,19 @@ def _build_process_payload(processes, category_label):
 
 
 def _build_monthly_prompt(data, owner_name, period_start, period_end):
-    """Build the AI prompt for a monthly owner notes email."""
+    """
+    Build the AI prompt for a monthly owner notes email.
+
+    Accepts either the old shape (processes_by_category at top level)
+    or the new shape (portfolio_sections list).
+    """
+    portfolio_sections = data.get("portfolio_sections")
+    if portfolio_sections:
+        return _build_monthly_prompt_portfolio(
+            portfolio_sections, owner_name, period_start, period_end
+        )
+
+    # Legacy path: flat processes_by_category (maintenance weekly still uses this)
     sections = []
     by_category = data.get("processes_by_category", {})
     for cat_key, procs in by_category.items():
@@ -265,6 +273,67 @@ def _build_monthly_prompt(data, owner_name, period_start, period_end):
         "summary. Do NOT include the ID in the summary text.\n\n"
         'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
     )
+
+
+def _build_monthly_prompt_portfolio(portfolio_sections, owner_name, period_start, period_end):
+    """Build the AI prompt for a portfolio-organized monthly owner notes email."""
+    parts = [
+        f"Write a monthly owner update email for {owner_name}.",
+        f"Period: {period_start.strftime('%B %Y')}.",
+        "",
+    ]
+
+    for section in portfolio_sections:
+        parts.append(f"=== Portfolio: {section['portfolio_name']} ===")
+
+        # Financial summary
+        fin = section.get("financials", {})
+        if fin:
+            parts.append(
+                f"Financials ({fin.get('period_start')} to {fin.get('period_end')}):"
+            )
+            parts.append(f"  Income: ${fin.get('total_income', 0)}")
+            parts.append(f"  Expenses: ${fin.get('total_expenses', 0)}")
+            parts.append(f"  Distribution: ${fin.get('total_distribution', 0)}")
+            parts.append(f"  Ending Balance: ${fin.get('ending_balance', 0)}")
+        else:
+            parts.append("Financials: No statement available yet.")
+
+        # Maintenance summary
+        maint = section.get("maintenance", {})
+        if maint.get("_has_data"):
+            parts.append(
+                f"Maintenance: {maint['open_count']} open, "
+                f"{maint['closed_count']} closed, "
+                f"{maint['canceled_count']} canceled"
+            )
+        else:
+            parts.append("Maintenance: No activity this period.")
+
+        # Pipeline activity
+        pipeline = section.get("pipeline", {})
+        by_category = pipeline.get("processes_by_category", {})
+        if by_category:
+            for cat_key, procs in by_category.items():
+                label = CATEGORY_LABELS.get(cat_key, cat_key.replace("_", " ").title())
+                payload = _build_process_payload(procs, label)
+                if payload:
+                    parts.append(payload)
+        else:
+            parts.append("Pipeline: No processes to report.")
+
+        parts.append("")
+
+    parts.append(
+        "Write:\n"
+        "1. A brief intro (2-3 sentences summarizing the month's activity "
+        "across all portfolios)\n"
+        "2. For each process identified by its [ID], a concise 1-2 sentence "
+        "summary. Do NOT include the ID in the summary text.\n\n"
+        'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
+    )
+
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -294,8 +363,21 @@ def _build_maintenance_context(data, ai_result, period_label):
 
 
 def _build_monthly_context(data, ai_result, period_label):
-    """Attach AI summaries to process dicts and build the monthly template context."""
+    """
+    Attach AI summaries to process dicts and build the monthly template context.
+
+    Handles both the old shape (processes_by_category at top level)
+    and the new shape (portfolio_sections list).
+    """
     summaries = ai_result.get("process_summaries", {})
+
+    portfolio_sections = data.get("portfolio_sections")
+    if portfolio_sections:
+        return _build_monthly_context_portfolio(
+            data, ai_result, period_label, summaries
+        )
+
+    # Legacy path: flat processes_by_category
     by_category = data.get("processes_by_category", {})
 
     categories = []
@@ -316,6 +398,75 @@ def _build_monthly_context(data, ai_result, period_label):
         "ai_intro": ai_result.get("intro", ""),
         "categories": categories,
         "total_count": data.get("total_count", 0),
+        "period_label": period_label,
+    }
+
+
+def _build_monthly_context_portfolio(data, ai_result, period_label, summaries):
+    """Build template context for the portfolio-organized monthly owner notes."""
+    portfolio_sections = data["portfolio_sections"]
+
+    template_sections = []
+    total_count = 0
+
+    for section in portfolio_sections:
+        # Financial data
+        fin = section.get("financials", {})
+
+        # Statement period label
+        stmt_period = ""
+        if fin.get("period_start") and fin.get("period_end"):
+            stmt_period = (
+                f"{fin['period_start'].strftime('%b %d')} – "
+                f"{fin['period_end'].strftime('%b %d, %Y')}"
+            )
+
+        # Maintenance summary
+        maint = section.get("maintenance", {})
+
+        # Pipeline categories with AI summaries attached
+        pipeline = section.get("pipeline", {})
+        by_category = pipeline.get("processes_by_category", {})
+        categories = []
+        for cat_key, procs in by_category.items():
+            label = CATEGORY_LABELS.get(cat_key, cat_key.replace("_", " ").title())
+            for proc in procs:
+                pid = str(proc.get("process_id", ""))
+                proc["ai_summary"] = summaries.get(pid, "")
+            categories.append({
+                "key": cat_key,
+                "label": label,
+                "processes": procs,
+                "count": len(procs),
+            })
+            total_count += len(procs)
+
+        # Re-key maintenance dict to avoid underscore-prefixed keys
+        # (Django templates forbid accessing _has_data)
+        template_maint = {
+            "has_data": maint.get("_has_data", False),
+            "open_count": maint.get("open_count", 0),
+            "closed_count": maint.get("closed_count", 0),
+            "canceled_count": maint.get("canceled_count", 0),
+        }
+
+        template_sections.append({
+            "portfolio_name": section["portfolio_name"],
+            "has_financials": bool(fin),
+            "statement_period": stmt_period,
+            "total_income": fin.get("total_income"),
+            "total_expenses": fin.get("total_expenses"),
+            "total_distribution": fin.get("total_distribution"),
+            "ending_balance": fin.get("ending_balance"),
+            "maintenance": template_maint,
+            "categories": categories,
+        })
+
+    return {
+        "owner_first_name": data["owner_first_name"],
+        "ai_intro": ai_result.get("intro", ""),
+        "portfolio_sections": template_sections,
+        "total_count": total_count,
         "period_label": period_label,
     }
 
@@ -354,6 +505,54 @@ def _build_generated_note(ai_result, data, product_name):
             )
 
     return "\n\n".join(parts)
+
+
+def _get_latest_statement(portfolio):
+    """
+    Fetch the latest posted PortfolioStatement for a portfolio.
+
+    Returns a dict with financial fields, or {} if none exists.
+    """
+    from accounting.models import PortfolioStatement
+
+    stmt = (
+        PortfolioStatement.objects.filter(portfolio=portfolio, status="2")
+        .order_by("-period_end")
+        .first()
+    )
+    if stmt is None:
+        return {}
+
+    return {
+        "period_start": stmt.period_start,
+        "period_end": stmt.period_end,
+        "beginning_balance": stmt.beginning_balance,
+        "total_income": stmt.total_income,
+        "total_expenses": stmt.total_expenses,
+        "total_adjustments": stmt.total_adjustments,
+        "ending_balance": stmt.ending_balance,
+        "total_distribution": stmt.total_distribution,
+    }
+
+
+def build_portfolio_section(portfolio, period_start, period_end):
+    """
+    Pure function. Returns structured data for one portfolio's section
+    in the monthly owner email. Cacheable by portfolio.pk.
+    """
+    from maintenance.selectors import get_portfolio_maintenance_summary
+    from integrations.leadsimple.selectors import get_portfolio_pipeline_data
+
+    return {
+        "portfolio_name": portfolio.name,
+        "financials": _get_latest_statement(portfolio),
+        "maintenance": get_portfolio_maintenance_summary(
+            portfolio, period_start, period_end
+        ),
+        "pipeline": get_portfolio_pipeline_data(
+            portfolio, period_start, period_end
+        ),
+    }
 
 
 def generate_drafts(
@@ -451,10 +650,13 @@ def generate_drafts(
                 generated += 1
                 continue
 
-            # Skip if a draft for this owner/period was already sent or approved
+            # Normalize recipient email
+            norm_email = (owner.email or "").strip().lower()
+
+            # Skip if a draft for this email/period was already sent or approved
             existing = EmailDraft.objects.filter(
                 product=product_name,
-                owner=owner,
+                recipient_email=norm_email,
                 period_type=period_type,
                 period_start=period_start,
             ).first()
@@ -472,10 +674,11 @@ def generate_drafts(
 
             EmailDraft.objects.update_or_create(
                 product=product_name,
-                owner=owner,
+                recipient_email=norm_email,
                 period_type=period_type,
                 period_start=period_start,
                 defaults={
+                    "owner": owner,
                     "subject": subject,
                     "body_html": body_html,
                     "generated_note": generated_note,
@@ -505,6 +708,243 @@ def generate_drafts(
         "generated": generated,
         "skipped": skipped,
         "degraded": degraded,
+        "errors": len(errors),
+        "error_details": errors[:20],
+    }
+
+
+def _normalize_email(email):
+    """Normalize email for dedup: strip + lower."""
+    return (email or "").strip().lower()
+
+
+def generate_monthly_notes(
+    owner_queryset, period_start, period_end, dry_run=False,
+):
+    """
+    Generate monthly owner notes email drafts — portfolio-organized,
+    recipient-email-grain.
+
+    Separate from generate_drafts() to avoid polluting the maintenance path.
+
+    Steps:
+        1. Query active Owners with non-blank email.
+        2. Group by normalize(email).
+        3. For each email group:
+           - Union portfolios across owners, dedupe by PK.
+           - Pick representative owner (lowest PK).
+           - For each portfolio: build_portfolio_section() (cached).
+           - Build AI prompt with all sections.
+           - Render template.
+           - Upsert EmailDraft with recipient_email.
+
+    Returns dict: {generated, skipped, errors, error_details}.
+    """
+    product_name = "monthly_owner_notes"
+    period_type = "monthly"
+    template_name = "comms/emails/monthly_owner_notes.html"
+    subject_template = PRODUCTS[product_name]["subject_template"]
+
+    voice_guide = _get_or_create_voice_guide(product_name)
+
+    # 1. Delete existing drafts in 'draft' status for this period
+    existing_locked = EmailDraft.objects.filter(
+        product=product_name,
+        period_type=period_type,
+        period_start=period_start,
+        status__in=("sent", "approved"),
+    )
+    if existing_locked.exists():
+        logger.warning(
+            "comms_monthly_locked_drafts_exist",
+            extra={
+                "count": existing_locked.count(),
+                "period_start": str(period_start),
+            },
+        )
+
+    if not dry_run:
+        deleted_count = EmailDraft.objects.filter(
+            product=product_name,
+            period_type=period_type,
+            period_start=period_start,
+            status="draft",
+        ).delete()[0]
+        if deleted_count:
+            logger.info(
+                "comms_monthly_drafts_cleared",
+                extra={"deleted": deleted_count, "period_start": str(period_start)},
+            )
+
+    # 2. Group owners by normalized email
+    email_groups = {}
+    for owner in owner_queryset:
+        email = _normalize_email(owner.email)
+        if not email:
+            logger.info(
+                "comms_monthly_skip_blank_email",
+                extra={"owner": owner.name, "owner_id": owner.pk},
+            )
+            continue
+        email_groups.setdefault(email, []).append(owner)
+
+    generated = 0
+    skipped = 0
+    errors = []
+
+    # Cache portfolio sections to avoid rebuilding for shared portfolios
+    section_cache = {}
+
+    for norm_email, owners in email_groups.items():
+        try:
+            # Skip if a locked draft exists for this email/period
+            existing = EmailDraft.objects.filter(
+                product=product_name,
+                recipient_email=norm_email,
+                period_type=period_type,
+                period_start=period_start,
+                status__in=("sent", "approved"),
+            ).first()
+            if existing:
+                logger.info(
+                    "comms_monthly_draft_locked",
+                    extra={
+                        "email": norm_email,
+                        "draft_id": existing.pk,
+                        "status": existing.status,
+                    },
+                )
+                skipped += 1
+                continue
+
+            # Union portfolios across all owners sharing this email
+            portfolio_pks = set()
+            for owner in owners:
+                for pk in owner.portfolios.values_list("pk", flat=True):
+                    portfolio_pks.add(pk)
+
+            if not portfolio_pks:
+                logger.info(
+                    "comms_monthly_no_portfolios",
+                    extra={"email": norm_email},
+                )
+                skipped += 1
+                continue
+
+            # Representative owner (lowest PK)
+            rep_owner = min(owners, key=lambda o: o.pk)
+
+            # Build portfolio sections
+            from core.models import Portfolio
+
+            portfolios = Portfolio.objects.filter(pk__in=portfolio_pks).order_by("name")
+            portfolio_sections = []
+            has_any_data = False
+
+            for portfolio in portfolios:
+                if portfolio.pk in section_cache:
+                    section = section_cache[portfolio.pk]
+                else:
+                    section = build_portfolio_section(
+                        portfolio, period_start, period_end
+                    )
+                    section_cache[portfolio.pk] = section
+
+                portfolio_sections.append(section)
+
+                # Check if any section has data
+                if (
+                    section.get("financials")
+                    or section.get("maintenance", {}).get("_has_data")
+                    or section.get("pipeline", {}).get("_has_data")
+                ):
+                    has_any_data = True
+
+            if not has_any_data:
+                logger.info(
+                    "comms_monthly_no_activity",
+                    extra={"email": norm_email},
+                )
+                skipped += 1
+                continue
+
+            # Build data dict for prompt/context
+            owner_first_name = rep_owner.first_name or (
+                rep_owner.name or "Owner"
+            ).split()[0]
+
+            data = {
+                "owner_first_name": owner_first_name,
+                "portfolio_sections": portfolio_sections,
+            }
+
+            # Call Anthropic for narrative
+            user_prompt = _build_monthly_prompt(
+                data, owner_first_name, period_start, period_end
+            )
+            ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
+
+            # Render template
+            period_label = _format_period_label(
+                period_type, period_start, period_end
+            )
+            context = _build_monthly_context(data, ai_result, period_label)
+            body_html = render_to_string(template_name, context)
+
+            subject = subject_template.format(period_label=period_label)
+
+            # Build plain-text note
+            generated_note = _build_generated_note(
+                ai_result, data, product_name
+            )
+
+            if dry_run:
+                logger.info(
+                    "comms_monthly_dry_run",
+                    extra={
+                        "email": norm_email,
+                        "portfolios": [s["portfolio_name"] for s in portfolio_sections],
+                        "note_length": len(generated_note),
+                    },
+                )
+                generated += 1
+                continue
+
+            EmailDraft.objects.update_or_create(
+                product=product_name,
+                recipient_email=norm_email,
+                period_type=period_type,
+                period_start=period_start,
+                defaults={
+                    "owner": rep_owner,
+                    "subject": subject,
+                    "body_html": body_html,
+                    "generated_note": generated_note,
+                    "period_end": period_end,
+                    "status": "draft",
+                    "sent_at": None,
+                    "sent_by": None,
+                },
+            )
+            generated += 1
+
+            logger.info(
+                "comms_monthly_draft_generated",
+                extra={
+                    "email": norm_email,
+                    "owner": rep_owner.name,
+                    "portfolios": [s["portfolio_name"] for s in portfolio_sections],
+                },
+            )
+
+        except Exception as exc:
+            msg = f"Error generating monthly draft for {norm_email}: {exc}"
+            logger.exception(msg)
+            errors.append(msg)
+
+    return {
+        "generated": generated,
+        "skipped": skipped,
         "errors": len(errors),
         "error_details": errors[:20],
     }
@@ -541,8 +981,13 @@ def send_draft(
     if not draft.body_html or not draft.body_html.strip():
         raise ValueError(f"Draft {draft.pk} has an empty body")
 
-    # 3. Resolve recipient
-    recipient = recipient_override if recipient_override else draft.owner.email
+    # 3. Resolve recipient — prefer recipient_email, fall back to owner.email
+    if recipient_override:
+        recipient = recipient_override
+    elif draft.recipient_email:
+        recipient = draft.recipient_email
+    else:
+        recipient = draft.owner.email
 
     # Determine mode label for logging
     if sandbox:
@@ -559,6 +1004,12 @@ def send_draft(
         subject=draft.subject,
         html_content=draft.body_html,
     )
+
+    # CC accounting for monthly_owner_notes
+    if draft.product == "monthly_owner_notes" and not sandbox:
+        cc_email = getattr(settings, "COMMS_CC_EMAIL", "")
+        if cc_email:
+            message.add_cc(Cc(cc_email))
 
     if sandbox:
         message.mail_settings = MailSettings(sandbox_mode=SandBoxMode(True))

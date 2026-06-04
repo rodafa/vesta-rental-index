@@ -52,6 +52,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -112,6 +113,11 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
+
 # --- Misc ---
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -144,3 +150,4 @@ COMMS_FROM_EMAIL = os.environ.get(
     "COMMS_FROM_EMAIL",
     "Vesta Property Management <support@vestapm.com>",
 )
+COMMS_CC_EMAIL = os.environ.get("COMMS_CC_EMAIL", "accounting@vestapm.com")

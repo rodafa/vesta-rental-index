@@ -68,6 +68,7 @@ def draft(owner):
     return EmailDraft.objects.create(
         product="monthly_owner_notes",
         owner=owner,
+        recipient_email="alice@example.com",
         subject="Your May 2026 Owner Update",
         body_html="<p>Hello Alice</p>",
         generated_note="This month we processed 1 lease renewal.",
@@ -83,6 +84,7 @@ def approved_draft(owner):
     return EmailDraft.objects.create(
         product="monthly_owner_notes",
         owner=owner,
+        recipient_email="alice@example.com",
         subject="Your May 2026 Owner Update",
         body_html="<p>Hello Alice</p>",
         generated_note="This month we processed 1 lease renewal.",
@@ -98,6 +100,7 @@ def sent_draft(owner):
     return EmailDraft.objects.create(
         product="monthly_owner_notes",
         owner=owner,
+        recipient_email="alice@example.com",
         subject="Your April 2026 Owner Update",
         body_html="<p>Hello Alice</p>",
         generated_note="April notes.",
@@ -216,6 +219,7 @@ class TestApproveAll:
             EmailDraft.objects.create(
                 product="monthly_owner_notes",
                 owner=o,
+                recipient_email=f"o{i}@example.com",
                 subject="Test",
                 body_html="<p>Test</p>",
                 generated_note="Test note",
@@ -332,7 +336,7 @@ class TestDeleteNote:
 @pytest.mark.django_db
 class TestGenerateEndpoint:
     def test_generate_returns_ok(self, auth_client):
-        with patch("comms.api.generate_drafts") as mock_gen:
+        with patch("comms.api.generate_monthly_notes") as mock_gen:
             resp = auth_client.post(
                 "/api/reports/owner-notes/generate",
                 data=json.dumps({
@@ -435,6 +439,7 @@ class TestRerunGuard:
         EmailDraft.objects.create(
             product="monthly_owner_notes",
             owner=owner,
+            recipient_email="alice@example.com",
             subject="Your May 2026 Owner Update",
             body_html="<p>Original</p>",
             generated_note="Original note.",
@@ -509,6 +514,7 @@ class TestRerunGuard:
         EmailDraft.objects.create(
             product="monthly_owner_notes",
             owner=owner,
+            recipient_email="alice@example.com",
             subject="Old subject",
             body_html="<p>Old</p>",
             generated_note="Old note.",

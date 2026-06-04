@@ -21,6 +21,83 @@ from .services import (
 logger = logging.getLogger(__name__)
 
 
+def get_portfolio_pipeline_data(portfolio, period_start, period_end):
+    """
+    Gather LeadSimple pipeline data for a single portfolio's monthly section.
+
+    Same return shape as get_owner_pipeline_data minus the owner-grain pivot.
+    Queries units via property__portfolio=portfolio.
+
+    Used by monthly owner notes — does NOT replace get_owner_pipeline_data().
+    """
+    raw = fetch_processes()
+    if raw is DEGRADED:
+        return {
+            "processes_by_category": {},
+            "total_count": 0,
+            "_has_data": False,
+            "_degraded": True,
+        }
+
+    classified = classify_processes(raw)
+    monthly = filter_for_monthly(classified, period_start, period_end)
+
+    units_qs = Unit.objects.filter(
+        property__portfolio=portfolio, is_active=True
+    )
+    if not units_qs.exists():
+        return {
+            "processes_by_category": {},
+            "total_count": 0,
+            "_has_data": False,
+            "_degraded": False,
+        }
+
+    unit_lookup = build_unit_lookup(units_qs)
+    matched = match_to_units(monthly, unit_lookup)
+
+    # Filter to only processes matched to this portfolio's units
+    portfolio_processes = []
+    for proc, unit in matched:
+        if unit is None:
+            continue
+        if unit.property.portfolio_id == portfolio.pk:
+            portfolio_processes.append(proc)
+
+    if not portfolio_processes:
+        return {
+            "processes_by_category": {},
+            "total_count": 0,
+            "_has_data": False,
+            "_degraded": False,
+        }
+
+    # Build by-category grouping (reuses build_owner_data shape minus owner_first_name)
+    by_category = {}
+    for proc in portfolio_processes:
+        cat = proc.get("category", "unknown")
+        by_category.setdefault(cat, []).append({
+            "process_id": proc.get("id"),
+            "name": proc.get("name", ""),
+            "category": cat,
+            "stage_name": (proc.get("stage") or {}).get("name", ""),
+            "stage_status": (proc.get("stage") or {}).get("status", ""),
+            "created_at": proc.get("created_at"),
+            "closed_at": proc.get("closed_at"),
+            "address": ((proc.get("properties") or [{}])[0]).get("address", ""),
+            "unit_number": (
+                ((proc.get("properties") or [{}])[0]).get("unit", {}) or {}
+            ).get("unit_number", ""),
+        })
+
+    return {
+        "processes_by_category": by_category,
+        "total_count": len(portfolio_processes),
+        "_has_data": True,
+        "_degraded": False,
+    }
+
+
 def get_owner_pipeline_data(owner, period_start, period_end):
     """
     Gather LeadSimple pipeline data for a single owner's monthly report.
