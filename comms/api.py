@@ -10,11 +10,16 @@ import logging
 import threading
 
 from django.http import JsonResponse
-from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from .models import EmailDraft
-from .services import generate_drafts, generate_monthly_notes, send_draft, _format_period_label
+from .services import (
+    generate_drafts,
+    generate_monthly_notes,
+    send_draft,
+    _format_period_label,
+    _render_notes_html_from_text,
+)
 from core.models import Owner
 
 logger = logging.getLogger(__name__)
@@ -75,6 +80,17 @@ def _serialize_draft(draft):
         total_distribution = float(latest_stmt.total_distribution)
         ending_balance = float(latest_stmt.ending_balance)
 
+    # Extract HTML fragments from body_html JSON (monthly_owner_notes)
+    financials_html = None
+    notes_html = None
+    if draft.product == PRODUCT and draft.body_html:
+        try:
+            fragments = json.loads(draft.body_html)
+            financials_html = fragments.get("financials_html", "")
+            notes_html = fragments.get("notes_html", "")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return {
         "id": draft.pk,
         "portfolio_name": portfolio_name,
@@ -89,6 +105,8 @@ def _serialize_draft(draft):
         "total_expenses": total_expenses,
         "total_distribution": total_distribution,
         "ending_balance": ending_balance,
+        "financials_html": financials_html,
+        "notes_html": notes_html,
     }
 
 
@@ -174,18 +192,20 @@ def note_detail(request, draft_id):
     new_note = body.get("generated_note", "")
     draft.generated_note = new_note
 
-    # Re-render body_html from the edited plain text
-    period_label = _format_period_label(
-        draft.period_type, draft.period_start, draft.period_end
-    )
-    draft.body_html = render_to_string(
-        "comms/emails/monthly_owner_notes_edited.html",
-        {
-            "note_text": new_note,
-            "period_label": period_label,
-            "owner_first_name": draft.owner.first_name or draft.owner.name,
-        },
-    )
+    # Re-render notes_html from the edited plain text, preserve financials_html
+    financials_html = ""
+    if draft.body_html:
+        try:
+            fragments = json.loads(draft.body_html)
+            financials_html = fragments.get("financials_html", "")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    notes_html = _render_notes_html_from_text(new_note)
+    draft.body_html = json.dumps({
+        "financials_html": financials_html,
+        "notes_html": notes_html,
+    })
 
     draft.save(update_fields=["generated_note", "body_html"])
 

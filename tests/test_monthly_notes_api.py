@@ -64,13 +64,23 @@ def leasing_user():
 
 
 @pytest.fixture
-def draft(owner):
+def _monthly_body_html():
+    """JSON-format body_html matching the SendGrid dynamic template layout."""
+    import json as _json
+    return _json.dumps({
+        "financials_html": "<h2>Test Portfolio</h2><p>$1,000.00</p>",
+        "notes_html": "<p>Hello Alice</p>",
+    })
+
+
+@pytest.fixture
+def draft(owner, _monthly_body_html):
     return EmailDraft.objects.create(
         product="monthly_owner_notes",
         owner=owner,
         recipient_email="alice@example.com",
         subject="Your May 2026 Owner Update",
-        body_html="<p>Hello Alice</p>",
+        body_html=_monthly_body_html,
         generated_note="This month we processed 1 lease renewal.",
         status="draft",
         period_type="monthly",
@@ -80,13 +90,13 @@ def draft(owner):
 
 
 @pytest.fixture
-def approved_draft(owner):
+def approved_draft(owner, _monthly_body_html):
     return EmailDraft.objects.create(
         product="monthly_owner_notes",
         owner=owner,
         recipient_email="alice@example.com",
         subject="Your May 2026 Owner Update",
-        body_html="<p>Hello Alice</p>",
+        body_html=_monthly_body_html,
         generated_note="This month we processed 1 lease renewal.",
         status="approved",
         period_type="monthly",
@@ -263,10 +273,12 @@ class TestUpdateNote:
 
         draft.refresh_from_db()
         assert draft.generated_note == new_text
-        # body_html was re-rendered from the wrapper template
-        assert "Updated: This month we did great things." in draft.body_html
-        assert "Hi Alice" in draft.body_html
-        assert "Owner Update" in draft.body_html
+        # body_html is now JSON with financials_html + notes_html fragments
+        import json as _json
+        fragments = _json.loads(draft.body_html)
+        assert "financials_html" in fragments
+        assert "notes_html" in fragments
+        assert "Updated: This month we did great things." in fragments["notes_html"]
 
 
 # ---------------------------------------------------------------------------

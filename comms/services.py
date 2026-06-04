@@ -507,6 +507,224 @@ def _build_generated_note(ai_result, data, product_name):
     return "\n\n".join(parts)
 
 
+def _fmt_money(value):
+    """Format a numeric value as $X,XXX.XX."""
+    try:
+        return f"${float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "$0.00"
+
+
+def _render_financials_html(context):
+    """
+    Render the financials_html fragment for the SendGrid dynamic template.
+
+    One styled block per portfolio with a financial summary table.
+    Uses inline CSS matching the Vesta brand.
+    """
+    from django.utils.html import escape
+
+    sections = context.get("portfolio_sections", [])
+    if not sections:
+        return ""
+
+    parts = []
+    for section in sections:
+        name = escape(section["portfolio_name"])
+
+        parts.append(
+            f'<h2 style="margin:24px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+            f'font-size:20px; font-weight:700; color:#1E3D58; '
+            f'border-bottom:3px solid #1E3D58; padding-bottom:8px;">'
+            f'{name}</h2>'
+        )
+
+        if section.get("has_financials"):
+            stmt_period = section.get("statement_period", "")
+
+            parts.append(
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                'style="background-color:#EFF5F9; border-radius:6px; margin:8px 0 16px;">'
+                '<tr><td style="padding:16px;">'
+            )
+
+            if stmt_period:
+                parts.append(
+                    f'<p style="margin:0 0 8px; font-family:Helvetica,Arial,sans-serif; '
+                    f'font-size:12px; color:#6EA5CD; text-transform:uppercase; '
+                    f'letter-spacing:0.5px;">Statement Period: {escape(stmt_period)}</p>'
+                )
+
+            rows = [
+                ("Income", _fmt_money(section.get("total_income")), "#1E3D58", False),
+                ("Expenses", _fmt_money(section.get("total_expenses")), "#1E3D58", False),
+                ("Distribution", _fmt_money(section.get("total_distribution")), "#059669", False),
+                ("Ending Balance", _fmt_money(section.get("ending_balance")), "#1E3D58", True),
+            ]
+
+            parts.append(
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
+            )
+            for label, value, color, is_total in rows:
+                border = "border-top:1px solid #d1d5db; " if is_total else ""
+                weight = "700" if is_total else "600"
+                parts.append(
+                    f'<tr>'
+                    f'<td style="padding:4px 0; {border}'
+                    f'font-family:Helvetica,Arial,sans-serif; font-size:14px; '
+                    f'color:#555555;">{label}</td>'
+                    f'<td style="padding:4px 0; {border}'
+                    f'font-family:Helvetica,Arial,sans-serif; font-size:14px; '
+                    f'font-weight:{weight}; color:{color}; text-align:right;">'
+                    f'{value}</td>'
+                    f'</tr>'
+                )
+            parts.append('</table>')
+            parts.append('</td></tr></table>')
+        else:
+            parts.append(
+                '<p style="margin:8px 0 16px; font-family:Georgia,serif; '
+                'font-size:14px; color:#9ca3af; font-style:italic;">'
+                'No financial statement available yet.</p>'
+            )
+
+    return "\n".join(parts)
+
+
+def _render_notes_html(context):
+    """
+    Render the notes_html fragment for the SendGrid dynamic template.
+
+    AI intro + portfolio-organized maintenance and pipeline content
+    with inline CSS matching the Vesta brand.
+    """
+    from django.utils.html import escape
+
+    parts = []
+
+    # AI intro
+    ai_intro = context.get("ai_intro", "")
+    if ai_intro:
+        parts.append(
+            f'<p style="margin:0 0 16px; font-family:Georgia,serif; '
+            f'font-size:15px; line-height:1.6; color:#555555;">'
+            f'{escape(ai_intro)}</p>'
+        )
+
+    sections = context.get("portfolio_sections", [])
+    for section in sections:
+        name = escape(section["portfolio_name"])
+
+        parts.append(
+            f'<h2 style="margin:24px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+            f'font-size:20px; font-weight:700; color:#1E3D58; '
+            f'border-bottom:3px solid #1E3D58; padding-bottom:8px;">'
+            f'{name}</h2>'
+        )
+
+        # Maintenance summary badge
+        maint = section.get("maintenance", {})
+        if maint.get("has_data"):
+            parts.append(
+                f'<div style="margin:8px 0 12px; padding:8px 12px; '
+                f'background-color:#fef3c7; border-radius:6px; text-align:center;">'
+                f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
+                f'font-size:13px; color:#92400e;">'
+                f'Maintenance: {maint.get("open_count", 0)} open &bull; '
+                f'{maint.get("closed_count", 0)} closed &bull; '
+                f'{maint.get("canceled_count", 0)} canceled'
+                f'</p></div>'
+            )
+
+        # Pipeline categories
+        categories = section.get("categories", [])
+        for category in categories:
+            label = escape(category["label"])
+            count = category["count"]
+
+            parts.append(
+                f'<h3 style="margin:16px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+                f'font-size:16px; font-weight:600; color:#1E3D58; '
+                f'border-bottom:2px solid #6EA5CD; padding-bottom:6px;">'
+                f'{label} ({count})</h3>'
+            )
+
+            for process in category.get("processes", []):
+                addr_parts = []
+                if process.get("address"):
+                    addr_parts.append(escape(str(process["address"])))
+                if process.get("unit_number"):
+                    addr_parts.append(f"Unit {escape(str(process['unit_number']))}")
+
+                parts.append(
+                    '<div style="margin:4px 0 8px; padding:12px 16px; '
+                    'background-color:#fafafa; border-radius:6px; '
+                    'border-left:4px solid #6EA5CD;">'
+                )
+
+                if addr_parts:
+                    parts.append(
+                        f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
+                        f'font-size:12px; color:#888888;">'
+                        f'{" &bull; ".join(addr_parts)}</p>'
+                    )
+
+                proc_name = escape(str(process.get("name", "")))
+                parts.append(
+                    f'<p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; '
+                    f'font-size:15px; font-weight:600; color:#1E3D58;">'
+                    f'{proc_name}</p>'
+                )
+
+                if process.get("stage_name"):
+                    stage = escape(str(process["stage_name"]))
+                    parts.append(
+                        f'<p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; '
+                        f'font-size:12px; color:#6EA5CD;">Stage: {stage}</p>'
+                    )
+
+                if process.get("ai_summary"):
+                    summary = escape(str(process["ai_summary"]))
+                    parts.append(
+                        f'<p style="margin:8px 0 0; font-family:Georgia,serif; '
+                        f'font-size:14px; line-height:1.4; color:#555555;">'
+                        f'{summary}</p>'
+                    )
+
+                parts.append('</div>')
+
+        # No activity fallback
+        if not maint.get("has_data") and not categories:
+            parts.append(
+                '<p style="margin:8px 0 16px; font-family:Georgia,serif; '
+                'font-size:14px; color:#9ca3af; font-style:italic;">'
+                'No operational activity to report for this portfolio.</p>'
+            )
+
+    return "\n".join(parts)
+
+
+def _render_notes_html_from_text(text):
+    """
+    Render plain-text generated_note as inline-styled HTML for the notes_html
+    fragment. Used when an admin edits the note text in the dashboard.
+    """
+    from django.utils.html import escape
+
+    if not text or not text.strip():
+        return ""
+
+    paragraphs = text.strip().split("\n\n")
+    parts = []
+    for p in paragraphs:
+        escaped = escape(p).replace("\n", "<br>")
+        parts.append(
+            f'<p style="margin:0 0 12px; font-family:Georgia,serif; '
+            f'font-size:15px; line-height:1.6; color:#555555;">{escaped}</p>'
+        )
+    return "\n".join(parts)
+
+
 def _get_latest_statement(portfolio):
     """
     Fetch the latest posted PortfolioStatement for a portfolio.
@@ -742,7 +960,6 @@ def generate_monthly_notes(
     """
     product_name = "monthly_owner_notes"
     period_type = "monthly"
-    template_name = "comms/emails/monthly_owner_notes.html"
     subject_template = PRODUCTS[product_name]["subject_template"]
 
     voice_guide = _get_or_create_voice_guide(product_name)
@@ -884,12 +1101,17 @@ def generate_monthly_notes(
             )
             ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
 
-            # Render template
+            # Render HTML fragments for SendGrid dynamic template
             period_label = _format_period_label(
                 period_type, period_start, period_end
             )
             context = _build_monthly_context(data, ai_result, period_label)
-            body_html = render_to_string(template_name, context)
+            financials_html = _render_financials_html(context)
+            notes_html = _render_notes_html(context)
+            body_html = json.dumps({
+                "financials_html": financials_html,
+                "notes_html": notes_html,
+            })
 
             subject = subject_template.format(period_label=period_label)
 
@@ -998,18 +1220,50 @@ def send_draft(
         mode = "live"
 
     # 4. Send via SendGrid
-    message = Mail(
-        from_email=settings.COMMS_FROM_EMAIL,
-        to_emails=recipient,
-        subject=draft.subject,
-        html_content=draft.body_html,
-    )
+    if draft.product == "monthly_owner_notes":
+        # SendGrid dynamic template — inject HTML fragments
+        template_id = getattr(
+            settings, "COMMS_SENDGRID_MONTHLY_TEMPLATE_ID", ""
+        )
+        try:
+            fragments = json.loads(draft.body_html)
+            financials_html = fragments.get("financials_html", "")
+            notes_html = fragments.get("notes_html", "")
+        except (json.JSONDecodeError, TypeError):
+            raise ValueError(
+                f"Draft {draft.pk} has legacy HTML body and must be "
+                f"regenerated before sending."
+            )
 
-    # CC accounting for monthly_owner_notes
-    if draft.product == "monthly_owner_notes" and not sandbox:
-        cc_email = getattr(settings, "COMMS_CC_EMAIL", "")
-        if cc_email:
-            message.add_cc(Cc(cc_email))
+        owner_name = draft.owner.first_name or (
+            draft.owner.name or "Owner"
+        ).split()[0]
+
+        message = Mail(
+            from_email=settings.COMMS_FROM_EMAIL,
+            to_emails=recipient,
+            subject=draft.subject,
+        )
+        message.template_id = template_id
+        message.dynamic_template_data = {
+            "owner_name": owner_name,
+            "financials_html": financials_html,
+            "notes_html": notes_html,
+        }
+
+        # CC accounting
+        if not sandbox:
+            cc_email = getattr(settings, "COMMS_CC_EMAIL", "")
+            if cc_email:
+                message.add_cc(Cc(cc_email))
+    else:
+        # Standard HTML send (maintenance, etc.)
+        message = Mail(
+            from_email=settings.COMMS_FROM_EMAIL,
+            to_emails=recipient,
+            subject=draft.subject,
+            html_content=draft.body_html,
+        )
 
     if sandbox:
         message.mail_settings = MailSettings(sandbox_mode=SandBoxMode(True))

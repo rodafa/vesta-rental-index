@@ -151,3 +151,7 @@ COMMS_FROM_EMAIL = os.environ.get(
     "Vesta Property Management <support@vestapm.com>",
 )
 COMMS_CC_EMAIL = os.environ.get("COMMS_CC_EMAIL", "accounting@vestapm.com")
+COMMS_SENDGRID_MONTHLY_TEMPLATE_ID = os.environ.get(
+    "COMMS_SENDGRID_MONTHLY_TEMPLATE_ID",
+    "d-3083295c8c354ccfb8365e9cec9760ae",
+)

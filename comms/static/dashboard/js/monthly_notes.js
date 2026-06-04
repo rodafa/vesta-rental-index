@@ -43,6 +43,14 @@ document.addEventListener('DOMContentLoaded', function () {
   var finDistribution   = document.getElementById('fin-distribution');
   var finEnding         = document.getElementById('fin-ending');
 
+  // HTML fragment preview panels
+  var financialsPreviewSection = document.getElementById('financials-preview-section');
+  var financialsPreview        = document.getElementById('financials-preview');
+  var financialsPreviewToggle  = document.getElementById('financials-preview-toggle');
+  var notesPreviewSection      = document.getElementById('notes-preview-section');
+  var notesPreview             = document.getElementById('notes-preview');
+  var notesPreviewToggle       = document.getElementById('notes-preview-toggle');
+
   // ── Helpers ────────────────────────────────────────────────────────────────
   function isEditing() {
     var a = document.activeElement;
@@ -249,6 +257,20 @@ document.addEventListener('DOMContentLoaded', function () {
       noteFinancials.style.display = 'block';
     } else {
       noteFinancials.style.display = 'none';
+    }
+
+    // HTML fragment previews (from SendGrid dynamic template fragments)
+    if (note.financials_html) {
+      financialsPreview.innerHTML = note.financials_html;
+      financialsPreviewSection.style.display = 'block';
+    } else {
+      financialsPreviewSection.style.display = 'none';
+    }
+    if (note.notes_html) {
+      notesPreview.innerHTML = note.notes_html;
+      notesPreviewSection.style.display = 'block';
+    } else {
+      notesPreviewSection.style.display = 'none';
     }
 
     var isEditable = (note.status === 'pending' || note.status === 'approved' || note.status === 'success');
@@ -617,6 +639,32 @@ document.addEventListener('DOMContentLoaded', function () {
     _dirty = true;
     updateWordCount();
   });
+
+  // Toggle preview panel visibility
+  if (financialsPreviewToggle) {
+    financialsPreviewToggle.addEventListener('click', function () {
+      var box = financialsPreview;
+      if (box.style.display === 'none') {
+        box.style.display = 'block';
+        financialsPreviewToggle.innerHTML = '&#9660; Financials preview (as sent)';
+      } else {
+        box.style.display = 'none';
+        financialsPreviewToggle.innerHTML = '&#9654; Financials preview (as sent)';
+      }
+    });
+  }
+  if (notesPreviewToggle) {
+    notesPreviewToggle.addEventListener('click', function () {
+      var box = notesPreview;
+      if (box.style.display === 'none') {
+        box.style.display = 'block';
+        notesPreviewToggle.innerHTML = '&#9660; Notes preview (as sent)';
+      } else {
+        box.style.display = 'none';
+        notesPreviewToggle.innerHTML = '&#9654; Notes preview (as sent)';
+      }
+    });
+  }
 
   // Changing start date resets the panel and reloads the note list
   startDateInput.addEventListener('change', function () {

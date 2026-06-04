@@ -89,6 +89,12 @@
     .mn-financials .fin-label { color: #6b7280; }
     .mn-financials .fin-value { text-align: right; font-weight: 500; color: #1f2937; }
 
+    /* HTML preview panels */
+    .mn-preview-section { padding: 0 24px 12px; }
+    .mn-preview-toggle { font-size: 11px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 6px; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px; }
+    .mn-preview-toggle:hover { color: #374151; }
+    .mn-preview-box { border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; max-height: 300px; overflow-y: auto; background: #fafafa; font-size: 13px; }
+
     .mn-detail-footer { padding: 12px 24px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; align-items: center; }
 
     /* Toast */
@@ -171,6 +177,18 @@
             <tr><td class="fin-label">Distribution</td><td class="fin-value" id="fin-distribution"></td></tr>
             <tr><td class="fin-label">Ending Balance</td><td class="fin-value" id="fin-ending"></td></tr>
           </table>
+        </div>
+
+        <!-- Financials HTML preview (as sent) -->
+        <div class="mn-preview-section" id="financials-preview-section" style="display:none;">
+          <p class="mn-preview-toggle" id="financials-preview-toggle">&#9660; Financials preview (as sent)</p>
+          <div class="mn-preview-box" id="financials-preview"></div>
+        </div>
+
+        <!-- Notes HTML preview (as sent) -->
+        <div class="mn-preview-section" id="notes-preview-section" style="display:none;">
+          <p class="mn-preview-toggle" id="notes-preview-toggle">&#9660; Notes preview (as sent)</p>
+          <div class="mn-preview-box" id="notes-preview"></div>
         </div>
 
         <div class="mn-detail-body">
