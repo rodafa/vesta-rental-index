@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 PRODUCT = "monthly_owner_notes"
 
+# In-process guard for the portfolio statement sync background task.
+_sync_lock = threading.Lock()
+_sync_running = False
+
 
 def _require_access(request):
     """Check login and role access. Returns JsonResponse on failure, None on success."""
@@ -351,6 +355,37 @@ def approve_all(request):
     ).update(status="approved")
 
     return JsonResponse({"approved": count})
+
+
+@require_POST
+def sync_statements(request):
+    """POST /api/reports/sync-statements — trigger background statement sync."""
+    global _sync_running
+
+    err = _require_access(request)
+    if err:
+        return err
+
+    with _sync_lock:
+        if _sync_running:
+            return JsonResponse({"status": "already_running"})
+        _sync_running = True
+
+    def _run():
+        global _sync_running
+        try:
+            from integrations.rentvine.services import PortfolioStatementSyncService
+
+            PortfolioStatementSyncService().sync()
+        except Exception:
+            logger.exception("sync_statements_background_error")
+        finally:
+            _sync_running = False
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return JsonResponse({"status": "started"}, status=202)
 
 
 @require_POST

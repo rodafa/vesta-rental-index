@@ -12,5 +12,6 @@ urlpatterns = [
     path("api/reports/owner-notes", comms_api.list_notes, name="notes-list"),
     # Sub-endpoints with trailing slash from the include
     path("api/reports/owner-notes/", include("comms.api_urls")),
+    path("api/reports/sync-statements", comms_api.sync_statements, name="sync-statements"),
     path("dashboard/monthly-notes/", monthly_notes_page, name="monthly-notes"),
 ]

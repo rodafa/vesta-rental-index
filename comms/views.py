@@ -10,4 +10,9 @@ def monthly_notes_page(request):
     """Serve the Monthly Portfolio Notes dashboard page."""
     if not request.user.can_access("monthly_owner_notes"):
         return HttpResponseForbidden("Access denied.")
-    return render(request, "comms/dashboard/monthly_notes.html")
+
+    from accounting.models import PortfolioStatement
+
+    return render(request, "comms/dashboard/monthly_notes.html", {
+        "statement_count": PortfolioStatement.objects.count(),
+    })

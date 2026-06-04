@@ -591,6 +591,28 @@ document.addEventListener('DOMContentLoaded', function () {
   sendAllBtn.addEventListener('click', sendAllApproved);
   deleteAllBtn.addEventListener('click', deleteAllNotes);
 
+  // ── Run Sync (portfolio statements) ────────────────────────────────────
+  var syncBtn = document.getElementById('sync-btn');
+  syncBtn.addEventListener('click', function () {
+    syncBtn.disabled = true;
+    setStatus('running', 'Starting statement sync\u2026');
+
+    VestaAPI.post('/reports/sync-statements', {}).then(function (resp) {
+      syncBtn.disabled = false;
+      if (resp.status === 'started') {
+        setStatus('done', 'Sync started \u2014 takes about a minute. Refresh to see updated financials.');
+        VestaAPI.toast('Sync started \u2014 takes about a minute. Refresh to see updated financials.', 'success');
+      } else if (resp.status === 'already_running') {
+        setStatus('warn', 'A sync is already running. Wait for it to finish.');
+        VestaAPI.toast('Sync already running.', 'warn');
+      }
+    }).catch(function () {
+      syncBtn.disabled = false;
+      setStatus('error', 'Sync request failed.');
+      VestaAPI.toast('Sync request failed.', 'error');
+    });
+  });
+
   noteTextarea.addEventListener('input', function () {
     _dirty = true;
     updateWordCount();
