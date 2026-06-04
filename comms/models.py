@@ -44,6 +44,7 @@ class EmailDraft(models.Model):
     )
     recipient_email = models.CharField(
         max_length=254,
+        blank=True,
         db_index=True,
         default="",
         help_text="Normalized (lowered, stripped) email address of the intended recipient.",
@@ -79,8 +80,13 @@ class EmailDraft(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["product", "recipient_email", "period_type", "period_start"],
-                name="unique_draft_per_email_per_period",
+                fields=["product", "owner", "period_type", "period_start"],
+                name="unique_draft_per_owner_per_period",
+            ),
+            models.UniqueConstraint(
+                fields=["recipient_email", "period_type", "period_start"],
+                condition=models.Q(product="monthly_owner_notes") & ~models.Q(recipient_email=""),
+                name="unique_monthly_note_per_email_per_period",
             ),
         ]
 

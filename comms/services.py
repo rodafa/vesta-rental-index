@@ -650,13 +650,13 @@ def generate_drafts(
                 generated += 1
                 continue
 
-            # Normalize recipient email
+            # Normalize recipient email for the field, but key on owner
             norm_email = (owner.email or "").strip().lower()
 
-            # Skip if a draft for this email/period was already sent or approved
+            # Skip if a draft for this owner/period was already sent or approved
             existing = EmailDraft.objects.filter(
                 product=product_name,
-                recipient_email=norm_email,
+                owner=owner,
                 period_type=period_type,
                 period_start=period_start,
             ).first()
@@ -674,11 +674,11 @@ def generate_drafts(
 
             EmailDraft.objects.update_or_create(
                 product=product_name,
-                recipient_email=norm_email,
+                owner=owner,
                 period_type=period_type,
                 period_start=period_start,
                 defaults={
-                    "owner": owner,
+                    "recipient_email": norm_email,
                     "subject": subject,
                     "body_html": body_html,
                     "generated_note": generated_note,
