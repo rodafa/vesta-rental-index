@@ -10,6 +10,7 @@ safety modes (sandbox / test-email / live), and structured logging.
 
 import json
 import logging
+import threading
 from importlib import import_module
 
 import anthropic
@@ -19,7 +20,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from sendgrid.helpers.mail import Cc, Mail, SandBoxMode, MailSettings
 
-from .models import EmailDraft, VoiceGuide
+from .models import EmailDraft, PortfolioMonthlyNote, VoiceGuide
 from .registry import PRODUCTS
 
 logger = logging.getLogger(__name__)
@@ -328,6 +329,77 @@ def _build_monthly_prompt_portfolio(portfolio_sections, owner_name, period_start
         "Write:\n"
         "1. A brief intro (2-3 sentences summarizing the month's activity "
         "across all portfolios)\n"
+        "2. For each process identified by its [ID], a concise 1-2 sentence "
+        "summary. Do NOT include the ID in the summary text.\n\n"
+        'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
+    )
+
+    return "\n".join(parts)
+
+
+def _build_single_portfolio_prompt(section, period_start):
+    """
+    Build an OWNER-AGNOSTIC AI prompt for a single portfolio's monthly note.
+
+    The note covers only this portfolio's operations — no owner name, no
+    cross-portfolio references, no "your other properties." Output is a
+    self-contained fragment headed by the portfolio name, so concatenating
+    several reads cleanly.
+    """
+    parts = [
+        f"Write a monthly operational summary for the portfolio "
+        f'"{section["portfolio_name"]}".',
+        f"Period: {period_start.strftime('%B %Y')}.",
+        "",
+        "IMPORTANT RULES:",
+        "- Do NOT address or greet any owner by name.",
+        '- Do NOT reference "your other properties" or any other portfolio.',
+        "- Write a self-contained update for THIS portfolio only.",
+        "- Use first person plural (\"We\", \"Our team\").",
+        "",
+    ]
+
+    # Financial summary
+    fin = section.get("financials", {})
+    if fin:
+        parts.append(
+            f"Financials ({fin.get('period_start')} to {fin.get('period_end')}):"
+        )
+        parts.append(f"  Income: ${fin.get('total_income', 0)}")
+        parts.append(f"  Expenses: ${fin.get('total_expenses', 0)}")
+        parts.append(f"  Distribution: ${fin.get('total_distribution', 0)}")
+        parts.append(f"  Ending Balance: ${fin.get('ending_balance', 0)}")
+    else:
+        parts.append("Financials: No statement available yet.")
+
+    # Maintenance summary
+    maint = section.get("maintenance", {})
+    if maint.get("_has_data"):
+        parts.append(
+            f"Maintenance: {maint['open_count']} open, "
+            f"{maint['closed_count']} closed, "
+            f"{maint['canceled_count']} canceled"
+        )
+    else:
+        parts.append("Maintenance: No activity this period.")
+
+    # Pipeline activity
+    pipeline = section.get("pipeline", {})
+    by_category = pipeline.get("processes_by_category", {})
+    if by_category:
+        for cat_key, procs in by_category.items():
+            label = CATEGORY_LABELS.get(cat_key, cat_key.replace("_", " ").title())
+            payload = _build_process_payload(procs, label)
+            if payload:
+                parts.append(payload)
+    else:
+        parts.append("Pipeline: No processes to report.")
+
+    parts.append("")
+    parts.append(
+        "Write:\n"
+        "1. A brief intro (2-3 sentences summarizing the month's activity "
+        "for this portfolio)\n"
         "2. For each process identified by its [ID], a concise 1-2 sentence "
         "summary. Do NOT include the ID in the summary text.\n\n"
         'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
@@ -1170,6 +1242,475 @@ def generate_monthly_notes(
         "errors": len(errors),
         "error_details": errors[:20],
     }
+
+
+# ---------------------------------------------------------------------------
+# Portfolio-grain generation (Layer 1)
+# ---------------------------------------------------------------------------
+
+# In-process guard — prevents concurrent generate_portfolio_notes() runs.
+_portfolio_gen_lock = threading.Lock()
+_portfolio_gen_running = False
+
+
+def _build_single_portfolio_context(section, ai_result, period_label):
+    """
+    Build template context for a SINGLE portfolio's note rendering.
+
+    Wraps the section in a single-element portfolio_sections list so the
+    existing _render_financials_html / _render_notes_html can be reused.
+    """
+    summaries = ai_result.get("process_summaries", {})
+
+    fin = section.get("financials", {})
+    stmt_period = ""
+    if fin.get("period_start") and fin.get("period_end"):
+        stmt_period = (
+            f"{fin['period_start'].strftime('%b %d')} – "
+            f"{fin['period_end'].strftime('%b %d, %Y')}"
+        )
+
+    maint = section.get("maintenance", {})
+
+    pipeline = section.get("pipeline", {})
+    by_category = pipeline.get("processes_by_category", {})
+    categories = []
+    for cat_key, procs in by_category.items():
+        label = CATEGORY_LABELS.get(cat_key, cat_key.replace("_", " ").title())
+        for proc in procs:
+            pid = str(proc.get("process_id", ""))
+            proc["ai_summary"] = summaries.get(pid, "")
+        categories.append({
+            "key": cat_key,
+            "label": label,
+            "processes": procs,
+            "count": len(procs),
+        })
+
+    template_maint = {
+        "has_data": maint.get("_has_data", False),
+        "open_count": maint.get("open_count", 0),
+        "closed_count": maint.get("closed_count", 0),
+        "canceled_count": maint.get("canceled_count", 0),
+    }
+
+    template_section = {
+        "portfolio_name": section["portfolio_name"],
+        "has_financials": bool(fin),
+        "statement_period": stmt_period,
+        "total_income": fin.get("total_income"),
+        "total_expenses": fin.get("total_expenses"),
+        "total_distribution": fin.get("total_distribution"),
+        "ending_balance": fin.get("ending_balance"),
+        "maintenance": template_maint,
+        "categories": categories,
+    }
+
+    return {
+        "ai_intro": ai_result.get("intro", ""),
+        "portfolio_sections": [template_section],
+    }
+
+
+def _build_single_portfolio_generated_note(ai_result, section):
+    """
+    Build plain-text generated_note for a single portfolio.
+
+    Intro + process summaries grouped by category.
+    """
+    parts = []
+    intro = ai_result.get("intro", "")
+    if intro:
+        parts.append(intro)
+
+    summaries = ai_result.get("process_summaries", {})
+    pipeline = section.get("pipeline", {})
+    by_category = pipeline.get("processes_by_category", {})
+    for cat_key, procs in by_category.items():
+        label = CATEGORY_LABELS.get(cat_key, cat_key.replace("_", " ").title())
+        cat_lines = []
+        for proc in procs:
+            pid = str(proc.get("process_id", ""))
+            summary = summaries.get(pid, "")
+            if summary:
+                cat_lines.append(summary)
+        if cat_lines:
+            parts.append(f"{label}:\n" + "\n".join(f"- {s}" for s in cat_lines))
+
+    return "\n\n".join(parts)
+
+
+def generate_portfolio_notes(portfolio_queryset, period_start, period_end, dry_run=False):
+    """
+    Generate portfolio-grain monthly notes (Layer 1: PortfolioMonthlyNote).
+
+    One Anthropic call per portfolio. Owner-agnostic — no owner name, no
+    cross-portfolio references. The note is reused across every owner who
+    shares the portfolio.
+
+    Wipe-and-regenerate at portfolio grain: deletes DRAFT-status rows for the
+    period, preserves APPROVED rows.
+
+    Returns dict: {generated, skipped, errors, error_details}.
+    """
+    global _portfolio_gen_running
+
+    product_name = "monthly_owner_notes"
+    period_type = "monthly"
+    voice_guide = _get_or_create_voice_guide(product_name)
+
+    # Log any existing approved rows that will be preserved
+    existing_approved = PortfolioMonthlyNote.objects.filter(
+        period_type=period_type,
+        period_start=period_start,
+        status="approved",
+    )
+    if existing_approved.exists():
+        logger.warning(
+            "comms_portfolio_gen_approved_exist",
+            extra={
+                "count": existing_approved.count(),
+                "period_start": str(period_start),
+            },
+        )
+
+    if not dry_run:
+        deleted_count = PortfolioMonthlyNote.objects.filter(
+            period_type=period_type,
+            period_start=period_start,
+            status="draft",
+        ).delete()[0]
+        if deleted_count:
+            logger.info(
+                "comms_portfolio_notes_cleared",
+                extra={"deleted": deleted_count, "period_start": str(period_start)},
+            )
+
+    generated = 0
+    skipped = 0
+    errors = []
+
+    for portfolio in portfolio_queryset:
+        try:
+            # Skip if an approved row already exists
+            existing = PortfolioMonthlyNote.objects.filter(
+                portfolio=portfolio,
+                period_type=period_type,
+                period_start=period_start,
+                status="approved",
+            ).first()
+            if existing:
+                logger.info(
+                    "comms_portfolio_note_locked",
+                    extra={
+                        "portfolio": portfolio.name,
+                        "note_id": existing.pk,
+                        "status": existing.status,
+                    },
+                )
+                skipped += 1
+                continue
+
+            # Build portfolio section data
+            section = build_portfolio_section(portfolio, period_start, period_end)
+
+            # Check if this portfolio has any data worth reporting
+            has_data = bool(
+                section.get("financials")
+                or section.get("maintenance", {}).get("_has_data")
+                or section.get("pipeline", {}).get("_has_data")
+            )
+            if not has_data:
+                logger.info(
+                    "comms_portfolio_note_no_activity",
+                    extra={"portfolio": portfolio.name},
+                )
+                skipped += 1
+                continue
+
+            # Owner-agnostic AI call (one per portfolio)
+            user_prompt = _build_single_portfolio_prompt(section, period_start)
+            ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
+
+            # Render HTML fragments for this single portfolio
+            period_label = _format_period_label(period_type, period_start, period_end)
+            context = _build_single_portfolio_context(section, ai_result, period_label)
+            financials_html = _render_financials_html(context)
+            notes_html = _render_notes_html(context)
+
+            # Build plain-text note
+            generated_note = _build_single_portfolio_generated_note(ai_result, section)
+
+            if dry_run:
+                logger.info(
+                    "comms_portfolio_note_dry_run",
+                    extra={
+                        "portfolio": portfolio.name,
+                        "note_length": len(generated_note),
+                    },
+                )
+                generated += 1
+                continue
+
+            PortfolioMonthlyNote.objects.update_or_create(
+                portfolio=portfolio,
+                period_type=period_type,
+                period_start=period_start,
+                defaults={
+                    "period_end": period_end,
+                    "financials_html": financials_html,
+                    "notes_html": notes_html,
+                    "generated_note": generated_note,
+                    "approved_generated_note": "",
+                    "status": "draft",
+                },
+            )
+            generated += 1
+
+            logger.info(
+                "comms_portfolio_note_generated",
+                extra={"portfolio": portfolio.name},
+            )
+
+        except Exception as exc:
+            msg = f"Error generating portfolio note for {portfolio.name}: {exc}"
+            logger.exception(msg)
+            errors.append(msg)
+
+    _portfolio_gen_running = False
+
+    return {
+        "generated": generated,
+        "skipped": skipped,
+        "errors": len(errors),
+        "error_details": errors[:20],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Owner-email assembly (Layer 2 — the SINGLE source for preview/test/send)
+# ---------------------------------------------------------------------------
+
+
+def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
+    """
+    Pure function. Assemble the content of a monthly owner email for one
+    recipient from portfolio-grain PortfolioMonthlyNote rows.
+
+    Returns dict:
+        {
+            "owner_name": str,
+            "financials_html": str,
+            "notes_html": str,
+            "portfolios": [
+                {"id": int, "name": str, "status": str}, ...
+            ],
+            "all_approved": bool,
+        }
+
+    For each portfolio, uses approved_generated_note (and re-rendered
+    notes_html) when non-blank; otherwise uses the generated content.
+
+    Orders portfolios ALPHABETICALLY by name.
+    """
+    from core.models import Owner
+
+    norm_email = _normalize_email(recipient_email)
+    if not norm_email:
+        return {
+            "owner_name": "Owner",
+            "financials_html": "",
+            "notes_html": "",
+            "portfolios": [],
+            "all_approved": False,
+        }
+
+    # Group active owners sharing this email, union their portfolios
+    owners = list(
+        Owner.objects.filter(
+            is_active=True,
+            email__iexact=norm_email,
+        ).prefetch_related("portfolios")
+    )
+    if not owners:
+        return {
+            "owner_name": "Owner",
+            "financials_html": "",
+            "notes_html": "",
+            "portfolios": [],
+            "all_approved": False,
+        }
+
+    # Representative owner (lowest PK, deterministic)
+    rep_owner = min(owners, key=lambda o: o.pk)
+    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+
+    # Union portfolios, dedupe by PK
+    portfolio_pks = set()
+    for owner in owners:
+        for pk in owner.portfolios.values_list("pk", flat=True):
+            portfolio_pks.add(pk)
+
+    if not portfolio_pks:
+        return {
+            "owner_name": owner_name,
+            "financials_html": "",
+            "notes_html": "",
+            "portfolios": [],
+            "all_approved": False,
+        }
+
+    # Fetch portfolio notes for this period, ordered alphabetically
+    from core.models import Portfolio
+
+    portfolios = Portfolio.objects.filter(pk__in=portfolio_pks).order_by("name")
+
+    financials_parts = []
+    notes_parts = []
+    portfolio_info = []
+    all_approved = True
+
+    for portfolio in portfolios:
+        note = PortfolioMonthlyNote.objects.filter(
+            portfolio=portfolio,
+            period_type=period_type,
+            period_start=period_start,
+        ).first()
+
+        if not note:
+            portfolio_info.append({
+                "id": portfolio.pk,
+                "name": portfolio.name,
+                "status": "missing",
+            })
+            all_approved = False
+            continue
+
+        portfolio_info.append({
+            "id": portfolio.pk,
+            "name": portfolio.name,
+            "status": note.status,
+        })
+
+        if note.status != "approved":
+            all_approved = False
+
+        # Use approved content if available, otherwise generated
+        if note.approved_generated_note:
+            notes_html = _render_notes_html_from_text(note.approved_generated_note)
+        else:
+            notes_html = note.notes_html
+
+        financials_parts.append(note.financials_html)
+        notes_parts.append(notes_html)
+
+    return {
+        "owner_name": owner_name,
+        "financials_html": "\n".join(p for p in financials_parts if p),
+        "notes_html": "\n".join(p for p in notes_parts if p),
+        "portfolios": portfolio_info,
+        "all_approved": all_approved,
+    }
+
+
+def get_recipients_for_period(period_start, period_type="monthly"):
+    """
+    List all distinct recipient emails for a given period, with readiness info.
+
+    Returns list of dicts:
+        [{
+            "recipient_email": str,
+            "owner_name": str,
+            "owner_names": [str, ...],
+            "portfolio_count": int,
+            "portfolios": [{"id": int, "name": str, "status": str}, ...],
+            "all_approved": bool,
+            "is_sent": bool,
+        }, ...]
+    """
+    from core.models import Owner
+
+    # Get all active owners with non-blank email
+    owners = Owner.objects.filter(
+        is_active=True,
+    ).exclude(
+        email=""
+    ).exclude(
+        email__isnull=True
+    ).prefetch_related("portfolios")
+
+    # Group by normalized email
+    email_groups = {}
+    for owner in owners:
+        email = _normalize_email(owner.email)
+        if not email:
+            continue
+        email_groups.setdefault(email, []).append(owner)
+
+    recipients = []
+    for norm_email, group_owners in sorted(email_groups.items()):
+        # Union portfolios
+        portfolio_pks = set()
+        for owner in group_owners:
+            for pk in owner.portfolios.values_list("pk", flat=True):
+                portfolio_pks.add(pk)
+
+        if not portfolio_pks:
+            continue
+
+        rep_owner = min(group_owners, key=lambda o: o.pk)
+        owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+
+        # Check each portfolio's note status
+        from core.models import Portfolio
+
+        portfolios = Portfolio.objects.filter(pk__in=portfolio_pks).order_by("name")
+        portfolio_info = []
+        all_approved = True
+
+        for portfolio in portfolios:
+            note = PortfolioMonthlyNote.objects.filter(
+                portfolio=portfolio,
+                period_type=period_type,
+                period_start=period_start,
+            ).first()
+
+            if note:
+                portfolio_info.append({
+                    "id": portfolio.pk,
+                    "name": portfolio.name,
+                    "status": note.status,
+                })
+                if note.status != "approved":
+                    all_approved = False
+            else:
+                portfolio_info.append({
+                    "id": portfolio.pk,
+                    "name": portfolio.name,
+                    "status": "missing",
+                })
+                all_approved = False
+
+        # Check if already sent (EmailDraft with status=sent for this email/period)
+        is_sent = EmailDraft.objects.filter(
+            product="monthly_owner_notes",
+            recipient_email=norm_email,
+            period_type=period_type,
+            period_start=period_start,
+            status="sent",
+        ).exists()
+
+        recipients.append({
+            "recipient_email": norm_email,
+            "owner_name": owner_name,
+            "owner_names": [o.name for o in sorted(group_owners, key=lambda o: o.pk)],
+            "portfolio_count": len(portfolio_pks),
+            "portfolios": portfolio_info,
+            "all_approved": all_approved,
+            "is_sent": is_sent,
+        })
+
+    return recipients
 
 
 # ---------------------------------------------------------------------------

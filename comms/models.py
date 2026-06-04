@@ -92,3 +92,74 @@ class EmailDraft(models.Model):
 
     def __str__(self):
         return f"{self.product} draft for {self.owner} ({self.period_start})"
+
+
+class PortfolioMonthlyNote(models.Model):
+    """
+    Layer 1 — portfolio-grain authored content for monthly owner notes.
+
+    One note + financials per portfolio per period, authored and reviewed ONCE.
+    A portfolio shared by several owners is written once here.
+    Owner-grain emails are ASSEMBLED from these rows at send time.
+    """
+
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("approved", "Approved"),
+    ]
+
+    portfolio = models.ForeignKey(
+        "core.Portfolio",
+        on_delete=models.CASCADE,
+        related_name="monthly_notes",
+    )
+    period_type = models.CharField(
+        max_length=10,
+        choices=EmailDraft.PERIOD_TYPE_CHOICES,
+        default="monthly",
+        db_index=True,
+    )
+    period_start = models.DateField()
+    period_end = models.DateField()
+
+    financials_html = models.TextField(
+        blank=True,
+        default="",
+        help_text="Rendered HTML fragment for the financials section (inline-styled for SendGrid).",
+    )
+    notes_html = models.TextField(
+        blank=True,
+        default="",
+        help_text="Rendered HTML fragment for the narrative section (inline-styled for SendGrid).",
+    )
+    generated_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="AI-generated plain-text note (the raw output, before human review).",
+    )
+    approved_generated_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-reviewed/edited version of generated_note. Blank = not yet reviewed.",
+    )
+
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
+    )
+
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["portfolio", "period_type", "period_start"],
+                name="unique_portfolio_note_per_period",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["period_type", "period_start", "status"]),
+        ]
+
+    def __str__(self):
+        return f"PortfolioMonthlyNote: {self.portfolio} ({self.period_start})"
