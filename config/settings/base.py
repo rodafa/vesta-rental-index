@@ -155,3 +155,10 @@ COMMS_SENDGRID_MONTHLY_TEMPLATE_ID = os.environ.get(
     "COMMS_SENDGRID_MONTHLY_TEMPLATE_ID",
     "d-3083295c8c354ccfb8365e9cec9760ae",
 )
+
+# --- LeadSimple ---
+
+LEADSIMPLE_API_KEY = os.environ.get("LEADSIMPLE_API_KEY", "")
+LEADSIMPLE_BASE_URL = os.environ.get(
+    "LEADSIMPLE_BASE_URL", "https://api.leadsimple.com/rest"
+)
