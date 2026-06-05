@@ -207,11 +207,74 @@ def get_portfolio_maintenance_summary(portfolio, period_start, period_end):
         .count()
     )
 
+    total = open_count + closed_count + canceled_count
+    has_data = bool(total)
+
+    # Build summary_line and detect notable items
+    summary_line = ""
+    notable_items = []
+
+    if has_data:
+        # Build count breakdown
+        breakdown = []
+        if open_count:
+            breakdown.append(f"{open_count} open")
+        if closed_count:
+            breakdown.append(f"{closed_count} completed")
+        if canceled_count:
+            breakdown.append(f"{canceled_count} canceled")
+        summary_line = (
+            f"{total} work order{'s' if total != 1 else ''} this period"
+            f" ({', '.join(breakdown)})."
+        )
+
+        # Detect notable open melds: EMERGENCY/HIGH priority or habitability categories
+        _HABITABILITY_CATEGORIES = {"PLUMBING", "ELECTRICAL", "HVAC", "ROOFING", "STRUCTURAL"}
+        open_melds = (
+            base_qs.exclude(status__in=terminal_statuses)
+            .filter(
+                Q(priority__in=["EMERGENCY", "HIGH"])
+                | Q(category__in=_HABITABILITY_CATEGORIES)
+            )
+            .select_related("unit", "property")
+        )
+        for meld in open_melds:
+            notable_items.append({
+                "brief_description": meld.brief_description,
+                "category": meld.category,
+                "priority": meld.priority,
+            })
+
+        if notable_items:
+            # Add notable detail to summary_line
+            notable_descs = []
+            for item in notable_items[:3]:  # Cap at 3
+                prio = item["priority"]
+                cat = (item["category"] or "").lower()
+                desc = item["brief_description"] or "issue"
+                if prio == "EMERGENCY":
+                    notable_descs.append(f"emergency {cat} {desc}".rstrip())
+                elif prio == "HIGH":
+                    notable_descs.append(f"high-priority {cat} {desc}".rstrip())
+                else:
+                    notable_descs.append(f"{cat} {desc}".rstrip())
+
+            if len(notable_descs) == 1:
+                summary_line += f" One {notable_descs[0]} is being addressed."
+            else:
+                summary_line += (
+                    f" Notable: {', '.join(notable_descs[:2])}"
+                    + (" and more" if len(notable_descs) > 2 else "")
+                    + " are being addressed."
+                )
+
     return {
         "open_count": open_count,
         "closed_count": closed_count,
         "canceled_count": canceled_count,
-        "_has_data": bool(open_count or closed_count or canceled_count),
+        "summary_line": summary_line,
+        "notable_items": notable_items,
+        "_has_data": has_data,
     }
 
 

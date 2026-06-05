@@ -50,34 +50,51 @@ count (e.g. "This week there are 3 open work orders and 2 were completed.")
 - Do not editorialize or add unnecessary reassurance\
 """,
     "monthly_owner_notes": """\
-You write monthly owner update emails for property investors on behalf of \
-Vesta Property Management. Each email covers one or more portfolios for the \
-reporting month, organized by portfolio section.
+You are a RENDERER, not a reporter. You receive pre-structured facts about a \
+single investment portfolio and produce a polished monthly owner update on \
+behalf of Vesta Property Management. You do NOT discover or infer information — \
+you render what you are given.
 
-Voice: Trustworthy, approachable, transparent. You are a knowledgeable property \
-manager giving a clear, factual operational update — not a salesperson. Warm \
-and direct. Every problem is paired with what is being done about it.
+Voice: Trustworthy, approachable, transparent. Warm and direct. A knowledgeable \
+property manager giving a clear, factual operational update — not a salesperson. \
+Every problem is paired with what is being done about it.
 
-Each portfolio section may contain:
-- Financial summary (income, expenses, distributions, ending balance)
-- Maintenance summary (open/closed/canceled work order counts)
-- Pipeline activity by category (Lease Renewals, Move Outs, Move Ins, \
-Rehab to Turn, Issues, Onboarding)
+Structure — choose based on unit count:
+
+SINGLE-UNIT PORTFOLIO:
+- Intro paragraph (2-3 sentences summarizing the month)
+- Category-grouped bullets (Leasing & Occupancy / Property & Turns / \
+Collections / Issues). Omit empty categories entirely.
+- Maintenance line (from summary_line, if provided)
+
+MULTI-UNIT PORTFOLIO:
+- Intro paragraph (2-3 sentences)
+- Per-unit sections, headed by property address (add unit number when the \
+property has more than one unit). Order most-serious-first.
+- Quiet roll-up: "The portfolio's remaining N units had no leasing or \
+operational changes this month." Use "units" not "properties."
+- Portfolio-level maintenance line
+
+Input fields per process:
+- status_line: the plain-English stage framing — this is your outcome source. \
+Render it faithfully.
+- activity_band: "lightly worked" or "actively worked" — use as color, NEVER \
+expose raw task counts or work-order counts.
+- surfaced_fragments: specific "what we did" phrases — weave naturally into prose.
+- address + unit_number: refer to residents as "the resident at [address]" \
+(add unit number when the property has more than one unit).
 
 Rules:
-- Write in first person plural ("We completed the renewal", "Our team \
-coordinated the move-out")
+- Write in first person plural ("We completed", "Our team coordinated")
 - 1-2 sentences per process, never more
-- State facts: what happened or is happening, current stage, next step
-- For open items: present tense, mention current stage and what comes next
-- For completed items: past tense, mention completion
-- Group by category with a brief category heading
-- The intro paragraph should be 2-3 sentences summarizing the month's \
-activity across all portfolios
+- State facts: what happened or is happening, current status, next step
+- NEVER expose numeric task counts, work-order counts, or dollar figures
+- NEVER reference internal system names, ticket IDs, pipeline references, \
+or process IDs
+- NEVER address or greet the owner by name
+- NEVER reference "your other properties" or any other portfolio
 - All dates in plain English format (e.g. "May 15, 2026") — never ISO format
-- Do not mention internal system names, ticket IDs, or pipeline references
-- Do not editorialize or add unnecessary reassurance
-- No jargon, no filler, no speculation\
+- No jargon, no filler, no speculation, no editorializing\
 """,
 }
 
@@ -217,6 +234,10 @@ CATEGORY_LABELS = {
     "rehab_to_turn": "Rehab to Turn",
     "issues": "Issues",
     "onboarding": "Onboarding",
+    "late_rent": "Late Rent",
+    "offboarding": "Offboarding",
+    "marketing": "Property Marketing",
+    "application": "Applications",
 }
 
 
@@ -287,18 +308,7 @@ def _build_monthly_prompt_portfolio(portfolio_sections, owner_name, period_start
     for section in portfolio_sections:
         parts.append(f"=== Portfolio: {section['portfolio_name']} ===")
 
-        # Financial summary
-        fin = section.get("financials", {})
-        if fin:
-            parts.append(
-                f"Financials ({fin.get('period_start')} to {fin.get('period_end')}):"
-            )
-            parts.append(f"  Income: ${fin.get('total_income', 0)}")
-            parts.append(f"  Expenses: ${fin.get('total_expenses', 0)}")
-            parts.append(f"  Distribution: ${fin.get('total_distribution', 0)}")
-            parts.append(f"  Ending Balance: ${fin.get('ending_balance', 0)}")
-        else:
-            parts.append("Financials: No statement available yet.")
+        # Financials are rendered separately — NOT passed to the AI prompt.
 
         # Maintenance summary
         maint = section.get("maintenance", {})
@@ -345,53 +355,70 @@ def _build_single_portfolio_prompt(section, period_start):
     cross-portfolio references, no "your other properties." Output is a
     self-contained fragment headed by the portfolio name, so concatenating
     several reads cleanly.
+
+    Passes structured facts per process: status_line, activity_band,
+    surfaced_fragments, address, unit_number.
     """
+    unit_count = section.get("unit_count", 1)
+    structure = "MULTI-UNIT" if unit_count > 1 else "SINGLE-UNIT"
+
     parts = [
-        f"Write a monthly operational summary for the portfolio "
-        f'"{section["portfolio_name"]}".',
+        f"Render a monthly operational summary for the portfolio "
+        f'"{section["portfolio_name"]}" ({structure}, {unit_count} unit{"s" if unit_count != 1 else ""}).',
         f"Period: {period_start.strftime('%B %Y')}.",
         "",
         "IMPORTANT RULES:",
         "- Do NOT address or greet any owner by name.",
         '- Do NOT reference "your other properties" or any other portfolio.',
         "- Write a self-contained update for THIS portfolio only.",
-        "- Use first person plural (\"We\", \"Our team\").",
+        '- Use first person plural ("We", "Our team").',
+        "- NEVER expose numeric task counts or work-order counts.",
+        "- NEVER include dollar figures.",
         "",
     ]
 
-    # Financial summary
-    fin = section.get("financials", {})
-    if fin:
-        parts.append(
-            f"Financials ({fin.get('period_start')} to {fin.get('period_end')}):"
-        )
-        parts.append(f"  Income: ${fin.get('total_income', 0)}")
-        parts.append(f"  Expenses: ${fin.get('total_expenses', 0)}")
-        parts.append(f"  Distribution: ${fin.get('total_distribution', 0)}")
-        parts.append(f"  Ending Balance: ${fin.get('ending_balance', 0)}")
-    else:
-        parts.append("Financials: No statement available yet.")
+    # Financials are rendered separately — NOT passed to the AI prompt.
 
     # Maintenance summary
     maint = section.get("maintenance", {})
-    if maint.get("_has_data"):
-        parts.append(
-            f"Maintenance: {maint['open_count']} open, "
-            f"{maint['closed_count']} closed, "
-            f"{maint['canceled_count']} canceled"
-        )
+    summary_line = maint.get("summary_line", "")
+    if summary_line:
+        parts.append(f"Maintenance: {summary_line}")
+    elif maint.get("_has_data"):
+        parts.append("Maintenance: Some work orders this period.")
     else:
         parts.append("Maintenance: No activity this period.")
 
-    # Pipeline activity
+    # Pipeline activity — structured facts
     pipeline = section.get("pipeline", {})
     by_category = pipeline.get("processes_by_category", {})
     if by_category:
+        parts.append("")
+        parts.append("=== Process Facts ===")
         for cat_key, procs in by_category.items():
             label = CATEGORY_LABELS.get(cat_key, cat_key.replace("_", " ").title())
-            payload = _build_process_payload(procs, label)
-            if payload:
-                parts.append(payload)
+            parts.append(f"\n--- {label} ---")
+            for p in procs:
+                proc_id = p.get("process_id", "")
+                address = p.get("address", "")
+                unit_num = p.get("unit_number", "")
+                status_line = p.get("status_line", "")
+                activity_band = p.get("activity_band", "")
+                fragments = p.get("surfaced_fragments", [])
+
+                loc = address
+                if unit_num:
+                    loc = f"{address}, Unit {unit_num}"
+
+                fact_parts = [f"[{proc_id}] {loc}"]
+                if status_line:
+                    fact_parts.append(f"  Status: {status_line}")
+                if activity_band:
+                    fact_parts.append(f"  Activity: {activity_band}")
+                if fragments:
+                    fact_parts.append(f"  Details: {'; '.join(fragments)}")
+
+                parts.append("\n".join(fact_parts))
     else:
         parts.append("Pipeline: No processes to report.")
 
@@ -401,7 +428,9 @@ def _build_single_portfolio_prompt(section, period_start):
         "1. A brief intro (2-3 sentences summarizing the month's activity "
         "for this portfolio)\n"
         "2. For each process identified by its [ID], a concise 1-2 sentence "
-        "summary. Do NOT include the ID in the summary text.\n\n"
+        "summary. Render the status_line faithfully. Weave surfaced_fragments "
+        "naturally. Use activity_band as color but NEVER expose raw counts.\n"
+        "Do NOT include the ID in the summary text.\n\n"
         'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
     )
 
@@ -667,8 +696,11 @@ def _render_notes_html(context):
     """
     Render the notes_html fragment for the SendGrid dynamic template.
 
-    AI intro + portfolio-organized maintenance and pipeline content
-    with inline CSS matching the Vesta brand.
+    AI intro + portfolio-organized content with unit-grain structure:
+    - Single unit: category-grouped bullets + maintenance line
+    - Multi-unit: per-unit sections + quiet roll-up + maintenance line
+
+    Inline CSS matching the Vesta brand.
     """
     from django.utils.html import escape
 
@@ -686,6 +718,8 @@ def _render_notes_html(context):
     sections = context.get("portfolio_sections", [])
     for section in sections:
         name = escape(section["portfolio_name"])
+        unit_count = section.get("unit_count", 1)
+        is_multi_unit = unit_count > 1
 
         parts.append(
             f'<h2 style="margin:24px 0 8px; font-family:Helvetica,Arial,sans-serif; '
@@ -694,12 +728,68 @@ def _render_notes_html(context):
             f'{name}</h2>'
         )
 
-        # Maintenance summary badge
+        categories = section.get("categories", [])
+
+        if is_multi_unit and categories:
+            # Multi-unit: group processes by address+unit, render per-unit
+            units_with_activity = set()
+            for category in categories:
+                for process in category.get("processes", []):
+                    addr = process.get("address", "")
+                    unit_num = process.get("unit_number", "")
+                    units_with_activity.add((addr, unit_num))
+
+            # Render per-unit sections
+            for addr, unit_num in sorted(units_with_activity):
+                header = escape(addr)
+                if unit_num:
+                    header += f", Unit {escape(str(unit_num))}"
+                parts.append(
+                    f'<h3 style="margin:16px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+                    f'font-size:16px; font-weight:600; color:#1E3D58; '
+                    f'border-bottom:2px solid #6EA5CD; padding-bottom:6px;">'
+                    f'{header}</h3>'
+                )
+
+                for category in categories:
+                    for process in category.get("processes", []):
+                        p_addr = process.get("address", "")
+                        p_unit = process.get("unit_number", "")
+                        if (p_addr, p_unit) != (addr, unit_num):
+                            continue
+                        _render_process_block(parts, process, escape)
+
+            # Quiet roll-up
+            active_unit_count = len(units_with_activity)
+            remaining = unit_count - active_unit_count
+            if remaining > 0:
+                parts.append(
+                    f'<p style="margin:12px 0; font-family:Georgia,serif; '
+                    f'font-size:14px; line-height:1.4; color:#9ca3af; font-style:italic;">'
+                    f"The portfolio's remaining {remaining} "
+                    f'unit{"s" if remaining != 1 else ""} had no leasing or '
+                    f'operational changes this month.</p>'
+                )
+
+        elif categories:
+            # Single-unit: category-grouped bullets
+            for category in categories:
+                label = escape(category["label"])
+                parts.append(
+                    f'<h3 style="margin:16px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+                    f'font-size:16px; font-weight:600; color:#1E3D58; '
+                    f'border-bottom:2px solid #6EA5CD; padding-bottom:6px;">'
+                    f'{label}</h3>'
+                )
+                for process in category.get("processes", []):
+                    _render_process_block(parts, process, escape)
+
+        # Maintenance line (portfolio-level)
         maint = section.get("maintenance", {})
         if maint.get("has_data"):
             parts.append(
-                f'<div style="margin:8px 0 12px; padding:8px 12px; '
-                f'background-color:#fef3c7; border-radius:6px; text-align:center;">'
+                f'<div style="margin:12px 0; padding:8px 12px; '
+                f'background-color:#fef3c7; border-radius:6px;">'
                 f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
                 f'font-size:13px; color:#92400e;">'
                 f'Maintenance: {maint.get("open_count", 0)} open &bull; '
@@ -707,63 +797,6 @@ def _render_notes_html(context):
                 f'{maint.get("canceled_count", 0)} canceled'
                 f'</p></div>'
             )
-
-        # Pipeline categories
-        categories = section.get("categories", [])
-        for category in categories:
-            label = escape(category["label"])
-            count = category["count"]
-
-            parts.append(
-                f'<h3 style="margin:16px 0 8px; font-family:Helvetica,Arial,sans-serif; '
-                f'font-size:16px; font-weight:600; color:#1E3D58; '
-                f'border-bottom:2px solid #6EA5CD; padding-bottom:6px;">'
-                f'{label} ({count})</h3>'
-            )
-
-            for process in category.get("processes", []):
-                addr_parts = []
-                if process.get("address"):
-                    addr_parts.append(escape(str(process["address"])))
-                if process.get("unit_number"):
-                    addr_parts.append(f"Unit {escape(str(process['unit_number']))}")
-
-                parts.append(
-                    '<div style="margin:4px 0 8px; padding:12px 16px; '
-                    'background-color:#fafafa; border-radius:6px; '
-                    'border-left:4px solid #6EA5CD;">'
-                )
-
-                if addr_parts:
-                    parts.append(
-                        f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
-                        f'font-size:12px; color:#888888;">'
-                        f'{" &bull; ".join(addr_parts)}</p>'
-                    )
-
-                proc_name = escape(str(process.get("name", "")))
-                parts.append(
-                    f'<p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; '
-                    f'font-size:15px; font-weight:600; color:#1E3D58;">'
-                    f'{proc_name}</p>'
-                )
-
-                if process.get("stage_name"):
-                    stage = escape(str(process["stage_name"]))
-                    parts.append(
-                        f'<p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; '
-                        f'font-size:12px; color:#6EA5CD;">Stage: {stage}</p>'
-                    )
-
-                if process.get("ai_summary"):
-                    summary = escape(str(process["ai_summary"]))
-                    parts.append(
-                        f'<p style="margin:8px 0 0; font-family:Georgia,serif; '
-                        f'font-size:14px; line-height:1.4; color:#555555;">'
-                        f'{summary}</p>'
-                    )
-
-                parts.append('</div>')
 
         # No activity fallback
         if not maint.get("has_data") and not categories:
@@ -774,6 +807,32 @@ def _render_notes_html(context):
             )
 
     return "\n".join(parts)
+
+
+def _render_process_block(parts, process, escape):
+    """Render a single process block with AI summary."""
+    parts.append(
+        '<div style="margin:4px 0 8px; padding:12px 16px; '
+        'background-color:#fafafa; border-radius:6px; '
+        'border-left:4px solid #6EA5CD;">'
+    )
+
+    if process.get("ai_summary"):
+        summary = escape(str(process["ai_summary"]))
+        parts.append(
+            f'<p style="margin:0; font-family:Georgia,serif; '
+            f'font-size:14px; line-height:1.4; color:#555555;">'
+            f'{summary}</p>'
+        )
+    else:
+        proc_name = escape(str(process.get("name", "")))
+        if proc_name:
+            parts.append(
+                f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
+                f'font-size:14px; color:#555555;">{proc_name}</p>'
+            )
+
+    parts.append('</div>')
 
 
 def _render_notes_html_from_text(text):
@@ -825,13 +884,38 @@ def _get_latest_statement(portfolio):
     }
 
 
-def build_portfolio_section(portfolio, period_start, period_end):
+def build_portfolio_section(
+    portfolio, period_start, period_end, *,
+    prefetched_processes=None, prefetched_tasks_index=None,
+):
     """
     Pure function. Returns structured data for one portfolio's section
     in the monthly owner email. Cacheable by portfolio.pk.
+
+    When prefetched_processes/prefetched_tasks_index are provided, passes
+    them through to the pipeline selector (fetch-once pattern).
     """
     from maintenance.selectors import get_portfolio_maintenance_summary
     from integrations.leadsimple.selectors import get_portfolio_pipeline_data
+    from core.models import Unit
+
+    # Unit roster for single-unit vs multi-unit rendering
+    units_qs = Unit.objects.filter(
+        property__portfolio=portfolio, is_active=True,
+    ).select_related("property")
+
+    units_list = []
+    for unit in units_qs:
+        # Detect multi-unit property: >1 active unit on the same property
+        sibling_count = Unit.objects.filter(
+            property=unit.property, is_active=True,
+        ).count()
+        units_list.append({
+            "address": unit.property.address_line_1,
+            "unit_number": unit.unit_number or "",
+            "property_id": unit.property_id,
+            "is_multi_unit": sibling_count > 1,
+        })
 
     return {
         "portfolio_name": portfolio.name,
@@ -840,8 +924,12 @@ def build_portfolio_section(portfolio, period_start, period_end):
             portfolio, period_start, period_end
         ),
         "pipeline": get_portfolio_pipeline_data(
-            portfolio, period_start, period_end
+            portfolio, period_start, period_end,
+            prefetched_processes=prefetched_processes,
+            prefetched_tasks_index=prefetched_tasks_index,
         ),
+        "unit_count": len(units_list),
+        "units": units_list,
     }
 
 
@@ -1319,6 +1407,8 @@ def _build_single_portfolio_context(section, ai_result, period_label):
         "ending_balance": fin.get("ending_balance"),
         "maintenance": template_maint,
         "categories": categories,
+        "unit_count": section.get("unit_count", 1),
+        "units": section.get("units", []),
     }
 
     return {
@@ -1415,6 +1505,29 @@ def generate_portfolio_notes(
     skipped = 0
     errors = []
 
+    # Fetch-once: pull all processes and tasks once, pass to each portfolio.
+    # A missing or unreadable LeadSimple key is a HARD FAILURE — we refuse to
+    # generate notes with zero pipeline data and report errors=0.
+    from integrations.leadsimple.client import DEGRADED as _DEGRADED
+    from integrations.leadsimple.client import fetch_processes, fetch_tasks
+    from integrations.leadsimple.services import build_tasks_index
+
+    all_processes = fetch_processes()
+    if all_processes is _DEGRADED:
+        raise RuntimeError(
+            "LeadSimple API is unavailable or LEADSIMPLE_API_KEY is not "
+            "configured. Refusing to generate portfolio notes without "
+            "pipeline data."
+        )
+
+    all_tasks = fetch_tasks(period_start=period_start)
+    if all_tasks is _DEGRADED:
+        raise RuntimeError(
+            "LeadSimple tasks fetch failed after retries. Refusing to "
+            "generate portfolio notes without task data."
+        )
+    all_tasks_index = build_tasks_index(all_tasks)
+
     # Materialize to a list so we know the total for progress reporting
     portfolios = list(portfolio_queryset)
     total = len(portfolios)
@@ -1442,8 +1555,12 @@ def generate_portfolio_notes(
                 skipped += 1
                 continue
 
-            # Build portfolio section data
-            section = build_portfolio_section(portfolio, period_start, period_end)
+            # Build portfolio section data (with fetch-once data)
+            section = build_portfolio_section(
+                portfolio, period_start, period_end,
+                prefetched_processes=all_processes,
+                prefetched_tasks_index=all_tasks_index,
+            )
 
             # Check if this portfolio has any data worth reporting
             has_data = bool(

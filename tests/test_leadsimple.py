@@ -134,7 +134,7 @@ FIXTURE_REHAB_CLOSED_MAY = _make_process(
     unit_number="Apt A",
 )
 
-# 5. Applications (weekly — excluded from monthly)
+# 5. Applications (dual-target: monthly + weekly)
 FIXTURE_APPLICATION_WEEKLY = _make_process(
     process_id="aaaa5555-0000-0000-0000-000000000005",
     process_type_id="c9927e92-5c41-4c33-8a9e-8dbd6312eeb6",
@@ -307,10 +307,12 @@ class TestFilterForMonthly:
         ids = [p["id"] for p in result]
         assert FIXTURE_MOVEOUT_CLOSED_APRIL["id"] not in ids
 
-    def test_excludes_weekly_targets(self):
+    def test_includes_dual_target_processes(self):
+        """Application/marketing processes now have both monthly and weekly targets."""
         result = filter_for_monthly(self.classified, self.may_start, self.may_end)
         ids = [p["id"] for p in result]
-        assert FIXTURE_APPLICATION_WEEKLY["id"] not in ids
+        # Application is now dual-target (monthly + weekly), so it IS included
+        assert FIXTURE_APPLICATION_WEEKLY["id"] in ids
 
     def test_et_boundary_last_moment_of_month(self):
         """Process closed 23:30 ET on May 31 lands IN May, not June."""
@@ -636,3 +638,793 @@ class TestParseDtEt:
 
     def test_empty_returns_none(self):
         assert _parse_dt_et("") is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: fetch_tasks (client)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchTasks:
+    @patch("integrations.leadsimple.client.requests.get")
+    @patch("integrations.leadsimple.client.settings")
+    def test_fetch_tasks_success(self, mock_settings, mock_get):
+        from integrations.leadsimple.client import fetch_tasks
+
+        mock_settings.LEADSIMPLE_API_KEY = "test-key"
+        mock_settings.LEADSIMPLE_BASE_URL = ""
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [{"id": "t1", "process": {"id": "p1"}}],
+            "meta": {"total_pages": 1, "total_count": 1},
+        }
+        mock_get.return_value = mock_resp
+
+        result = fetch_tasks()
+        assert result is not DEGRADED
+        assert len(result) == 1
+        assert result[0]["id"] == "t1"
+
+    @patch("integrations.leadsimple.client.requests.get")
+    @patch("integrations.leadsimple.client.settings")
+    def test_fetch_tasks_degraded(self, mock_settings, mock_get):
+        from integrations.leadsimple.client import fetch_tasks
+
+        mock_settings.LEADSIMPLE_API_KEY = "test-key"
+        mock_settings.LEADSIMPLE_BASE_URL = ""
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        mock_get.return_value = mock_resp
+
+        result = fetch_tasks()
+        assert result is DEGRADED
+
+    @patch("integrations.leadsimple.client.requests.get")
+    @patch("integrations.leadsimple.client.settings")
+    def test_page_cap_exceeded_returns_degraded_and_logs(
+        self, mock_settings, mock_get
+    ):
+        from integrations.leadsimple.client import fetch_tasks
+
+        mock_settings.LEADSIMPLE_API_KEY = "test-key"
+        mock_settings.LEADSIMPLE_BASE_URL = ""
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [{"id": "t1"}],
+            "meta": {"total_pages": 300, "total_count": 30000},
+        }
+        mock_get.return_value = mock_resp
+
+        with patch("integrations.leadsimple.client.logger") as mock_logger:
+            result = fetch_tasks(max_pages=5)
+            assert result is DEGRADED
+            mock_logger.error.assert_called_once()
+            log_event = mock_logger.error.call_args[0][0]
+            assert log_event == "leadsimple_tasks_page_cap_exceeded"
+
+    @patch("integrations.leadsimple.client.requests.get")
+    @patch("integrations.leadsimple.client.settings")
+    def test_updated_since_param_added(self, mock_settings, mock_get):
+        from integrations.leadsimple.client import fetch_tasks
+
+        mock_settings.LEADSIMPLE_API_KEY = "test-key"
+        mock_settings.LEADSIMPLE_BASE_URL = ""
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [],
+            "meta": {"total_pages": 1, "total_count": 0},
+        }
+        mock_get.return_value = mock_resp
+
+        fetch_tasks(period_start=date(2026, 5, 1))
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params")
+        assert "updated_since" in params
+        # period_start=May 1 minus 7 days = Apr 24 midnight UTC
+        expected_dt = datetime(2026, 4, 24, 0, 0, 0, tzinfo=zoneinfo.ZoneInfo("UTC"))
+        assert params["updated_since"] == int(expected_dt.timestamp())
+
+
+# ---------------------------------------------------------------------------
+# Tests: build_tasks_index (services)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTasksIndex:
+    def test_build_tasks_index_by_process_id(self):
+        from integrations.leadsimple.services import build_tasks_index
+
+        tasks = [
+            {"id": "t1", "process": {"id": "p1"}, "completed_at": "2026-05-15"},
+            {"id": "t2", "process": {"id": "p1"}, "completed_at": "2026-05-16"},
+            {"id": "t3", "process": {"id": "p2"}, "completed_at": "2026-05-17"},
+        ]
+        index = build_tasks_index(tasks)
+        assert len(index) == 2
+        assert len(index["p1"]) == 2
+        assert len(index["p2"]) == 1
+
+    def test_tasks_without_process_skipped(self):
+        from integrations.leadsimple.services import build_tasks_index
+
+        tasks = [
+            {"id": "t1", "process": {"id": "p1"}},
+            {"id": "t2", "process": None},
+            {"id": "t3"},  # no process key at all
+            {"id": "t4", "process": {}},  # process with no id
+        ]
+        index = build_tasks_index(tasks)
+        assert len(index) == 1
+        assert "p1" in index
+
+
+# ---------------------------------------------------------------------------
+# Tests: dual-target process type map (step 1.2)
+# ---------------------------------------------------------------------------
+
+
+class TestDualTargetMap:
+    def test_all_13_uuids_monthly(self):
+        """Every process type in the map has 'monthly' in its target."""
+        for uuid, mapping in PROCESS_TYPE_MAP.items():
+            assert "monthly" in mapping["target"], (
+                f"{uuid} ({mapping['category']}) missing 'monthly' target"
+            )
+
+    def test_marketing_in_both_weekly_and_monthly(self):
+        mapping = PROCESS_TYPE_MAP["942fa5d5-6fc6-4495-8c94-bdb311525172"]
+        assert "monthly" in mapping["target"]
+        assert "weekly" in mapping["target"]
+
+    def test_application_in_both_weekly_and_monthly(self):
+        mapping = PROCESS_TYPE_MAP["c9927e92-5c41-4c33-8a9e-8dbd6312eeb6"]
+        assert "monthly" in mapping["target"]
+        assert "weekly" in mapping["target"]
+
+    def test_filter_for_monthly_includes_marketing(self):
+        proc = _make_process(
+            process_id="dual-marketing-001",
+            process_type_id="942fa5d5-6fc6-4495-8c94-bdb311525172",
+            process_type_name="03 Property Marketing Process",
+            stage_name="Property Listed",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="123 Test St",
+            unit_number=None,
+        )
+        classified = classify_processes([proc])
+        result = filter_for_monthly(classified, date(2026, 5, 1), date(2026, 5, 31))
+        assert len(result) == 1
+
+    def test_filter_for_weekly_includes_marketing(self):
+        from integrations.leadsimple.services import filter_for_weekly
+
+        proc = _make_process(
+            process_id="dual-marketing-002",
+            process_type_id="942fa5d5-6fc6-4495-8c94-bdb311525172",
+            process_type_name="03 Property Marketing Process",
+            stage_name="Property Listed",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="123 Test St",
+            unit_number=None,
+        )
+        classified = classify_processes([proc])
+        result = filter_for_weekly(classified, date(2026, 5, 1), date(2026, 5, 31))
+        assert len(result) == 1
+
+    def test_filter_for_weekly_excludes_renewal(self):
+        from integrations.leadsimple.services import filter_for_weekly
+
+        proc = _make_process(
+            process_id="renewal-only-001",
+            process_type_id="1865ad03-f740-4a99-b1a2-e2440430f3f4",
+            process_type_name="06 Lease Renewals",
+            stage_name="Upcoming",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="456 Test St",
+            unit_number=None,
+        )
+        classified = classify_processes([proc])
+        result = filter_for_weekly(classified, date(2026, 5, 1), date(2026, 5, 31))
+        assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: filter_excluded_stages (step 1.3)
+# ---------------------------------------------------------------------------
+
+
+class TestFilterExcludedStages:
+    def test_issues_maintenance_excluded(self):
+        from integrations.leadsimple.services import filter_excluded_stages
+
+        proc = _make_process(
+            process_id="issues-maint-001",
+            process_type_id="98e21401-58d3-4a6a-b6b0-f22dd11dc831",
+            process_type_name="Issues",
+            stage_name="Issue Type - Maintenance",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = filter_excluded_stages([proc])
+        assert len(result) == 0
+
+    def test_issues_hvac_filter_excluded(self):
+        from integrations.leadsimple.services import filter_excluded_stages
+
+        proc = _make_process(
+            process_id="issues-hvac-001",
+            process_type_id="98e21401-58d3-4a6a-b6b0-f22dd11dc831",
+            process_type_name="Issues",
+            stage_name="Issue Type - HVAC Filter",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = filter_excluded_stages([proc])
+        assert len(result) == 0
+
+    def test_issues_other_stage_passes(self):
+        from integrations.leadsimple.services import filter_excluded_stages
+
+        proc = _make_process(
+            process_id="issues-pet-001",
+            process_type_id="98e21401-58d3-4a6a-b6b0-f22dd11dc831",
+            process_type_name="Issues",
+            stage_name="Issue Type - Pet Addition",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = filter_excluded_stages([proc])
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: activity filter — is_reportable, count_tasks_completed_in_period (step 1.4)
+# ---------------------------------------------------------------------------
+
+
+def _make_task(task_id, process_id, completed_at=None, skipped=False):
+    """Build a minimal task dict for testing."""
+    return {
+        "id": task_id,
+        "process": {"id": process_id},
+        "completed_at": completed_at,
+        "skipped": skipped,
+    }
+
+
+class TestCountTasksCompletedInPeriod:
+    def setup_method(self):
+        from integrations.leadsimple.services import count_tasks_completed_in_period
+        self.count_fn = count_tasks_completed_in_period
+        self.start = datetime.combine(date(2026, 5, 1), time.min, tzinfo=ET)
+        self.end = datetime.combine(date(2026, 5, 31), time(23, 59, 59, 999999), tzinfo=ET)
+
+    def test_counts_completed_in_period(self):
+        tasks = [
+            _make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z"),
+            _make_task("t2", "p1", completed_at="2026-05-20T14:00:00Z"),
+        ]
+        assert self.count_fn(tasks, self.start, self.end) == 2
+
+    def test_skipped_tasks_excluded_from_count(self):
+        tasks = [
+            _make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z"),
+            _make_task("t2", "p1", completed_at="2026-05-20T14:00:00Z", skipped=True),
+        ]
+        assert self.count_fn(tasks, self.start, self.end) == 1
+
+    def test_tasks_outside_period_excluded(self):
+        tasks = [
+            _make_task("t1", "p1", completed_at="2026-04-28T14:00:00Z"),  # April
+            _make_task("t2", "p1", completed_at="2026-06-02T14:00:00Z"),  # June
+        ]
+        assert self.count_fn(tasks, self.start, self.end) == 0
+
+    def test_tasks_without_completed_at_excluded(self):
+        tasks = [
+            _make_task("t1", "p1", completed_at=None),
+            _make_task("t2", "p1", completed_at=""),
+        ]
+        assert self.count_fn(tasks, self.start, self.end) == 0
+
+
+class TestIsReportable:
+    def setup_method(self):
+        from integrations.leadsimple.services import is_reportable, build_tasks_index
+        self.is_reportable = is_reportable
+        self.build_tasks_index = build_tasks_index
+        self.start = datetime.combine(date(2026, 5, 1), time.min, tzinfo=ET)
+        self.end = datetime.combine(date(2026, 5, 31), time(23, 59, 59, 999999), tzinfo=ET)
+
+    def _proc(self, process_id="p1", category="issues",
+              created_at="2026-04-01T10:00:00Z", closed_at=None):
+        """Build a minimal classified process dict."""
+        return {
+            "id": process_id,
+            "category": category,
+            "target": frozenset({"monthly"}),
+            "created_at": created_at,
+            "closed_at": closed_at,
+        }
+
+    def test_exactly_two_tasks_excluded(self):
+        """Process with exactly 2 completed tasks is NOT reportable (non-high-stakes)."""
+        proc = self._proc(created_at="2026-04-01T10:00:00Z")
+        tasks = [
+            _make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z"),
+            _make_task("t2", "p1", completed_at="2026-05-20T14:00:00Z"),
+        ]
+        index = self.build_tasks_index(tasks)
+        assert not self.is_reportable(proc, index, self.start, self.end)
+
+    def test_three_tasks_reportable(self):
+        """Process with 3 completed tasks IS reportable."""
+        proc = self._proc(created_at="2026-04-01T10:00:00Z")
+        tasks = [
+            _make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z"),
+            _make_task("t2", "p1", completed_at="2026-05-15T14:00:00Z"),
+            _make_task("t3", "p1", completed_at="2026-05-20T14:00:00Z"),
+        ]
+        index = self.build_tasks_index(tasks)
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+    def test_high_stakes_bypass_one_task_late_rent(self):
+        proc = self._proc(category="late_rent", created_at="2026-04-01T10:00:00Z")
+        tasks = [_make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z")]
+        index = self.build_tasks_index(tasks)
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+    def test_high_stakes_move_out_one_task(self):
+        proc = self._proc(category="move_out", created_at="2026-04-01T10:00:00Z")
+        tasks = [_make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z")]
+        index = self.build_tasks_index(tasks)
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+    def test_high_stakes_offboarding_one_task(self):
+        proc = self._proc(category="offboarding", created_at="2026-04-01T10:00:00Z")
+        tasks = [_make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z")]
+        index = self.build_tasks_index(tasks)
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+    def test_skipped_tasks_excluded_from_count(self):
+        proc = self._proc(created_at="2026-04-01T10:00:00Z")
+        tasks = [
+            _make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z"),
+            _make_task("t2", "p1", completed_at="2026-05-15T14:00:00Z"),
+            _make_task("t3", "p1", completed_at="2026-05-20T14:00:00Z", skipped=True),
+        ]
+        index = self.build_tasks_index(tasks)
+        # Only 2 non-skipped = below threshold
+        assert not self.is_reportable(proc, index, self.start, self.end)
+
+    def test_stale_process_excluded(self):
+        """No created/closed/tasks in period → excluded."""
+        proc = self._proc(
+            created_at="2026-03-01T10:00:00Z",  # March — outside period
+            closed_at=None,
+        )
+        index = {}  # no tasks
+        assert not self.is_reportable(proc, index, self.start, self.end)
+
+    def test_created_in_period_reportable(self):
+        proc = self._proc(created_at="2026-05-15T10:00:00Z")
+        index = {}  # no tasks needed
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+    def test_closed_in_period_reportable(self):
+        proc = self._proc(
+            created_at="2026-03-01T10:00:00Z",
+            closed_at="2026-05-20T14:00:00Z",
+        )
+        index = {}
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+    def test_utc_et_midnight_boundary_tasks(self):
+        """Task completed at 03:30 UTC June 1 = 23:30 EDT May 31 — in period."""
+        proc = self._proc(category="late_rent", created_at="2026-04-01T10:00:00Z")
+        tasks = [_make_task("t1", "p1", completed_at="2026-06-01T03:30:00Z")]
+        index = self.build_tasks_index(tasks)
+        assert self.is_reportable(proc, index, self.start, self.end)
+
+
+class TestFilterForMonthlyWithTasks:
+    """Test the tasks_index path of filter_for_monthly."""
+
+    def test_tasks_index_filters_stale(self):
+        proc = _make_process(
+            process_id="stale-001",
+            process_type_id="98e21401-58d3-4a6a-b6b0-f22dd11dc831",
+            process_type_name="Issues",
+            stage_name="Some Stage",
+            stage_status="working",
+            created_at="2026-03-01T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        classified = classify_processes([proc])
+        result = filter_for_monthly(
+            classified, date(2026, 5, 1), date(2026, 5, 31),
+            tasks_index={},
+        )
+        assert len(result) == 0
+
+    def test_no_framing_means_omitted(self):
+        """Process at unmapped stage is excluded when using tasks_index."""
+        proc = _make_process(
+            process_id="unmapped-stage-001",
+            process_type_id="98e21401-58d3-4a6a-b6b0-f22dd11dc831",
+            process_type_name="Issues",
+            stage_name="Some Totally Unknown Stage",
+            stage_status="working",
+            created_at="2026-05-15T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        classified = classify_processes([proc])
+        # Even though created_at is in period, it's still included in
+        # filter_for_monthly — the framing gate is enforced later in the
+        # selector/prompt layer, not here. This test documents that
+        # filter_for_monthly doesn't exclude based on stage.
+        result = filter_for_monthly(
+            classified, date(2026, 5, 1), date(2026, 5, 31),
+            tasks_index={},
+        )
+        assert len(result) == 1  # filter passes it; stage gate is downstream
+
+    def test_tasks_index_includes_active(self):
+        proc = _make_process(
+            process_id="active-001",
+            process_type_id="98e21401-58d3-4a6a-b6b0-f22dd11dc831",
+            process_type_name="Issues",
+            stage_name="Some Stage",
+            stage_status="working",
+            created_at="2026-05-15T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        classified = classify_processes([proc])
+        result = filter_for_monthly(
+            classified, date(2026, 5, 1), date(2026, 5, 31),
+            tasks_index={},
+        )
+        assert len(result) == 1
+
+    def test_non_issues_type_passes_all_stages(self):
+        from integrations.leadsimple.services import filter_excluded_stages
+
+        proc = _make_process(
+            process_id="renewal-001",
+            process_type_id="1865ad03-f740-4a99-b1a2-e2440430f3f4",
+            process_type_name="06 Lease Renewals",
+            stage_name="Maintenance",  # Same name but different type
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = filter_excluded_stages([proc])
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: stage_map (step 2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestStageMap:
+    def test_known_mapping_returns_string(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        result = get_stage_framing(
+            "1865ad03-f740-4a99-b1a2-e2440430f3f4", "Upcoming"
+        )
+        assert result is not None
+        assert isinstance(result, str)
+        assert "renewal" in result.lower()
+
+    def test_unknown_returns_none(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        result = get_stage_framing(
+            "98e21401-58d3-4a6a-b6b0-f22dd11dc831", "Nonexistent Stage XYZ"
+        )
+        assert result is None
+
+    def test_legacy_uuid_has_same_mappings(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        # Primary renewal UUID
+        primary = get_stage_framing(
+            "1865ad03-f740-4a99-b1a2-e2440430f3f4", "Upcoming"
+        )
+        # Legacy renewal UUID should have same framing
+        legacy = get_stage_framing(
+            "44ac428c-30c3-4548-8a59-6cc5c687e5f8", "Upcoming"
+        )
+        assert primary == legacy
+        assert primary is not None
+
+    def test_legacy_move_out_has_own_stages(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        # Legacy move-out has its own stage names, distinct from primary
+        legacy = get_stage_framing(
+            "8311a377-6d68-48a0-855d-145fd1380ff4",
+            "30 Days or less to move out",
+        )
+        assert legacy is not None
+
+        # Primary move-out does NOT have the legacy stage name
+        primary = get_stage_framing(
+            "e0dfad31-5459-4578-a0a1-b062180e769b",
+            "30 Days or less to move out",
+        )
+        assert primary is None
+
+    def test_late_rent_5_day_notice(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        result = get_stage_framing(
+            "75d01712-66f5-44fe-9595-f571e2449896", "Late Rent - 5 Day Notice"
+        )
+        assert result is not None
+        assert "notice" in result.lower()
+
+        # "5th Day" is intentionally omitted (no framing)
+        assert get_stage_framing(
+            "75d01712-66f5-44fe-9595-f571e2449896", "5th Day"
+        ) is None
+
+    def test_marketing_actual_api_names(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        # Uses "Property Listed - Weekly Owner Updates" not "Property Listed"
+        result = get_stage_framing(
+            "942fa5d5-6fc6-4495-8c94-bdb311525172",
+            "Property Listed - Weekly Owner Updates",
+        )
+        assert result is not None
+
+    def test_no_framing_process_omitted(self):
+        from integrations.leadsimple.stage_map import get_stage_framing
+
+        # A stage not in the map should return None → process omitted
+        result = get_stage_framing(
+            "98e21401-58d3-4a6a-b6b0-f22dd11dc831", "Maintenance"
+        )
+        # Maintenance is excluded by filter_excluded_stages, but even if
+        # it weren't, it has no framing entry
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: step_map (step 2.3)
+# ---------------------------------------------------------------------------
+
+
+class TestStepMap:
+    def setup_method(self):
+        from integrations.leadsimple.step_map import (
+            STEP_FRAGMENTS, get_surfaced_fragments,
+        )
+        self.get_surfaced_fragments = get_surfaced_fragments
+        self.STEP_FRAGMENTS = STEP_FRAGMENTS
+
+    def _make_task_with_steps(self, task_id, process_id, completed_at,
+                               step_ids, skipped=False):
+        return {
+            "id": task_id,
+            "process": {"id": process_id},
+            "completed_at": completed_at,
+            "skipped": skipped,
+            "steps": [{"id": sid} for sid in step_ids],
+        }
+
+    def test_late_notice_fragment(self):
+        """f358d621 maps to the late-rent-notice fragment."""
+        group, text = self.STEP_FRAGMENTS["f358d621"]
+        assert group == "late_notice"
+        assert text == "served the required late-rent notice"
+
+    def test_eviction_fragment(self):
+        """b68b23be maps to the eviction fragment."""
+        group, text = self.STEP_FRAGMENTS["b68b23be"]
+        assert group == "late_eviction"
+        assert text == "began the eviction process with our attorneys"
+
+    def test_completed_in_period_returns_fragment(self):
+        start = datetime.combine(date(2026, 5, 1), time.min, tzinfo=ET)
+        end = datetime.combine(date(2026, 5, 31), time(23, 59, 59, 999999), tzinfo=ET)
+        tasks = [
+            self._make_task_with_steps(
+                "t1", "p1", "2026-05-15T14:00:00Z", ["f358d621"],
+            ),
+        ]
+        proc = {"id": "p1"}
+        result = self.get_surfaced_fragments(proc, tasks, start, end)
+        assert result == ["served the required late-rent notice"]
+
+    def test_skipped_excluded(self):
+        start = datetime.combine(date(2026, 5, 1), time.min, tzinfo=ET)
+        end = datetime.combine(date(2026, 5, 31), time(23, 59, 59, 999999), tzinfo=ET)
+        tasks = [
+            self._make_task_with_steps(
+                "t1", "p1", "2026-05-15T14:00:00Z", ["f358d621"],
+                skipped=True,
+            ),
+        ]
+        proc = {"id": "p1"}
+        result = self.get_surfaced_fragments(proc, tasks, start, end)
+        assert result == []
+
+    def test_grouped_fragments_emit_once(self):
+        """Two screening step IDs sharing app_screening group → one fragment."""
+        start = datetime.combine(date(2026, 5, 1), time.min, tzinfo=ET)
+        end = datetime.combine(date(2026, 5, 31), time(23, 59, 59, 999999), tzinfo=ET)
+        tasks = [
+            self._make_task_with_steps(
+                "t1", "p1", "2026-05-10T14:00:00Z", ["5c54d7c4"],
+            ),
+            self._make_task_with_steps(
+                "t2", "p1", "2026-05-20T14:00:00Z", ["08f75b64"],
+            ),
+        ]
+        proc = {"id": "p1"}
+        result = self.get_surfaced_fragments(proc, tasks, start, end)
+        assert len(result) == 1
+        assert "applicant screening" in result[0]
+
+    def test_unknown_step_id_ignored(self):
+        start = datetime.combine(date(2026, 5, 1), time.min, tzinfo=ET)
+        end = datetime.combine(date(2026, 5, 31), time(23, 59, 59, 999999), tzinfo=ET)
+        tasks = [
+            self._make_task_with_steps(
+                "t1", "p1", "2026-05-15T14:00:00Z", ["unknown-step-xyz"],
+            ),
+        ]
+        proc = {"id": "p1"}
+        result = self.get_surfaced_fragments(proc, tasks, start, end)
+        assert result == []
+
+    def test_all_40_group_keys_present(self):
+        """STEP_FRAGMENTS contains exactly the 40 expected group keys."""
+        expected = {
+            "app_screening", "app_lease_sent", "app_voucher_paperwork",
+            "app_voucher_approved", "app_voucher_inspection",
+            "mi_schedule", "mi_inspection", "mi_utilities", "mi_welcome",
+            "mi_checkin", "mi_owner_notice",
+            "pm_photos", "pm_listed", "pm_pricing", "pm_refresh",
+            "pm_concession",
+            "lr_cma", "lr_history", "lr_options", "lr_inspection",
+            "lr_confirm", "lr_addendum", "lr_premoveout",
+            "late_notice", "late_eviction",
+            "mo_schedule", "mo_inspection", "mo_turn_assess", "mo_keys",
+            "mo_deposit_review", "mo_deposit_done", "mo_notice",
+            "mo_nextsteps",
+            "oo_intake", "oo_portal", "oo_quarterly", "oo_note",
+            "po_tenant_info",
+            "iss_approval", "iss_decision",
+        }
+        actual = {v[0] for v in self.STEP_FRAGMENTS.values()}
+        assert actual == expected, f"missing={expected - actual}, extra={actual - expected}"
+        assert len(self.STEP_FRAGMENTS) == 55
+
+
+# ---------------------------------------------------------------------------
+# Tests: milestone gates (step 2.2)
+# ---------------------------------------------------------------------------
+
+
+class TestMilestoneGates:
+    def test_application_milestone_passes(self):
+        from integrations.leadsimple.services import apply_milestone_gates
+
+        proc = _make_process(
+            process_id="app-milestone-001",
+            process_type_id="c9927e92-5c41-4c33-8a9e-8dbd6312eeb6",
+            process_type_name="04 Applications",
+            stage_name="Pending Owner Approval",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = apply_milestone_gates([proc])
+        assert len(result) == 1
+
+    def test_application_intermediate_filtered(self):
+        from integrations.leadsimple.services import apply_milestone_gates
+
+        proc = _make_process(
+            process_id="app-intermediate-001",
+            process_type_id="c9927e92-5c41-4c33-8a9e-8dbd6312eeb6",
+            process_type_name="04 Applications",
+            stage_name="Application Process",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = apply_milestone_gates([proc])
+        assert len(result) == 0
+
+    def test_marketing_milestone_passes(self):
+        from integrations.leadsimple.services import apply_milestone_gates
+
+        proc = _make_process(
+            process_id="mkt-milestone-001",
+            process_type_id="942fa5d5-6fc6-4495-8c94-bdb311525172",
+            process_type_name="03 Property Marketing Process",
+            stage_name="Property Listed - Weekly Owner Updates",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = apply_milestone_gates([proc])
+        assert len(result) == 1
+
+    def test_marketing_intermediate_filtered(self):
+        from integrations.leadsimple.services import apply_milestone_gates
+
+        proc = _make_process(
+            process_id="mkt-intermediate-001",
+            process_type_id="942fa5d5-6fc6-4495-8c94-bdb311525172",
+            process_type_name="03 Property Marketing Process",
+            stage_name="Preparing Listing",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = apply_milestone_gates([proc])
+        assert len(result) == 0
+
+    def test_non_gated_type_passes_all_stages(self):
+        from integrations.leadsimple.services import apply_milestone_gates
+
+        proc = _make_process(
+            process_id="renewal-any-stage-001",
+            process_type_id="1865ad03-f740-4a99-b1a2-e2440430f3f4",
+            process_type_name="06 Lease Renewals",
+            stage_name="Any Stage At All",
+            stage_status="working",
+            created_at="2026-05-10T10:00:00Z",
+            closed_at=None,
+            address="100 Test St",
+            unit_number=None,
+        )
+        result = apply_milestone_gates([proc])
+        assert len(result) == 1

@@ -185,3 +185,67 @@ class TestGetOwnerMaintenanceData:
         """Owner has portfolios but no melds — _has_data should be False."""
         data = get_owner_maintenance_data(owner, date(2026, 5, 25), date(2026, 5, 31))
         assert data["_has_data"] is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_portfolio_maintenance_summary enhancements (step 1.6)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestPortfolioMaintenanceSummaryLine:
+    def test_summary_line_format(self, portfolio, prop, unit):
+        from maintenance.selectors import get_portfolio_maintenance_summary
+
+        Meld.objects.create(
+            property_meld_id="SUM1",
+            brief_description="Broken faucet",
+            status="PENDING_COMPLETION",
+            property=prop,
+            unit=unit,
+            category="PLUMBING",
+        )
+        Meld.objects.create(
+            property_meld_id="SUM2",
+            brief_description="Door fix",
+            status="COMPLETED",
+            property=prop,
+            unit=unit,
+            completion_date=datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc),
+        )
+        data = get_portfolio_maintenance_summary(
+            portfolio, date(2026, 5, 1), date(2026, 5, 31)
+        )
+        assert "work order" in data["summary_line"]
+        assert "open" in data["summary_line"]
+        assert "completed" in data["summary_line"]
+        # Backward compat
+        assert data["open_count"] == 1
+        assert data["closed_count"] == 1
+
+    def test_summary_line_empty_when_no_data(self, portfolio, prop, unit):
+        from maintenance.selectors import get_portfolio_maintenance_summary
+
+        data = get_portfolio_maintenance_summary(
+            portfolio, date(2026, 5, 1), date(2026, 5, 31)
+        )
+        assert data["summary_line"] == ""
+        assert data["notable_items"] == []
+
+    def test_notable_emergency_detected(self, portfolio, prop, unit):
+        from maintenance.selectors import get_portfolio_maintenance_summary
+
+        Meld.objects.create(
+            property_meld_id="EMRG1",
+            brief_description="Burst pipe",
+            status="PENDING_ASSIGNMENT",
+            property=prop,
+            unit=unit,
+            category="PLUMBING",
+            priority="EMERGENCY",
+        )
+        data = get_portfolio_maintenance_summary(
+            portfolio, date(2026, 5, 1), date(2026, 5, 31)
+        )
+        assert len(data["notable_items"]) == 1
+        assert data["notable_items"][0]["priority"] == "EMERGENCY"
+        assert "emergency" in data["summary_line"].lower()

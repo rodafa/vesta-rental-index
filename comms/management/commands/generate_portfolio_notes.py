@@ -76,13 +76,16 @@ class Command(BaseCommand):
             self.stdout.write(f"  [{idx}/{total}] ({pct}%) {name}")
             self.stdout.flush()
 
-        result = generate_portfolio_notes(
-            portfolios,
-            period_start,
-            period_end,
-            dry_run=options["dry_run"],
-            progress_cb=progress,
-        )
+        try:
+            result = generate_portfolio_notes(
+                portfolios,
+                period_start,
+                period_end,
+                dry_run=options["dry_run"],
+                progress_cb=progress,
+            )
+        except RuntimeError as exc:
+            raise CommandError(str(exc))
 
         self.stdout.write("")
         self.stdout.write(

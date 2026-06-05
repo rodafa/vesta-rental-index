@@ -34,7 +34,6 @@ from .models import EmailDraft, PortfolioMonthlyNote
 from .services import (
     _normalize_email,
     _format_period_label,
-    _render_notes_html_from_text,
     assemble_owner_email,
     generate_portfolio_notes,
     get_portfolio_generation_scope,
@@ -203,7 +202,11 @@ def portfolio_note_detail(request, note_id):
         note.delete()
         return JsonResponse({}, status=200)
 
-    # PUT — update the note text, re-render notes_html
+    # PUT — update the note text
+    # approved_generated_note = "admin genuinely edited the text".
+    # notes_html is NEVER overwritten here; the structured render from
+    # generation stays intact.  Flattening happens on-the-fly at send
+    # time only when approved_generated_note is non-empty.
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
@@ -211,15 +214,19 @@ def portfolio_note_detail(request, note_id):
 
     new_note = body.get("generated_note", "")
 
-    # If note is approved, writes go to approved_generated_note
-    if note.status == "approved":
-        note.approved_generated_note = new_note
-        note.notes_html = _render_notes_html_from_text(new_note)
-        note.save(update_fields=["approved_generated_note", "notes_html", "updated_at"])
+    def _norm(s):
+        return (s or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    if _norm(new_note) == _norm(note.generated_note):
+        # No real change / reverted to original — clear any override.
+        # Do NOT touch notes_html; the structured render stays intact.
+        if note.approved_generated_note:
+            note.approved_generated_note = ""
+            note.save(update_fields=["approved_generated_note", "updated_at"])
     else:
-        note.generated_note = new_note
-        note.notes_html = _render_notes_html_from_text(new_note)
-        note.save(update_fields=["generated_note", "notes_html", "updated_at"])
+        # Genuine edit — store as override only. Do NOT overwrite notes_html.
+        note.approved_generated_note = new_note
+        note.save(update_fields=["approved_generated_note", "updated_at"])
 
     return JsonResponse(_serialize_portfolio_note(note))
 
@@ -236,12 +243,8 @@ def approve_portfolio_note(request, note_id):
     except PortfolioMonthlyNote.DoesNotExist:
         return JsonResponse({"error": "Not found"}, status=404)
 
-    # Snapshot: copy generated_note to approved_generated_note if not yet edited
-    if not note.approved_generated_note:
-        note.approved_generated_note = note.generated_note
-
     note.status = "approved"
-    note.save(update_fields=["status", "approved_generated_note", "updated_at"])
+    note.save(update_fields=["status", "updated_at"])
 
     return JsonResponse(_serialize_portfolio_note(note))
 

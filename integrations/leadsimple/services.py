@@ -21,60 +21,60 @@ ET = zoneinfo.ZoneInfo("America/New_York")
 # ---------------------------------------------------------------------------
 
 PROCESS_TYPE_MAP = {
-    # Monthly owner notes
+    # Monthly only
     "1865ad03-f740-4a99-b1a2-e2440430f3f4": {
         "category": "renewal",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 06 Lease Renewals
     "44ac428c-30c3-4548-8a59-6cc5c687e5f8": {
         "category": "renewal",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 070 Lease Renewals (legacy dup)
     "e0dfad31-5459-4578-a0a1-b062180e769b": {
         "category": "move_out",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 08 Move Out
     "8311a377-6d68-48a0-855d-145fd1380ff4": {
         "category": "move_out",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 09 Move Outs (legacy dup)
     "98e21401-58d3-4a6a-b6b0-f22dd11dc831": {
         "category": "issues",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # Issues
     "83f4af06-ad96-4ca7-9d21-5a1b00087ac6": {
         "category": "rehab_to_turn",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 09 Rehab to Turn
     "864f1bf2-53c8-4135-9196-9f6ecf15cf16": {
         "category": "move_in",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 05 Move Ins
     "9b99ac28-0775-46cf-8537-12b4b08719b2": {
         "category": "onboarding",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 01 Owner Onboarding
     "7e16b91a-bb9c-447e-937d-db3ce45f9588": {
         "category": "onboarding",
-        "target": "monthly",
+        "target": frozenset({"monthly"}),
     },  # 02 Property Onboarding
-    # Weekly leasing email
+    # Both monthly AND weekly
     "942fa5d5-6fc6-4495-8c94-bdb311525172": {
         "category": "marketing",
-        "target": "weekly",
+        "target": frozenset({"monthly", "weekly"}),
     },  # 03 Property Marketing Process
     "c9927e92-5c41-4c33-8a9e-8dbd6312eeb6": {
         "category": "application",
-        "target": "weekly",
+        "target": frozenset({"monthly", "weekly"}),
     },  # 04 Applications
-    # Excluded from v1
+    # Monthly (previously excluded)
     "75d01712-66f5-44fe-9595-f571e2449896": {
         "category": "late_rent",
-        "target": "excluded",
+        "target": frozenset({"monthly"}),
     },  # 07 Late Rent
     "ee35a777-a854-47d4-82c1-87d022926783": {
         "category": "offboarding",
-        "target": "excluded",
+        "target": frozenset({"monthly"}),
     },  # 10 Property Off Boarding
 }
 
@@ -105,6 +105,28 @@ def normalize_unit_number(raw):
     s = re.sub(r"[.,#\-]", "", s)
     s = re.sub(r"\s+", "", s)
     return s.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tasks index
+# ---------------------------------------------------------------------------
+
+
+def build_tasks_index(tasks):
+    """
+    Index tasks by process ID.
+
+    Returns dict: {process_id: [task_dict, ...]}
+    Tasks without a process are skipped.
+    """
+    index = {}
+    for task in tasks:
+        proc = task.get("process") or {}
+        proc_id = proc.get("id")
+        if not proc_id:
+            continue
+        index.setdefault(proc_id, []).append(task)
+    return index
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +168,70 @@ def classify_processes(processes):
 
 
 # ---------------------------------------------------------------------------
+# Activity filter constants and helpers
+# ---------------------------------------------------------------------------
+
+TASK_THRESHOLD = 3  # "more than 2 completed tasks" → count must be >= 3
+HIGH_STAKES_CATEGORIES = frozenset({"late_rent", "move_out", "offboarding"})
+
+
+def count_tasks_completed_in_period(tasks, period_start_et, period_end_et):
+    """
+    Count tasks completed within the period where skipped == false.
+
+    tasks: list of task dicts for a single process
+    period_start_et, period_end_et: datetime with ET tzinfo
+    """
+    count = 0
+    for task in tasks:
+        if task.get("skipped"):
+            continue
+        completed_str = task.get("completed_at")
+        if not completed_str:
+            continue
+        completed_et = _parse_dt_et(completed_str)
+        if completed_et is None:
+            continue
+        if period_start_et <= completed_et <= period_end_et:
+            count += 1
+    return count
+
+
+def is_reportable(process, tasks_index, period_start_et, period_end_et):
+    """
+    Determine whether a process is reportable for the monthly note.
+
+    A process is reportable if ANY of:
+    - created_at falls within the period
+    - closed_at falls within the period
+    - completed task count >= TASK_THRESHOLD (3) for normal categories
+    - For HIGH_STAKES categories: any >= 1 completed task suffices
+    """
+    # Check created_at in period
+    created_et = _parse_dt_et(process.get("created_at"))
+    if created_et and period_start_et <= created_et <= period_end_et:
+        return True
+
+    # Check closed_at in period
+    closed_et = _parse_dt_et(process.get("closed_at"))
+    if closed_et and period_start_et <= closed_et <= period_end_et:
+        return True
+
+    # Check task activity
+    proc_id = process.get("id", "")
+    proc_tasks = tasks_index.get(proc_id, [])
+    completed_count = count_tasks_completed_in_period(
+        proc_tasks, period_start_et, period_end_et
+    )
+
+    category = process.get("category", "")
+    if category in HIGH_STAKES_CATEGORIES:
+        return completed_count >= 1
+
+    return completed_count >= TASK_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
 # Monthly window filter
 # ---------------------------------------------------------------------------
 
@@ -162,13 +248,16 @@ def _parse_dt_et(iso_str):
     return dt.astimezone(ET)
 
 
-def filter_for_monthly(classified, period_start, period_end):
+def filter_for_monthly(classified, period_start, period_end, *, tasks_index=None):
     """
     Keep only monthly-target processes within the reporting window.
 
     Window (ET calendar-month boundaries):
     - Include if closed_at IS NULL (still open), OR
     - closed_at (in ET) falls within [period_start, period_end] inclusive.
+
+    When tasks_index is provided, uses is_reportable() for activity-based
+    filtering instead of the simple open-or-closed-in-period logic.
 
     period_start and period_end are date objects representing the
     first and last day of the reporting month.
@@ -178,9 +267,15 @@ def filter_for_monthly(classified, period_start, period_end):
 
     result = []
     for proc in classified:
-        if proc["target"] != "monthly":
+        if "monthly" not in proc["target"]:
             continue
 
+        if tasks_index is not None:
+            if is_reportable(proc, tasks_index, window_start, window_end):
+                result.append(proc)
+            continue
+
+        # Legacy path: no tasks_index
         closed_at_str = proc.get("closed_at")
         if closed_at_str is None:
             # Still open — include
@@ -195,6 +290,114 @@ def filter_for_monthly(classified, period_start, period_end):
         if window_start <= closed_et <= window_end:
             result.append(proc)
 
+    return result
+
+
+def filter_for_weekly(classified, period_start, period_end):
+    """
+    Keep only weekly-target processes within the reporting window.
+
+    Same window logic as filter_for_monthly but checks for "weekly" in target.
+    """
+    window_start = datetime.combine(period_start, time.min, tzinfo=ET)
+    window_end = datetime.combine(period_end, time(23, 59, 59, 999999), tzinfo=ET)
+
+    result = []
+    for proc in classified:
+        if "weekly" not in proc["target"]:
+            continue
+
+        closed_at_str = proc.get("closed_at")
+        if closed_at_str is None:
+            result.append(proc)
+            continue
+
+        closed_et = _parse_dt_et(closed_at_str)
+        if closed_et is None:
+            result.append(proc)
+            continue
+
+        if window_start <= closed_et <= window_end:
+            result.append(proc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Stage exclusions
+# ---------------------------------------------------------------------------
+
+_ISSUES_UUID = "98e21401-58d3-4a6a-b6b0-f22dd11dc831"
+_EXCLUDED_ISSUE_STAGES = frozenset({
+    "Issue Type - Maintenance",
+    "Issue Type - HVAC Filter",
+    "Issue Type - Other",
+})
+
+
+def _get_process_type_id(proc):
+    """Extract process_type UUID from a process dict."""
+    pt = proc.get("process_type") or {}
+    return pt.get("id") or proc.get("process_type_id") or ""
+
+
+def filter_excluded_stages(processes):
+    """
+    Remove processes at hard-excluded stages.
+
+    Currently excludes:
+    - Issues → Maintenance stage (handled by PropertyMeld)
+    - Issues → HVAC Filter stage (routine, non-reportable)
+
+    All other processes pass through unchanged.
+    """
+    result = []
+    for proc in processes:
+        pt_id = _get_process_type_id(proc)
+        if pt_id == _ISSUES_UUID:
+            stage_name = (proc.get("stage") or {}).get("name", "")
+            if stage_name in _EXCLUDED_ISSUE_STAGES:
+                continue
+        result.append(proc)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Milestone gates (leasing-adjacent)
+# ---------------------------------------------------------------------------
+
+_APPLICATION_UUID = "c9927e92-5c41-4c33-8a9e-8dbd6312eeb6"
+_MARKETING_UUID = "942fa5d5-6fc6-4495-8c94-bdb311525172"
+
+MILESTONE_GATES = {
+    _APPLICATION_UUID: frozenset({
+        "Pending Owner Approval",
+        "Lease Signed",
+        "Applicant Withdrew Application",
+    }),
+    _MARKETING_UUID: frozenset({
+        "Going Live",
+        "Property Listed - Weekly Owner Updates",
+        "45+ DOM Listed Properties",
+    }),
+}
+
+
+def apply_milestone_gates(processes):
+    """
+    Filter leasing-adjacent processes to milestone stages only.
+
+    Applications and Marketing: only surface at specific milestone stages.
+    All other process types: pass through unchanged.
+    """
+    result = []
+    for proc in processes:
+        pt_id = _get_process_type_id(proc)
+        if pt_id in MILESTONE_GATES:
+            stage_name = (proc.get("stage") or {}).get("name", "")
+            if stage_name not in MILESTONE_GATES[pt_id]:
+                continue
+        result.append(proc)
     return result
 
 

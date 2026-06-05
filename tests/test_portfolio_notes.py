@@ -324,10 +324,23 @@ class TestGetRecipientsForPeriod:
 # ---------------------------------------------------------------------------
 
 
+def _patch_fetch_once():
+    """Helper to patch the fetch-once calls in generate_portfolio_notes."""
+    return (
+        patch("integrations.leadsimple.client.fetch_processes", return_value=[]),
+        patch("integrations.leadsimple.client.fetch_tasks", return_value=[]),
+    )
+
+
 class TestGeneratePortfolioNotes:
     @patch("comms.services._call_anthropic")
     @patch("comms.services.build_portfolio_section")
-    def test_generates_one_per_portfolio(self, mock_build, mock_ai, portfolios, statements):
+    @patch("integrations.leadsimple.client.fetch_tasks", return_value=[])
+    @patch("integrations.leadsimple.client.fetch_processes", return_value=[])
+    def test_generates_one_per_portfolio(
+        self, mock_fetch_proc, mock_fetch_tasks, mock_build, mock_ai,
+        portfolios, statements,
+    ):
         """Each portfolio gets its own PortfolioMonthlyNote row."""
         mock_build.return_value = {
             "portfolio_name": "Test",
@@ -351,7 +364,11 @@ class TestGeneratePortfolioNotes:
 
     @patch("comms.services._call_anthropic")
     @patch("comms.services.build_portfolio_section")
-    def test_preserves_approved(self, mock_build, mock_ai, portfolios):
+    @patch("integrations.leadsimple.client.fetch_tasks", return_value=[])
+    @patch("integrations.leadsimple.client.fetch_processes", return_value=[])
+    def test_preserves_approved(
+        self, mock_fetch_proc, mock_fetch_tasks, mock_build, mock_ai, portfolios,
+    ):
         """Approved rows are NOT overwritten by regeneration."""
         p = portfolios[0]
         PortfolioMonthlyNote.objects.create(
@@ -381,7 +398,11 @@ class TestGeneratePortfolioNotes:
 
     @patch("comms.services._call_anthropic")
     @patch("comms.services.build_portfolio_section")
-    def test_skips_no_data_portfolio(self, mock_build, mock_ai, portfolios):
+    @patch("integrations.leadsimple.client.fetch_tasks", return_value=[])
+    @patch("integrations.leadsimple.client.fetch_processes", return_value=[])
+    def test_skips_no_data_portfolio(
+        self, mock_fetch_proc, mock_fetch_tasks, mock_build, mock_ai, portfolios,
+    ):
         """Portfolio with no financials/maintenance/pipeline is skipped."""
         mock_build.return_value = {
             "portfolio_name": "Empty",
@@ -400,7 +421,11 @@ class TestGeneratePortfolioNotes:
 
     @patch("comms.services._call_anthropic")
     @patch("comms.services.build_portfolio_section")
-    def test_wipes_drafts_before_regen(self, mock_build, mock_ai, portfolios):
+    @patch("integrations.leadsimple.client.fetch_tasks", return_value=[])
+    @patch("integrations.leadsimple.client.fetch_processes", return_value=[])
+    def test_wipes_drafts_before_regen(
+        self, mock_fetch_proc, mock_fetch_tasks, mock_build, mock_ai, portfolios,
+    ):
         """Draft rows for the period are deleted before regeneration."""
         p = portfolios[0]
         PortfolioMonthlyNote.objects.create(
@@ -427,10 +452,358 @@ class TestGeneratePortfolioNotes:
         assert notes.count() == 1
         assert notes.first().generated_note != "Old draft."
 
+    @patch("comms.services._call_anthropic")
+    @patch("comms.services.build_portfolio_section")
+    @patch("integrations.leadsimple.client.fetch_tasks", return_value=[])
+    @patch("integrations.leadsimple.client.fetch_processes", return_value=[])
+    def test_fetches_processes_and_tasks_once(
+        self, mock_fetch_proc, mock_fetch_tasks, mock_build, mock_ai, portfolios,
+    ):
+        """Processes and tasks are fetched ONCE regardless of portfolio count."""
+        mock_build.return_value = {
+            "portfolio_name": "Test",
+            "financials": {"total_income": 5000, "period_start": PERIOD_START, "period_end": PERIOD_END},
+            "maintenance": {"_has_data": False, "open_count": 0, "closed_count": 0, "canceled_count": 0},
+            "pipeline": {"_has_data": False, "processes_by_category": {}},
+        }
+        mock_ai.return_value = {"intro": "Test intro.", "process_summaries": {}}
+
+        # Generate for all 3 portfolios
+        generate_portfolio_notes(
+            Portfolio.objects.filter(pk__in=[p.pk for p in portfolios]),
+            PERIOD_START, PERIOD_END,
+        )
+
+        # fetch_processes and fetch_tasks called exactly once each
+        assert mock_fetch_proc.call_count == 1
+        assert mock_fetch_tasks.call_count == 1
+        # build_portfolio_section called 3 times (once per portfolio)
+        assert mock_build.call_count == 3
+
 
 # ---------------------------------------------------------------------------
 # API endpoint tests
 # ---------------------------------------------------------------------------
+
+
+class TestUnitRoster:
+    def test_unit_roster_includes_all_active_units(self, portfolios):
+        """build_portfolio_section returns all active units in the portfolio."""
+        p1 = portfolios[0]
+        prop = Property.objects.create(
+            rentvine_id=500, portfolio=p1,
+            address_line_1="100 Main St", city="Asheville",
+            state="NC", postal_code="28801", is_active=True,
+        )
+        from core.models import Unit
+        Unit.objects.create(
+            rentvine_id=501, property=prop, name="100 Main St",
+            address_line_1="100 Main St", is_active=True,
+        )
+        Unit.objects.create(
+            rentvine_id=502, property=prop, name="Inactive Unit",
+            address_line_1="100 Main St", is_active=False,
+        )
+
+        with patch("maintenance.selectors.get_portfolio_maintenance_summary",
+                    return_value={"_has_data": False, "open_count": 0, "closed_count": 0, "canceled_count": 0, "summary_line": "", "notable_items": []}), \
+             patch("integrations.leadsimple.selectors.get_portfolio_pipeline_data",
+                    return_value={"_has_data": False, "processes_by_category": {}, "total_count": 0, "_degraded": False}):
+            section = build_portfolio_section(p1, PERIOD_START, PERIOD_END)
+
+        assert section["unit_count"] == 1  # only active
+        assert len(section["units"]) == 1
+        assert section["units"][0]["address"] == "100 Main St"
+
+    def test_unit_roster_multi_unit_property(self, portfolios):
+        """Multi-unit properties flag is_multi_unit=True."""
+        p1 = portfolios[0]
+        prop = Property.objects.create(
+            rentvine_id=600, portfolio=p1,
+            address_line_1="200 Oak Ave", city="Asheville",
+            state="NC", postal_code="28801", is_active=True,
+        )
+        from core.models import Unit
+        Unit.objects.create(
+            rentvine_id=601, property=prop, name="200 Oak Ave Unit A",
+            address_line_1="200 Oak Ave", unit_number="A", is_active=True,
+        )
+        Unit.objects.create(
+            rentvine_id=602, property=prop, name="200 Oak Ave Unit B",
+            address_line_1="200 Oak Ave", unit_number="B", is_active=True,
+        )
+
+        with patch("maintenance.selectors.get_portfolio_maintenance_summary",
+                    return_value={"_has_data": False, "open_count": 0, "closed_count": 0, "canceled_count": 0, "summary_line": "", "notable_items": []}), \
+             patch("integrations.leadsimple.selectors.get_portfolio_pipeline_data",
+                    return_value={"_has_data": False, "processes_by_category": {}, "total_count": 0, "_degraded": False}):
+            section = build_portfolio_section(p1, PERIOD_START, PERIOD_END)
+
+        assert section["unit_count"] == 2
+        for u in section["units"]:
+            assert u["is_multi_unit"] is True
+
+
+class TestPromptStructuredFacts:
+    def _section_with_pipeline(self, processes_by_category):
+        return {
+            "portfolio_name": "Test Portfolio",
+            "financials": {},
+            "maintenance": {"_has_data": False, "summary_line": ""},
+            "pipeline": {
+                "_has_data": True,
+                "processes_by_category": processes_by_category,
+            },
+            "unit_count": 1,
+            "units": [{"address": "100 Main St", "unit_number": "", "property_id": 1, "is_multi_unit": False}],
+        }
+
+    def test_no_task_count_in_prompt(self):
+        from comms.services import _build_single_portfolio_prompt
+        import re
+
+        section = self._section_with_pipeline({
+            "renewal": [{
+                "process_id": "p1", "name": "Renewal 1",
+                "stage_name": "Upcoming", "stage_status": "working",
+                "address": "100 Main St", "unit_number": "",
+                "status_line": "Lease renewal is upcoming",
+                "activity_band": "actively worked",
+                "surfaced_fragments": ["A renewal offer was sent"],
+            }],
+        })
+        prompt = _build_single_portfolio_prompt(section, PERIOD_START)
+        # No numeric task count like "3 tasks" or "5 completed"
+        assert not re.search(r'\d+\s+task', prompt, re.IGNORECASE)
+        assert not re.search(r'\d+\s+completed', prompt, re.IGNORECASE)
+
+    def test_activity_band_in_prompt(self):
+        from comms.services import _build_single_portfolio_prompt
+
+        section = self._section_with_pipeline({
+            "renewal": [{
+                "process_id": "p1", "name": "Renewal 1",
+                "stage_name": "Upcoming", "stage_status": "working",
+                "address": "100 Main St", "unit_number": "",
+                "status_line": "Lease renewal is upcoming",
+                "activity_band": "actively worked",
+                "surfaced_fragments": [],
+            }],
+        })
+        prompt = _build_single_portfolio_prompt(section, PERIOD_START)
+        assert "actively worked" in prompt
+
+    def test_status_line_from_stage_map(self):
+        from comms.services import _build_single_portfolio_prompt
+
+        section = self._section_with_pipeline({
+            "renewal": [{
+                "process_id": "p1", "name": "Renewal 1",
+                "stage_name": "Upcoming", "stage_status": "working",
+                "address": "100 Main St", "unit_number": "",
+                "status_line": "Lease renewal is upcoming",
+                "activity_band": "",
+                "surfaced_fragments": [],
+            }],
+        })
+        prompt = _build_single_portfolio_prompt(section, PERIOD_START)
+        assert "Lease renewal is upcoming" in prompt
+
+    def test_surfaced_fragments_in_prompt(self):
+        from comms.services import _build_single_portfolio_prompt
+
+        section = self._section_with_pipeline({
+            "renewal": [{
+                "process_id": "p1", "name": "Renewal 1",
+                "stage_name": "Upcoming", "stage_status": "working",
+                "address": "100 Main St", "unit_number": "",
+                "status_line": "Lease renewal is upcoming",
+                "activity_band": "lightly worked",
+                "surfaced_fragments": ["A renewal offer was sent"],
+            }],
+        })
+        prompt = _build_single_portfolio_prompt(section, PERIOD_START)
+        assert "A renewal offer was sent" in prompt
+
+    def test_process_without_framing_excluded_from_facts(self):
+        """Processes without status_line should have been filtered upstream."""
+        from comms.services import _build_single_portfolio_prompt
+
+        # If a process somehow got through without status_line, it should
+        # still render (but with empty status). The gate is in the selector.
+        section = self._section_with_pipeline({
+            "renewal": [{
+                "process_id": "p1", "name": "Renewal 1",
+                "stage_name": "Unknown Stage", "stage_status": "working",
+                "address": "100 Main St", "unit_number": "",
+                "status_line": "",
+                "activity_band": "",
+                "surfaced_fragments": [],
+            }],
+        })
+        prompt = _build_single_portfolio_prompt(section, PERIOD_START)
+        # The prompt still renders but with minimal facts
+        assert "[p1]" in prompt
+
+
+class TestFinancialsAbsentFromPrompt:
+    def test_financials_absent_from_single_portfolio_prompt(self):
+        from comms.services import _build_single_portfolio_prompt
+
+        section = {
+            "portfolio_name": "Test Portfolio",
+            "financials": {
+                "total_income": 5000, "total_expenses": 1000,
+                "total_distribution": 4000, "ending_balance": 4000,
+                "period_start": PERIOD_START, "period_end": PERIOD_END,
+            },
+            "maintenance": {"_has_data": True, "open_count": 2, "closed_count": 1, "canceled_count": 0},
+            "pipeline": {"_has_data": True, "processes_by_category": {
+                "renewal": [{"process_id": "p1", "name": "Test", "stage_name": "Upcoming", "stage_status": "working", "address": "100 Main St"}],
+            }},
+        }
+        prompt = _build_single_portfolio_prompt(section, PERIOD_START)
+        # No dollar signs, no financial labels
+        assert "$" not in prompt
+        assert "Income:" not in prompt
+        assert "Expenses:" not in prompt
+        assert "Distribution:" not in prompt
+        assert "Ending Balance:" not in prompt
+
+    def test_financials_absent_from_portfolio_prompt(self):
+        from comms.services import _build_monthly_prompt_portfolio
+
+        sections = [{
+            "portfolio_name": "Test Portfolio",
+            "financials": {
+                "total_income": 5000, "total_expenses": 1000,
+                "total_distribution": 4000, "ending_balance": 4000,
+                "period_start": PERIOD_START, "period_end": PERIOD_END,
+            },
+            "maintenance": {"_has_data": False},
+            "pipeline": {"_has_data": False, "processes_by_category": {}},
+        }]
+        prompt = _build_monthly_prompt_portfolio(
+            sections, "Test Owner", PERIOD_START, PERIOD_END,
+        )
+        assert "$" not in prompt
+        assert "Income:" not in prompt
+        assert "Expenses:" not in prompt
+
+
+class TestRendererStructure:
+    def _context(self, unit_count, categories, maintenance=None):
+        """Build a renderer context for testing."""
+        from comms.services import _render_notes_html
+        self._render = _render_notes_html
+
+        maint = maintenance or {"has_data": False, "open_count": 0, "closed_count": 0, "canceled_count": 0}
+        return {
+            "ai_intro": "This is the intro.",
+            "portfolio_sections": [{
+                "portfolio_name": "Test Portfolio",
+                "unit_count": unit_count,
+                "units": [],
+                "maintenance": maint,
+                "categories": categories,
+            }],
+        }
+
+    def _make_category(self, label, processes):
+        return {"label": label, "count": len(processes), "processes": processes}
+
+    def _make_process(self, address, unit_number="", ai_summary="Summary text."):
+        return {
+            "process_id": "p1",
+            "name": "Test Process",
+            "address": address,
+            "unit_number": unit_number,
+            "stage_name": "Upcoming",
+            "ai_summary": ai_summary,
+        }
+
+    def test_single_unit_structure(self):
+        """Single-unit portfolio uses category-grouped bullets, no per-unit sections."""
+        from comms.services import _render_notes_html
+
+        ctx = self._context(1, [
+            self._make_category("Lease Renewals", [
+                self._make_process("100 Main St"),
+            ]),
+        ])
+        html = _render_notes_html(ctx)
+        assert "Lease Renewals" in html
+        assert "Summary text." in html
+        # No quiet roll-up for single unit
+        assert "remaining" not in html
+
+    def test_multi_unit_structure(self):
+        """Multi-unit portfolio uses per-unit sections + quiet roll-up."""
+        from comms.services import _render_notes_html
+
+        ctx = self._context(5, [
+            self._make_category("Lease Renewals", [
+                self._make_process("100 Main St", "A"),
+                self._make_process("200 Oak Ave", ""),
+            ]),
+        ])
+        html = _render_notes_html(ctx)
+        # Per-unit headers
+        assert "100 Main St" in html
+        assert "200 Oak Ave" in html
+        # Quiet roll-up (5 total - 2 with activity = 3 remaining)
+        assert "remaining 3 units" in html
+
+    def test_quiet_rollup_phrasing(self):
+        """Roll-up uses 'units' not 'properties'."""
+        from comms.services import _render_notes_html
+
+        ctx = self._context(3, [
+            self._make_category("Issues", [
+                self._make_process("100 Main St"),
+            ]),
+        ])
+        html = _render_notes_html(ctx)
+        assert "units" in html.lower()
+        # Should NOT say "properties"
+        assert "your other properties" not in html.lower()
+
+    def test_unit_header_omits_unit_number_for_single_unit_property(self):
+        """When unit_number is empty, header is just the address."""
+        from comms.services import _render_notes_html
+
+        ctx = self._context(2, [
+            self._make_category("Issues", [
+                self._make_process("100 Main St", ""),
+            ]),
+        ])
+        html = _render_notes_html(ctx)
+        assert "100 Main St" in html
+        assert "Unit" not in html.split("100 Main St")[1].split("</h3>")[0]
+
+    def test_unit_header_includes_unit_number_for_multi_unit_property(self):
+        """When unit_number is present, header includes it."""
+        from comms.services import _render_notes_html
+
+        ctx = self._context(2, [
+            self._make_category("Issues", [
+                self._make_process("200 Oak Ave", "3B"),
+            ]),
+        ])
+        html = _render_notes_html(ctx)
+        assert "200 Oak Ave, Unit 3B" in html
+
+    def test_no_dollars_in_output(self):
+        """No dollar signs in the rendered HTML."""
+        from comms.services import _render_notes_html
+
+        ctx = self._context(1, [
+            self._make_category("Issues", [
+                self._make_process("100 Main St", ai_summary="Just a regular update."),
+            ]),
+        ])
+        html = _render_notes_html(ctx)
+        assert "$" not in html
 
 
 class TestPortfolioNotesAPI:
@@ -580,7 +953,12 @@ def inactive_portfolio():
 class TestIsActiveFiltering:
     @patch("comms.services._call_anthropic")
     @patch("comms.services.build_portfolio_section")
-    def test_generate_skips_inactive(self, mock_build, mock_ai, portfolios, inactive_portfolio, statements):
+    @patch("integrations.leadsimple.client.fetch_tasks", return_value=[])
+    @patch("integrations.leadsimple.client.fetch_processes", return_value=[])
+    def test_generate_skips_inactive(
+        self, mock_fp, mock_ft, mock_build, mock_ai,
+        portfolios, inactive_portfolio, statements,
+    ):
         """generate_portfolio_notes skips inactive portfolios."""
         mock_build.return_value = {
             "portfolio_name": "Test",
@@ -728,7 +1106,9 @@ class TestGenerationLockTTL:
         svc._portfolio_gen_started_at = time.monotonic()
 
         with patch("comms.services._call_anthropic"), \
-             patch("comms.services.build_portfolio_section"):
+             patch("comms.services.build_portfolio_section"), \
+             patch("integrations.leadsimple.client.fetch_processes", return_value=[]), \
+             patch("integrations.leadsimple.client.fetch_tasks", return_value=[]):
             generate_portfolio_notes(
                 Portfolio.objects.none(), PERIOD_START, PERIOD_END,
             )
