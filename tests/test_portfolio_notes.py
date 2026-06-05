@@ -488,6 +488,23 @@ class TestPortfolioNotesAPI:
         assert resp.status_code == 400
 
 
+class TestGenerationProgressAPI:
+    def test_progress_returns_counts(self, client, admin_user, portfolios, portfolio_notes):
+        """GET progress returns generated count from DB and total from scope."""
+        client.force_login(admin_user)
+        resp = client.get("/api/reports/portfolio-notes/progress?month=2026-05")
+        assert resp.status_code == 200
+        data = resp.json()
+        # 3 notes exist for this period; total = active portfolios in scope
+        assert data["generated"] == 3
+        assert data["total"] >= 3
+        assert "running" in data
+
+    def test_progress_requires_auth(self, client):
+        resp = client.get("/api/reports/portfolio-notes/progress?month=2026-05")
+        assert resp.status_code == 401
+
+
 class TestOwnerSendsAPI:
     def test_list_recipients(self, client, admin_user, portfolios, owners, portfolio_notes):
         client.force_login(admin_user)

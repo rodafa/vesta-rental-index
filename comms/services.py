@@ -1257,6 +1257,17 @@ _portfolio_gen_started_at = None  # monotonic timestamp or None
 _PORTFOLIO_GEN_TTL = 1800  # seconds — auto-expire a stuck lock
 
 
+def get_portfolio_generation_scope():
+    """Return the queryset of active portfolios in generation scope.
+
+    Shared by the management command, the progress endpoint, and the
+    generate API so that "total" is computed identically everywhere.
+    """
+    from core.models import Portfolio
+
+    return Portfolio.objects.filter(is_active=True).order_by("name")
+
+
 def _build_single_portfolio_context(section, ai_result, period_label):
     """
     Build template context for a SINGLE portfolio's note rendering.

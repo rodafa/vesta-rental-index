@@ -88,6 +88,10 @@
   .statusbar.is-warn .dot,.statusbar.is-error .dot{background:var(--orange);}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
+  /* ---------- Progress bar ---------- */
+  .progress-bar{height:3px;background:var(--line);overflow:hidden;}
+  .progress-fill{height:100%;width:0;background:var(--sky);transition:width .4s ease;}
+
   /* ---------- Main split ---------- */
   .main{flex:1 1 auto;display:flex;min-height:0;}
   .left{width:380px;flex:0 0 380px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;}
@@ -273,6 +277,7 @@
 
   <!-- ============ STATUS BAR ============ -->
   <div class="statusbar" id="statusbar"><span class="dot"></span><span id="status-text">Ready.</span></div>
+  <div class="progress-bar" id="gen-progress" style="display:none"><div class="progress-fill"></div></div>
 
   <!-- ============ MAIN ============ -->
   <div class="main">

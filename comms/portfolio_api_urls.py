@@ -6,6 +6,7 @@ from . import portfolio_api
 
 urlpatterns = [
     path("generate", portfolio_api.generate_portfolio_notes_api, name="portfolio-notes-generate"),
+    path("progress", portfolio_api.generation_progress, name="portfolio-notes-progress"),
     path("approve-all", portfolio_api.approve_all_portfolio_notes, name="portfolio-notes-approve-all"),
     path("delete-all", portfolio_api.delete_all_portfolio_notes, name="portfolio-notes-delete-all"),
     path("<int:note_id>", portfolio_api.portfolio_note_detail, name="portfolio-notes-detail"),

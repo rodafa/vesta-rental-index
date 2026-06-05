@@ -16,8 +16,7 @@ from datetime import date
 
 from django.core.management.base import BaseCommand, CommandError
 
-from comms.services import generate_portfolio_notes
-from core.models import Portfolio
+from comms.services import generate_portfolio_notes, get_portfolio_generation_scope
 
 
 class Command(BaseCommand):
@@ -54,8 +53,8 @@ class Command(BaseCommand):
         except (ValueError, IndexError):
             raise CommandError(f"Invalid --month format: {month_str!r} (expected YYYY-MM)")
 
-        # Build queryset
-        portfolios = Portfolio.objects.filter(is_active=True).order_by("name")
+        # Build queryset (shared scope with the progress endpoint)
+        portfolios = get_portfolio_generation_scope()
 
         portfolio_filter = options["portfolio"].strip()
         if portfolio_filter:

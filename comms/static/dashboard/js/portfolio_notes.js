@@ -563,7 +563,7 @@
 
   function doGenerate(opts) {
     closeGenerateConfirm();
-    setStatus('running', 'Generating portfolio notes — this may take a few minutes...');
+    setStatus('running', 'Starting generation...');
     $('generate').disabled = true;
     VestaAPI.post('/reports/portfolio-notes/generate', {
       start_date: opts.start || periodStart,
@@ -571,26 +571,43 @@
       dry_run: opts.dryRun || false,
       portfolio_name: opts.portfolioName || '',
     })
-      .then(function () {
-        // Poll for completion
-        var poll = setInterval(function () {
-          loadPortfolioNotes().then(function () {
-            renderCurrentTab();
-            // Keep polling until counts change or timeout
-          });
-        }, 5000);
-        setTimeout(function () {
-          clearInterval(poll);
-          $('generate').disabled = false;
-          setStatus('done', 'Generation complete.');
-          loadAll();
-        }, 10000);
-      })
+      .then(function () { pollProgress(); })
       .catch(function (e) {
         $('generate').disabled = false;
         setStatus('warn', 'Generation failed: ' + e.message);
         toast('Generation failed: ' + e.message, 'warn');
       });
+  }
+
+  function pollProgress() {
+    var url = '/reports/portfolio-notes/progress?month=' + monthParam(periodStart);
+    var poll = setInterval(function () {
+      VestaAPI.get(url)
+        .then(function (d) {
+          var pct = d.total > 0 ? Math.round(d.generated / d.total * 100) : 0;
+          setStatus('running', d.generated + ' of ' + d.total + ' (' + pct + '%)');
+          updateProgressBar(pct);
+          if (!d.running || d.generated >= d.total) {
+            clearInterval(poll);
+            $('generate').disabled = false;
+            setStatus('done', 'Generation complete — ' + d.generated + ' of ' + d.total + ' portfolios.');
+            updateProgressBar(100);
+            setTimeout(function () { hideProgressBar(); loadAll(); }, 800);
+          }
+        })
+        .catch(function () { /* keep polling */ });
+    }, 2500);
+  }
+
+  function updateProgressBar(pct) {
+    var bar = $('gen-progress');
+    if (!bar) return;
+    bar.style.display = '';
+    bar.querySelector('.progress-fill').style.width = pct + '%';
+  }
+  function hideProgressBar() {
+    var bar = $('gen-progress');
+    if (bar) bar.style.display = 'none';
   }
 
   $('generate').addEventListener('click', openGenerateConfirm);

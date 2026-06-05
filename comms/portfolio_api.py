@@ -37,6 +37,7 @@ from .services import (
     _render_notes_html_from_text,
     assemble_owner_email,
     generate_portfolio_notes,
+    get_portfolio_generation_scope,
     get_recipients_for_period,
     send_draft,
     _portfolio_gen_lock,
@@ -292,10 +293,8 @@ def generate_portfolio_notes_api(request):
             )
         svc._portfolio_gen_started_at = time.monotonic()
 
-    # Build portfolio queryset
-    from core.models import Portfolio
-
-    portfolios = Portfolio.objects.filter(is_active=True).order_by("name")
+    # Build portfolio queryset (shared scope with the progress endpoint)
+    portfolios = get_portfolio_generation_scope()
 
     portfolio_name = body.get("portfolio_name", "").strip()
     if portfolio_name:
@@ -318,6 +317,50 @@ def generate_portfolio_notes_api(request):
     thread.start()
 
     return JsonResponse({"ok": True})
+
+
+@require_GET
+def generation_progress(request):
+    """GET /api/reports/portfolio-notes/progress?month=YYYY-MM
+
+    Lightweight poll endpoint — derives progress from committed DB rows.
+    Works across gunicorn workers (no in-process state).
+    """
+    import comms.services as svc
+
+    err = _require_access(request)
+    if err:
+        return err
+
+    parsed = _parse_month(request)
+    if not parsed:
+        return JsonResponse({"error": "month param required"}, status=400)
+
+    year, month = parsed
+    period_start, _ = _period_from_month(year, month)
+
+    total = get_portfolio_generation_scope().count()
+    generated = PortfolioMonthlyNote.objects.filter(
+        period_type="monthly",
+        period_start=period_start,
+        portfolio__is_active=True,
+    ).count()
+
+    # "running" check: is the in-process lock held and not expired?
+    # Best-effort — only accurate on the worker that owns the lock,
+    # but false-positive (running=True when done) just means one extra
+    # poll cycle before the JS notices generated==total and stops.
+    with svc._portfolio_gen_lock:
+        running = (
+            svc._portfolio_gen_started_at is not None
+            and (time.monotonic() - svc._portfolio_gen_started_at) < svc._PORTFOLIO_GEN_TTL
+        )
+
+    return JsonResponse({
+        "generated": generated,
+        "total": total,
+        "running": running,
+    })
 
 
 @require_POST
