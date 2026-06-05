@@ -1344,7 +1344,9 @@ def _build_single_portfolio_generated_note(ai_result, section):
     return "\n\n".join(parts)
 
 
-def generate_portfolio_notes(portfolio_queryset, period_start, period_end, dry_run=False):
+def generate_portfolio_notes(
+    portfolio_queryset, period_start, period_end, dry_run=False, progress_cb=None,
+):
     """
     Generate portfolio-grain monthly notes (Layer 1: PortfolioMonthlyNote).
 
@@ -1354,6 +1356,11 @@ def generate_portfolio_notes(portfolio_queryset, period_start, period_end, dry_r
 
     Wipe-and-regenerate at portfolio grain: deletes DRAFT-status rows for the
     period, preserves APPROVED rows.
+
+    Args:
+        progress_cb: optional callable(index, total, portfolio_name) called
+                     before processing each portfolio. Used by the management
+                     command for visible progress.
 
     Returns dict: {generated, skipped, errors, error_details}.
     """
@@ -1397,7 +1404,13 @@ def generate_portfolio_notes(portfolio_queryset, period_start, period_end, dry_r
     skipped = 0
     errors = []
 
-    for portfolio in portfolio_queryset:
+    # Materialize to a list so we know the total for progress reporting
+    portfolios = list(portfolio_queryset)
+    total = len(portfolios)
+
+    for idx, portfolio in enumerate(portfolios, 1):
+        if progress_cb:
+            progress_cb(idx, total, portfolio.name)
         try:
             # Skip if an approved row already exists
             existing = PortfolioMonthlyNote.objects.filter(

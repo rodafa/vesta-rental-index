@@ -678,8 +678,8 @@ class TestGenerationLockTTL:
         """A stuck lock auto-expires and allows a new generation."""
         client.force_login(admin_user)
 
-        # Simulate a lock that started 11 minutes ago (past TTL)
-        svc._portfolio_gen_started_at = time.monotonic() - 660
+        # Simulate a lock that started 31 minutes ago (past 1800s TTL)
+        svc._portfolio_gen_started_at = time.monotonic() - 1860
 
         with patch("comms.services.generate_portfolio_notes"):
             resp = client.post(
