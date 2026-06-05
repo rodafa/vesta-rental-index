@@ -30,13 +30,16 @@
   }
 
   // --- Period ---
+  function localDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
   function lastMonthStart() {
     var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
-    return d.toISOString().split('T')[0];
+    return localDateStr(d);
   }
   function lastMonthEnd() {
     var d = new Date(); d.setDate(0);
-    return d.toISOString().split('T')[0];
+    return localDateStr(d);
   }
   function monthParam(dateStr) {
     return dateStr.substring(0, 7);
