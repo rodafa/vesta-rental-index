@@ -5,7 +5,7 @@ NO greeting, header, footer, or CTA — those belong to the envelope.
 {% endcomment %}
 
 <!-- LLC heading -->
-<h2 style="margin:24px 0 12px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:8px;">
+<h2 style="margin:24px 0 12px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58;">
   {{ portfolio_name }}
 </h2>
 
@@ -24,14 +24,14 @@ NO greeting, header, footer, or CTA — those belong to the envelope.
     </td>
   </tr>
   {% for item in line_items %}
-  <tr style="background-color:{% cycle '#ffffff' '#f7f9fb' %};">
-    <td style="padding:8px 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#333333; border-bottom:1px solid #e8e8e8;">
+  <tr style="background-color:{% cycle '#ffffff' '#EFF5F9' %};">
+    <td style="padding:8px 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#222222;">
       {{ item.property_address }}
     </td>
-    <td style="padding:8px 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#333333; text-align:right; border-bottom:1px solid #e8e8e8;">
+    <td style="padding:8px 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#222222; text-align:right;">
       ${{ item.expected }}
     </td>
-    <td style="padding:8px 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#333333; text-align:right; border-bottom:1px solid #e8e8e8;">
+    <td style="padding:8px 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#222222; text-align:right;">
       ${{ item.collected }}
     </td>
   </tr>
@@ -52,11 +52,11 @@ NO greeting, header, footer, or CTA — those belong to the envelope.
 
 <!-- Distribution line -->
 <p style="margin:8px 0 16px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
-  Owner Distribution: ${{ distribution_amount }} on {{ distribution_date }}
+  Owner Distribution: <span style="color:#D67011;">${{ distribution_amount }}</span> <span style="font-weight:400; color:#222222;">on {{ distribution_date }}</span>
 </p>
 {% if undeposited_amount %}
 <!-- Undeposited clearing line -->
-<p style="margin:-8px 0 16px; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#777777; font-style:italic;">
+<p style="margin:-8px 0 16px; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222; font-style:italic;">
   As of {{ undeposited_as_of }}, ${{ undeposited_amount }} of rent received was still clearing and will appear in a future distribution.
 </p>
 {% endif %}
