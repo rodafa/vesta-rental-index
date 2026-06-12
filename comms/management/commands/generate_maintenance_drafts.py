@@ -1,28 +1,29 @@
 """
-Management command: generate maintenance email drafts.
+Management command: generate portfolio-grain maintenance notes (Layer 1).
 
 Usage:
     python manage.py generate_maintenance_drafts
-    python manage.py generate_maintenance_drafts --owner-id 42
+    python manage.py generate_maintenance_drafts --portfolio-id 42
     python manage.py generate_maintenance_drafts --period-start 2026-05-25 --period-end 2026-05-31
+    python manage.py generate_maintenance_drafts --dry-run
 """
 
 from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand
 
-from comms.services import generate_drafts
-from core.models import Owner
+from comms.services import generate_portfolio_maintenance_notes
+from core.models import Portfolio
 
 
 class Command(BaseCommand):
-    help = "Generate maintenance email drafts for owners."
+    help = "Generate portfolio-grain maintenance notes (Layer 1). No EmailDrafts created."
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--owner-id",
+            "--portfolio-id",
             type=int,
-            help="Generate for a single owner by ID.",
+            help="Generate for a single portfolio by ID.",
         )
         parser.add_argument(
             "--period-start",
@@ -37,7 +38,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--limit",
             type=int,
-            help="Limit the number of owners to process.",
+            help="Limit the number of portfolios to process.",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Run the pipeline without writing to the database.",
         )
 
     def handle(self, *args, **options):
@@ -58,27 +64,28 @@ class Command(BaseCommand):
             period_end = period_start + timedelta(days=6)
 
         self.stdout.write(
-            f"Generating maintenance drafts for {period_start} to {period_end}..."
+            f"Generating maintenance notes for {period_start} to {period_end}..."
         )
 
-        owners = Owner.objects.filter(is_active=True)
-        if options["owner_id"]:
-            owners = owners.filter(pk=options["owner_id"])
-
-        owners = owners.prefetch_related("portfolios")
+        portfolios = Portfolio.objects.filter(is_active=True)
+        if options["portfolio_id"]:
+            portfolios = portfolios.filter(pk=options["portfolio_id"])
 
         if options["limit"]:
-            owners = owners[: options["limit"]]
+            portfolios = portfolios[: options["limit"]]
 
-        result = generate_drafts(
-            "maintenance", owners, period_start, period_end, period_type="weekly"
+        result = generate_portfolio_maintenance_notes(
+            portfolios,
+            period_start,
+            period_end,
+            period_type="weekly",
+            dry_run=options["dry_run"],
         )
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Done: generated={result['generated']}  "
                 f"skipped={result['skipped']}  "
-                f"degraded={result['degraded']}  "
                 f"errors={result['errors']}"
             )
         )

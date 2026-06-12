@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.conf import settings
 from django.db import models
 
@@ -163,3 +165,148 @@ class PortfolioMonthlyNote(models.Model):
 
     def __str__(self):
         return f"PortfolioMonthlyNote: {self.portfolio} ({self.period_start})"
+
+
+class PortfolioMaintenanceNote(models.Model):
+    """
+    Layer 1 — portfolio-grain authored content for weekly maintenance notes.
+
+    One note per portfolio per period, authored and reviewed ONCE.
+    A portfolio shared by several owners is written once here.
+    Owner-grain maintenance emails are ASSEMBLED from these rows at send time.
+    """
+
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("approved", "Approved"),
+    ]
+
+    portfolio = models.ForeignKey(
+        "core.Portfolio",
+        on_delete=models.CASCADE,
+        related_name="maintenance_notes",
+    )
+    period_type = models.CharField(
+        max_length=10,
+        choices=EmailDraft.PERIOD_TYPE_CHOICES,
+        default="weekly",
+        db_index=True,
+    )
+    period_start = models.DateField()
+    period_end = models.DateField()
+
+    notes_html = models.TextField(
+        blank=True,
+        default="",
+        help_text="Rendered HTML fragment for the maintenance section (inline-styled for SendGrid).",
+    )
+    generated_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="AI-generated plain-text note (the raw output, before human review).",
+    )
+    approved_generated_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-reviewed/edited version of generated_note. Blank = not yet reviewed.",
+    )
+
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
+    )
+
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["portfolio", "period_type", "period_start"],
+                name="unique_maintenance_note_per_period",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["period_type", "period_start", "status"]),
+        ]
+
+    def __str__(self):
+        return f"PortfolioMaintenanceNote: {self.portfolio} ({self.period_start})"
+
+
+class PortfolioDistributionSnapshot(models.Model):
+    """
+    Layer 1 — frozen ledger snapshot for the monthly owner distribution email.
+
+    One row per portfolio per month capturing:
+    - Per-property rent line items (expected vs collected) from the RentVine
+      ledger, frozen at generation time.
+    - The LLC-level owner distribution (amount + date) from the 3250 ledger line.
+
+    No status field — these are ledger numbers, not narrative text.
+    Regeneration overwrites. A snapshot with distribution_amount=0 / date=None
+    means the portfolio had no distribution that month and should be omitted
+    from the owner's email in Step 2.
+    """
+
+    portfolio = models.ForeignKey(
+        "core.Portfolio",
+        on_delete=models.CASCADE,
+        related_name="distribution_snapshots",
+    )
+    period_type = models.CharField(
+        max_length=10,
+        choices=EmailDraft.PERIOD_TYPE_CHOICES,
+        default="monthly",
+        db_index=True,
+    )
+    period_start = models.DateField()
+    period_end = models.DateField()
+
+    distribution_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text="Sum of 3250 Owner Distribution postings for the month.",
+    )
+    distribution_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Latest datePosted among the month's distribution postings.",
+    )
+    line_items = models.JSONField(
+        default=list,
+        help_text=(
+            "Per-property rent snapshot: "
+            '[{"property_id": int, "property_address": str, '
+            '"expected": "0.00", "collected": "0.00"}]'
+        ),
+    )
+
+    undeposited_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text="Rent-only undeposited balance (receipts + prepayment receipts) at build time.",
+    )
+    undeposited_as_of = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date the undeposited balance was pulled from RentVine.",
+    )
+
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["portfolio", "period_type", "period_start"],
+                name="unique_distribution_snapshot_per_period",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["period_type", "period_start"]),
+        ]
+
+    def __str__(self):
+        return f"DistributionSnapshot: {self.portfolio} ({self.period_start})"

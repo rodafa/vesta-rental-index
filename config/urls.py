@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from comms import api as comms_api
+from comms import distribution_api
 from comms import portfolio_api as comms_portfolio_api
 from comms.views import monthly_notes_page
 from config.views import healthcheck
@@ -18,6 +19,9 @@ urlpatterns = [
     path("api/reports/portfolio-notes/", include("comms.portfolio_api_urls")),
     # Owner-grain send API (new — Layer 2 assembled sends)
     path("api/reports/owner-sends/", include("comms.owner_sends_urls")),
+    # Distribution snapshots + send API
+    path("api/reports/distribution-snapshots", distribution_api.list_snapshots, name="distribution-snapshots"),
+    path("api/reports/distribution-sends/", include("comms.distribution_sends_urls")),
     path("api/reports/sync-statements", comms_api.sync_statements, name="sync-statements"),
     path("dashboard/monthly-notes/", monthly_notes_page, name="monthly-notes"),
 ]

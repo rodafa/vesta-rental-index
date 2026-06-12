@@ -1,0 +1,169 @@
+{% comment %}
+Maintenance fragment — rendered into PortfolioMaintenanceNote.notes_html.
+Contains: AI intro, summary stats bar, meld cards. NO greeting, header, footer, or CTA.
+Those belong to the owner-grain envelope (Layer 2).
+{% endcomment %}
+
+{% if ai_intro %}
+<p style="margin:12px 0 0; font-size:15px; line-height:1.5; color:#555555;">
+  {{ ai_intro }}
+</p>
+{% endif %}
+
+<!-- Summary Stats -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 24px;">
+  <tr>
+    <td width="32%" style="text-align:center; padding:16px 8px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#1E3D58;">{{ open_count }}</p>
+      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Open</p>
+    </td>
+    <td width="4"></td>
+    <td width="32%" style="text-align:center; padding:16px 8px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#39B54A;">{{ closed_count }}</p>
+      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Completed</p>
+    </td>
+    <td width="4"></td>
+    <td width="32%" style="text-align:center; padding:16px 8px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#888888;">{{ canceled_count }}</p>
+      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Canceled</p>
+    </td>
+  </tr>
+</table>
+
+{% if open_melds %}
+<!-- Open Work Orders -->
+<h2 style="margin:0 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:8px;">
+  Open Work Orders ({{ open_count }})
+</h2>
+{% for meld in open_melds %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid {% if meld.priority == 'EMERGENCY' %}#e74c3c{% elif meld.priority == 'HIGH' %}#D67011{% else %}#6EA5CD{% endif %};">
+  <tr>
+    <td style="padding:16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td>
+            <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+              {{ meld.unit_address }}
+            </p>
+            <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
+              {% if meld.reference_id %}#{{ meld.reference_id }}{% endif %}{% if meld.reference_id and meld.category %} &bull; {% endif %}{{ meld.category }}
+            </p>
+            <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
+              {{ meld.brief_description }}
+            </p>
+          </td>
+          <td width="80" style="text-align:right; vertical-align:top;">
+            {% if meld.priority == 'EMERGENCY' %}
+            <span style="display:inline-block; padding:3px 8px; background-color:#e74c3c; color:#fff; font-family:Helvetica, Arial, sans-serif; font-size:10px; font-weight:700; border-radius:3px; text-transform:uppercase;">EMERGENCY</span>
+            {% elif meld.priority == 'HIGH' %}
+            <span style="display:inline-block; padding:3px 8px; background-color:#D67011; color:#fff; font-family:Helvetica, Arial, sans-serif; font-size:10px; font-weight:700; border-radius:3px; text-transform:uppercase;">HIGH</span>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+      {% if meld.ai_summary %}
+      <p style="margin:10px 0 0; font-size:14px; line-height:1.4; color:#555555;">
+        {{ meld.ai_summary }}
+      </p>
+      {% endif %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
+        <tr>
+          <td style="font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+            {% if meld.assigned_vendor_name %}{{ meld.assigned_vendor_name }}{% endif %}
+          </td>
+          {% if meld.owner_approval_status == 'Requested' %}
+          <td style="text-align:right;">
+            <span style="display:inline-block; padding:2px 6px; background-color:#f39c12; color:#fff; font-family:Helvetica, Arial, sans-serif; font-size:10px; font-weight:600; border-radius:3px;">APPROVAL REQUESTED</span>
+          </td>
+          {% endif %}
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+{% endfor %}
+{% endif %}
+
+{% if closed_melds %}
+<!-- Completed Section -->
+<h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#39B54A; border-bottom:2px solid #39B54A; padding-bottom:8px;">
+  Completed This Week ({{ closed_count }})
+</h2>
+{% for meld in closed_melds %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #39B54A;">
+  <tr>
+    <td style="padding:16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td>
+            <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+              {{ meld.unit_address }}
+            </p>
+            <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
+              {% if meld.reference_id %}#{{ meld.reference_id }}{% endif %}{% if meld.reference_id and meld.category %} &bull; {% endif %}{{ meld.category }}
+            </p>
+            <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
+              {{ meld.brief_description }}
+            </p>
+          </td>
+        </tr>
+      </table>
+      {% if meld.ai_summary %}
+      <p style="margin:10px 0 0; font-size:14px; line-height:1.4; color:#555555;">
+        {{ meld.ai_summary }}
+      </p>
+      {% endif %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;">
+        <tr>
+          <td style="font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+            {% if meld.assigned_vendor_name %}{{ meld.assigned_vendor_name }}{% endif %}
+            {% if meld.completion_date %}{% if meld.assigned_vendor_name %} &bull; {% endif %}{{ meld.completion_date|date:"M d" }}{% endif %}
+          </td>
+          {% if meld.tenant_rating %}
+          <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+            Tenant: {{ meld.tenant_rating }}/5
+          </td>
+          {% endif %}
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+{% endfor %}
+{% endif %}
+
+{% if canceled_melds %}
+<!-- Canceled Section -->
+<h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#888888; border-bottom:2px solid #cccccc; padding-bottom:8px;">
+  Canceled ({{ canceled_count }})
+</h2>
+{% for meld in canceled_melds %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #cccccc;">
+  <tr>
+    <td style="padding:12px 16px;">
+      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#aaaaaa;">
+        {{ meld.unit_address }}
+      </p>
+      <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
+        {% if meld.reference_id %}#{{ meld.reference_id }}{% endif %}{% if meld.reference_id and meld.category %} &bull; {% endif %}{{ meld.category }}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#888888;">
+        {{ meld.brief_description }}
+      </p>
+      {% if meld.ai_summary %}
+      <p style="margin:8px 0 0; font-size:13px; line-height:1.4; color:#888888;">
+        {{ meld.ai_summary }}
+      </p>
+      {% endif %}
+    </td>
+  </tr>
+</table>
+{% endfor %}
+{% endif %}
+
+{% if not open_melds and not closed_melds and not canceled_melds %}
+<!-- No activity -->
+<p style="margin:24px 0; font-size:15px; line-height:1.5; color:#555555; text-align:center;">
+  No maintenance activity to report this week. Everything is running smoothly.
+</p>
+{% endif %}

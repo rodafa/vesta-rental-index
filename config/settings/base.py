@@ -162,3 +162,14 @@ LEADSIMPLE_API_KEY = os.environ.get("LEADSIMPLE_API_KEY", "")
 LEADSIMPLE_BASE_URL = os.environ.get(
     "LEADSIMPLE_BASE_URL", "https://api.leadsimple.com/rest"
 )
+
+# --- Owner Distribution Email ---
+
+# RentVine internal chargeAccountID values (not GL numbers).
+# 13 = #4100 Rent Income, 14 = #4105 Government Assistance Rent
+RENT_INCOME_ACCOUNT_IDS = {13, 14}
+# 10 = #3250 Owner Distribution
+OWNER_DISTRIBUTION_ACCOUNT_ID = 10
+
+# Owner portal URL — required for live sends; blank blocks --live.
+OWNER_PORTAL_URL = os.environ.get("OWNER_PORTAL_URL", "")

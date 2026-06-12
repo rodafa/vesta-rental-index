@@ -20,7 +20,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from sendgrid.helpers.mail import Cc, Mail, SandBoxMode, MailSettings
 
-from .models import EmailDraft, PortfolioMonthlyNote, VoiceGuide
+from .models import EmailDraft, PortfolioMaintenanceNote, PortfolioMonthlyNote, VoiceGuide
 from .registry import PRODUCTS
 
 logger = logging.getLogger(__name__)
@@ -201,30 +201,6 @@ def _call_anthropic(voice_guide_text, user_prompt):
 # ---------------------------------------------------------------------------
 # Per-product prompt builders
 # ---------------------------------------------------------------------------
-
-
-def _build_maintenance_prompt(data, owner_name, period_start, period_end):
-    """Build the AI prompt for a maintenance email."""
-    open_payload = _build_meld_payload(data["open_melds"], "Open work orders")
-    closed_payload = _build_meld_payload(
-        data["closed_melds"], "Completed this week"
-    )
-    canceled_payload = _build_meld_payload(
-        data["canceled_melds"], "Canceled this week"
-    )
-
-    return (
-        f"Write a maintenance email for {owner_name}.\n"
-        f"Period: {period_start} to {period_end}.\n\n"
-        f"{open_payload}\n\n"
-        f"{closed_payload}\n\n"
-        f"{canceled_payload}\n\n"
-        "Write:\n"
-        "1. A brief greeting intro (1-2 sentences summarizing counts)\n"
-        "2. For each work order identified by its [ID], a concise 1-2 sentence "
-        "summary. Do NOT include the ID in the summary text.\n\n"
-        'Return valid JSON only: {"intro": "...", "meld_summaries": {"<id>": "..."}}'
-    )
 
 
 CATEGORY_LABELS = {
@@ -440,27 +416,6 @@ def _build_single_portfolio_prompt(section, period_start):
 # ---------------------------------------------------------------------------
 # Per-product context builders
 # ---------------------------------------------------------------------------
-
-
-def _build_maintenance_context(data, ai_result, period_label):
-    """Attach AI summaries to meld dicts and build the maintenance template context."""
-    summaries = ai_result.get("meld_summaries", {})
-    for section in ("open_melds", "closed_melds", "canceled_melds"):
-        for meld_dict in data.get(section, []):
-            pm_id = meld_dict["property_meld_id"]
-            meld_dict["ai_summary"] = summaries.get(pm_id, "")
-
-    return {
-        "owner_first_name": data["owner_first_name"],
-        "ai_intro": ai_result.get("intro", ""),
-        "open_melds": data.get("open_melds", []),
-        "closed_melds": data.get("closed_melds", []),
-        "canceled_melds": data.get("canceled_melds", []),
-        "open_count": len(data.get("open_melds", [])),
-        "closed_count": len(data.get("closed_melds", [])),
-        "canceled_count": len(data.get("canceled_melds", [])),
-        "period_label": period_label,
-    }
 
 
 def _build_monthly_context(data, ai_result, period_label):
@@ -1636,6 +1591,208 @@ def generate_portfolio_notes(
 
 
 # ---------------------------------------------------------------------------
+# Portfolio-grain maintenance notes (Layer 1)
+# ---------------------------------------------------------------------------
+
+
+def _build_maintenance_prompt_portfolio(data, portfolio_name, period_start, period_end):
+    """
+    Build the AI prompt for a portfolio-grain maintenance note.
+
+    Owner-agnostic — no owner name, no cross-portfolio references.
+    AI returns: {"intro": "...", "meld_summaries": {"<property_meld_id>": "..."}}
+    """
+    open_payload = _build_meld_payload(data["open_melds"], "Open work orders")
+    closed_payload = _build_meld_payload(
+        data["closed_melds"], "Completed this week"
+    )
+    canceled_payload = _build_meld_payload(
+        data["canceled_melds"], "Canceled this week"
+    )
+
+    return (
+        f"Write a maintenance update for the portfolio \"{portfolio_name}\".\n"
+        f"Period: {period_start} to {period_end}.\n\n"
+        f"{open_payload}\n\n"
+        f"{closed_payload}\n\n"
+        f"{canceled_payload}\n\n"
+        "Write:\n"
+        "1. A brief intro (1-2 sentences summarizing counts)\n"
+        "2. For each work order identified by its [ID], a concise 1-2 sentence "
+        "summary. Do NOT include the ID in the summary text.\n\n"
+        'Return valid JSON only: {"intro": "...", "meld_summaries": {"<id>": "..."}}'
+    )
+
+
+def _build_maintenance_generated_note(ai_result):
+    """Build plain-text generated_note from AI result (intro + bullet summaries)."""
+    parts = []
+    intro = ai_result.get("intro", "")
+    if intro:
+        parts.append(intro)
+
+    summaries = ai_result.get("meld_summaries", {})
+    if summaries:
+        parts.append(
+            "\n".join(f"- {s}" for s in summaries.values() if s)
+        )
+
+    return "\n\n".join(parts)
+
+
+def generate_portfolio_maintenance_notes(
+    portfolio_queryset, period_start, period_end,
+    period_type="weekly", dry_run=False,
+):
+    """
+    Generate portfolio-grain maintenance notes (Layer 1: PortfolioMaintenanceNote).
+
+    One Anthropic call per portfolio. Owner-agnostic.
+
+    Wipe-and-regenerate at portfolio grain: deletes DRAFT-status rows for the
+    period, preserves APPROVED rows and rows with approved_generated_note.
+
+    Returns dict: {generated, skipped, errors, error_details}.
+    """
+    from maintenance.selectors import get_portfolio_maintenance_data
+
+    # Enforce: never generate for inactive portfolios
+    portfolio_queryset = portfolio_queryset.filter(is_active=True)
+    voice_guide = _get_or_create_voice_guide("maintenance")
+
+    if not dry_run:
+        deleted_count = PortfolioMaintenanceNote.objects.filter(
+            period_type=period_type,
+            period_start=period_start,
+            status="draft",
+            approved_generated_note="",
+        ).delete()[0]
+        if deleted_count:
+            logger.info(
+                "comms_maintenance_notes_cleared",
+                extra={"deleted": deleted_count, "period_start": str(period_start)},
+            )
+
+    generated = 0
+    skipped = 0
+    errors = []
+
+    portfolios = list(portfolio_queryset)
+
+    for portfolio in portfolios:
+        try:
+            # Skip if an approved row already exists
+            existing = PortfolioMaintenanceNote.objects.filter(
+                portfolio=portfolio,
+                period_type=period_type,
+                period_start=period_start,
+            ).first()
+            if existing and (
+                existing.status == "approved"
+                or existing.approved_generated_note
+            ):
+                logger.info(
+                    "comms_maintenance_note_locked",
+                    extra={
+                        "portfolio": portfolio.name,
+                        "note_id": existing.pk,
+                        "status": existing.status,
+                    },
+                )
+                skipped += 1
+                continue
+
+            # Gather portfolio-grain meld data
+            data = get_portfolio_maintenance_data(
+                portfolio, period_start, period_end
+            )
+
+            if not data["_has_data"]:
+                logger.info(
+                    "comms_maintenance_note_no_activity",
+                    extra={"portfolio": portfolio.name},
+                )
+                skipped += 1
+                continue
+
+            # Owner-agnostic AI call
+            user_prompt = _build_maintenance_prompt_portfolio(
+                data, portfolio.name, period_start, period_end
+            )
+            ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
+
+            # Attach AI summaries to meld dicts for template rendering
+            summaries = ai_result.get("meld_summaries", {})
+            for section in ("open_melds", "closed_melds", "canceled_melds"):
+                for meld_dict in data.get(section, []):
+                    pm_id = meld_dict["property_meld_id"]
+                    meld_dict["ai_summary"] = summaries.get(pm_id, "")
+
+            # Render fragment template
+            period_label = _format_period_label(
+                period_type, period_start, period_end
+            )
+            context = {
+                "ai_intro": ai_result.get("intro", ""),
+                "open_melds": data["open_melds"],
+                "closed_melds": data["closed_melds"],
+                "canceled_melds": data["canceled_melds"],
+                "open_count": len(data["open_melds"]),
+                "closed_count": len(data["closed_melds"]),
+                "canceled_count": len(data["canceled_melds"]),
+                "period_label": period_label,
+            }
+            notes_html = render_to_string(
+                "comms/emails/maintenance_fragment.html", context
+            )
+
+            # Build plain-text note
+            generated_note = _build_maintenance_generated_note(ai_result)
+
+            if dry_run:
+                logger.info(
+                    "comms_maintenance_note_dry_run",
+                    extra={
+                        "portfolio": portfolio.name,
+                        "note_length": len(generated_note),
+                    },
+                )
+                generated += 1
+                continue
+
+            PortfolioMaintenanceNote.objects.update_or_create(
+                portfolio=portfolio,
+                period_type=period_type,
+                period_start=period_start,
+                defaults={
+                    "period_end": period_end,
+                    "notes_html": notes_html,
+                    "generated_note": generated_note,
+                    "approved_generated_note": "",
+                    "status": "draft",
+                },
+            )
+            generated += 1
+
+            logger.info(
+                "comms_maintenance_note_generated",
+                extra={"portfolio": portfolio.name},
+            )
+
+        except Exception as exc:
+            msg = f"Error generating maintenance note for {portfolio.name}: {exc}"
+            logger.exception(msg)
+            errors.append(msg)
+
+    return {
+        "generated": generated,
+        "skipped": skipped,
+        "errors": len(errors),
+        "error_details": errors[:20],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Owner-email assembly (Layer 2 — the SINGLE source for preview/test/send)
 # ---------------------------------------------------------------------------
 
@@ -1758,6 +1915,112 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
         "owner_name": owner_name,
         "financials_html": "\n".join(p for p in financials_parts if p),
         "notes_html": "\n".join(p for p in notes_parts if p),
+        "portfolios": portfolio_info,
+        "all_approved": all_approved,
+    }
+
+
+def assemble_owner_maintenance_email(recipient_email, period_start, period_type="weekly"):
+    """
+    Pure function. Assemble a maintenance owner email for one recipient
+    from portfolio-grain PortfolioMaintenanceNote rows.
+
+    Returns dict or None:
+        None — zero-activity owner (no notes for this period).
+        {
+            "owner_name": str,
+            "body_html": str,          # Full HTML email (envelope + fragments)
+            "portfolios": [
+                {"id": int, "name": str, "status": str}, ...
+            ],
+            "all_approved": bool,
+        }
+
+    Uses notes_html AS-IS (card-based fragments — no re-render from text).
+    Quiet portfolios (no note this period) are simply omitted.
+    """
+    from core.models import Owner, Portfolio
+
+    norm_email = _normalize_email(recipient_email)
+    if not norm_email:
+        return None
+
+    # Group active owners sharing this email, union their portfolios
+    owners = list(
+        Owner.objects.filter(
+            is_active=True,
+            email__iexact=norm_email,
+        ).prefetch_related("portfolios")
+    )
+    if not owners:
+        return None
+
+    # Representative owner (lowest PK, deterministic)
+    rep_owner = min(owners, key=lambda o: o.pk)
+    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+
+    # Union portfolios, dedupe by PK
+    portfolio_pks = set()
+    for owner in owners:
+        for pk in owner.portfolios.values_list("pk", flat=True):
+            portfolio_pks.add(pk)
+
+    if not portfolio_pks:
+        return None
+
+    # Fetch portfolio notes for this period, ordered alphabetically
+    portfolios = Portfolio.objects.filter(
+        pk__in=portfolio_pks, is_active=True,
+    ).order_by("name")
+
+    notes_parts = []
+    portfolio_info = []
+    all_approved = True
+
+    for portfolio in portfolios:
+        note = PortfolioMaintenanceNote.objects.filter(
+            portfolio=portfolio,
+            period_type=period_type,
+            period_start=period_start,
+        ).first()
+
+        if not note:
+            # Quiet portfolio — simply omit (no "no activity" line)
+            continue
+
+        portfolio_info.append({
+            "id": portfolio.pk,
+            "name": portfolio.name,
+            "status": note.status,
+        })
+
+        if note.status != "approved":
+            all_approved = False
+
+        # Use notes_html AS-IS (card-based fragments, never re-render from text)
+        if note.notes_html:
+            notes_parts.append(note.notes_html)
+
+    # Zero-activity owner — no notes found at all
+    if not notes_parts:
+        return None
+
+    # Render envelope with concatenated fragments
+    period_end = period_start + __import__("datetime").timedelta(days=6)
+    period_label = _format_period_label(period_type, period_start, period_end)
+
+    body_html = render_to_string(
+        "comms/emails/maintenance_envelope.html",
+        {
+            "owner_first_name": owner_name,
+            "period_label": period_label,
+            "fragments_html": "\n".join(notes_parts),
+        },
+    )
+
+    return {
+        "owner_name": owner_name,
+        "body_html": body_html,
         "portfolios": portfolio_info,
         "all_approved": all_approved,
     }
@@ -2014,5 +2277,357 @@ def send_draft(
         "sendgrid_message_id": sg_message_id,
     }
     logger.info("comms_send_draft_ok", extra=result)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Owner Distribution snapshots (Layer 1)
+# ---------------------------------------------------------------------------
+
+
+def build_distribution_snapshot(portfolio, month_start, month_end, transactions):
+    """
+    Pure function. Calls selectors over pre-fetched transactions and
+    assembles the snapshot payload for one portfolio.
+
+    Returns dict ready for upsert_distribution_snapshot():
+        {
+            "portfolio": Portfolio,
+            "period_start": date,
+            "period_end": date,
+            "distribution_amount": Decimal,
+            "distribution_date": date | None,
+            "line_items": [{"property_id", "property_address",
+                            "expected", "collected"}],
+        }
+    """
+    from datetime import date as date_type
+
+    from .selectors import get_portfolio_distribution, get_rent_by_property
+
+    rent_data = get_rent_by_property(
+        portfolio, month_start, month_end, transactions
+    )
+    dist_data = get_portfolio_distribution(
+        portfolio, month_start, month_end, transactions
+    )
+
+    # Convert Decimals to strings for JSON serialization
+    line_items = [
+        {
+            "property_id": item["property_id"],
+            "property_address": item["property_address"],
+            "expected": str(item["expected"]),
+            "collected": str(item["collected"]),
+        }
+        for item in rent_data
+    ]
+
+    # Parse distribution date string to date object
+    dist_date = None
+    if dist_data["date"]:
+        try:
+            dist_date = date_type.fromisoformat(dist_data["date"])
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "portfolio": portfolio,
+        "period_start": month_start,
+        "period_end": month_end,
+        "distribution_amount": dist_data["amount"],
+        "distribution_date": dist_date,
+        "line_items": line_items,
+    }
+
+
+def upsert_distribution_snapshot(payload):
+    """
+    Thin atomic writer. Idempotent upsert keyed on
+    (portfolio, period_type="monthly", period_start).
+
+    Returns (snapshot_instance, was_created).
+    """
+    from .models import PortfolioDistributionSnapshot
+
+    defaults = {
+        "period_end": payload["period_end"],
+        "distribution_amount": payload["distribution_amount"],
+        "distribution_date": payload["distribution_date"],
+        "line_items": payload["line_items"],
+    }
+    if "undeposited_amount" in payload:
+        defaults["undeposited_amount"] = payload["undeposited_amount"]
+    if "undeposited_as_of" in payload:
+        defaults["undeposited_as_of"] = payload["undeposited_as_of"]
+
+    snapshot, created = PortfolioDistributionSnapshot.objects.update_or_create(
+        portfolio=payload["portfolio"],
+        period_type="monthly",
+        period_start=payload["period_start"],
+        defaults=defaults,
+    )
+
+    action = "created" if created else "updated"
+    logger.info(
+        "comms_distribution_snapshot_upserted",
+        extra={
+            "portfolio": str(payload["portfolio"]),
+            "period_start": str(payload["period_start"]),
+            "action": action,
+            "distribution_amount": str(payload["distribution_amount"]),
+            "property_count": len(payload["line_items"]),
+        },
+    )
+
+    return snapshot, created
+
+
+# ---------------------------------------------------------------------------
+# Owner Distribution email assembly + send (Layer 2)
+# ---------------------------------------------------------------------------
+
+
+def assemble_owner_distribution_email(recipient_email, period_start, period_type="monthly"):
+    """
+    Assemble an owner-grain distribution email from PortfolioDistributionSnapshot rows.
+
+    Returns dict | None:
+      - None if owner has zero qualifying portfolios (no distribution_amount > 0 with date set)
+      - Otherwise: {"owner_name", "body_html", "portfolios", "subject"}
+
+    Inclusion gate: a portfolio is included ONLY if distribution_amount > 0 AND distribution_date is set.
+    """
+    from datetime import date as date_type
+    from decimal import Decimal
+
+    from django.conf import settings
+
+    from core.models import Owner, Portfolio
+
+    from .models import PortfolioDistributionSnapshot
+
+    norm_email = _normalize_email(recipient_email)
+    if not norm_email:
+        return None
+
+    # Group active owners sharing this email, union their portfolios
+    owners = list(
+        Owner.objects.filter(
+            is_active=True,
+            email__iexact=norm_email,
+        ).prefetch_related("portfolios")
+    )
+    if not owners:
+        return None
+
+    # Representative owner (lowest PK, deterministic)
+    rep_owner = min(owners, key=lambda o: o.pk)
+    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+
+    # Union portfolios, dedupe by PK
+    portfolio_pks = set()
+    for owner in owners:
+        for pk in owner.portfolios.values_list("pk", flat=True):
+            portfolio_pks.add(pk)
+
+    if not portfolio_pks:
+        return None
+
+    # Fetch portfolios sorted by name
+    portfolios = Portfolio.objects.filter(
+        pk__in=portfolio_pks, is_active=True,
+    ).order_by("name")
+
+    fragments = []
+    portfolio_info = []
+    grand_expected = Decimal("0")
+    grand_collected = Decimal("0")
+    grand_distribution = Decimal("0")
+
+    for portfolio in portfolios:
+        snapshot = PortfolioDistributionSnapshot.objects.filter(
+            portfolio=portfolio,
+            period_type=period_type,
+            period_start=period_start,
+        ).first()
+
+        if not snapshot:
+            continue
+
+        # Inclusion gate: must have distribution_amount > 0 AND distribution_date set
+        if snapshot.distribution_amount <= 0 or snapshot.distribution_date is None:
+            continue
+
+        # Compute subtotals from line_items
+        total_expected = sum(Decimal(item["expected"]) for item in snapshot.line_items)
+        total_collected = sum(Decimal(item["collected"]) for item in snapshot.line_items)
+
+        # Format line items for template
+        formatted_items = [
+            {
+                "property_address": item["property_address"],
+                "expected": f"{Decimal(item['expected']):,.2f}",
+                "collected": f"{Decimal(item['collected']):,.2f}",
+            }
+            for item in snapshot.line_items
+        ]
+
+        fragment_context = {
+            "portfolio_name": portfolio.name,
+            "line_items": formatted_items,
+            "total_expected": f"{total_expected:,.2f}",
+            "total_collected": f"{total_collected:,.2f}",
+            "distribution_amount": f"{snapshot.distribution_amount:,.2f}",
+            "distribution_date": snapshot.distribution_date.strftime("%b %d, %Y"),
+        }
+        if snapshot.undeposited_amount and snapshot.undeposited_amount > 0:
+            fragment_context["undeposited_amount"] = f"{snapshot.undeposited_amount:,.2f}"
+            if snapshot.undeposited_as_of:
+                fragment_context["undeposited_as_of"] = (
+                    snapshot.undeposited_as_of.strftime("%b %d, %Y").replace(" 0", " ")
+                )
+
+        fragment_html = render_to_string(
+            "comms/emails/distribution_fragment.html",
+            fragment_context,
+        )
+        fragments.append(fragment_html)
+
+        portfolio_info.append({
+            "id": portfolio.pk,
+            "name": portfolio.name,
+        })
+
+        grand_expected += total_expected
+        grand_collected += total_collected
+        grand_distribution += snapshot.distribution_amount
+
+    # Zero qualifying fragments → no email
+    if not fragments:
+        return None
+
+    # Compute period label and by-date for statement reminder
+    import calendar
+
+    period_label = _format_period_label(period_type, period_start, period_start)
+    month_name = period_start.strftime("%B")
+
+    # by_date = 5th of month after period_start
+    if period_start.month == 12:
+        next_month = date_type(period_start.year + 1, 1, 5)
+    else:
+        next_month = date_type(period_start.year, period_start.month + 1, 5)
+    by_date = next_month.strftime("%B %d").replace(" 0", " ")
+
+    portal_url = getattr(settings, "OWNER_PORTAL_URL", "")
+    show_grand_total = len(fragments) > 1
+
+    body_html = render_to_string(
+        "comms/emails/distribution_envelope.html",
+        {
+            "owner_first_name": owner_name,
+            "period_label": period_label,
+            "fragments_html": "\n".join(fragments),
+            "show_grand_total": show_grand_total,
+            "grand_total_expected": f"{grand_expected:,.2f}",
+            "grand_total_collected": f"{grand_collected:,.2f}",
+            "grand_total_distribution": f"{grand_distribution:,.2f}",
+            "month_name": month_name,
+            "by_date": by_date,
+            "portal_url": portal_url,
+        },
+    )
+
+    subject = f"Your {month_name} distribution from Vesta"
+
+    return {
+        "owner_name": owner_name,
+        "body_html": body_html,
+        "portfolios": portfolio_info,
+        "subject": subject,
+    }
+
+
+def send_distribution_email(
+    recipient_email, period_start, period_type, period_end,
+    acting_user, recipient_override=None, sandbox=False,
+):
+    """
+    Single guarded send helper — both CLI and dashboard route through this.
+
+    Returns:
+      - "already_sent" if EmailDraft with status="sent" already exists
+      - "no_activity" if assemble returns None
+      - dict with send result on success
+
+    Raises ValueError if OWNER_PORTAL_URL is blank in live mode.
+    """
+    from django.conf import settings
+
+    from core.models import Owner
+
+    norm_email = _normalize_email(recipient_email)
+
+    # 1. Already-sent skip
+    already_sent = EmailDraft.objects.filter(
+        product="owner_distributions",
+        recipient_email=norm_email,
+        period_type=period_type,
+        period_start=period_start,
+        status="sent",
+    ).exists()
+    if already_sent:
+        return "already_sent"
+
+    # 2. Assemble
+    assembled = assemble_owner_distribution_email(
+        norm_email, period_start, period_type=period_type,
+    )
+    if assembled is None:
+        return "no_activity"
+
+    # 3. OWNER_PORTAL_URL guard — live mode requires it
+    portal_url = getattr(settings, "OWNER_PORTAL_URL", "")
+    is_live = not sandbox and recipient_override is None
+    if not portal_url and is_live:
+        raise ValueError(
+            "OWNER_PORTAL_URL is not set. Refusing live send without portal URL."
+        )
+
+    # 4. Upsert EmailDraft
+    rep_owner = Owner.objects.filter(
+        is_active=True,
+        email__iexact=norm_email,
+    ).order_by("pk").first()
+
+    if not rep_owner:
+        return "no_activity"
+
+    draft, _ = EmailDraft.objects.update_or_create(
+        product="owner_distributions",
+        owner=rep_owner,
+        period_type=period_type,
+        period_start=period_start,
+        defaults={
+            "recipient_email": norm_email,
+            "subject": assembled["subject"],
+            "body_html": assembled["body_html"],
+            "generated_note": "",
+            "period_end": period_end,
+            "status": "approved",
+            "sent_at": None,
+            "sent_by": None,
+        },
+    )
+
+    # 5. Send
+    result = send_draft(
+        draft=draft,
+        acting_user=acting_user,
+        recipient_override=recipient_override,
+        sandbox=sandbox,
+    )
 
     return result

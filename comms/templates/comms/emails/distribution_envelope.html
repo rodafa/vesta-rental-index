@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monthly Owner Distribution</title>
+</head>
+<body style="margin:0; padding:0; background-color:#EFF5F9; font-family:Georgia, serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1E3D58; padding:32px 40px; text-align:center;">
+              <h1 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:26px; font-weight:700; color:#ffffff; letter-spacing:-0.5px;">
+                Monthly Owner Distribution
+              </h1>
+              <p style="margin:8px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#6EA5CD;">
+                Vesta Property Management
+              </p>
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="padding:32px 40px 8px;">
+              <p style="margin:0; font-size:16px; line-height:1.5; color:#333333;">
+                Hi {{ owner_first_name }},
+              </p>
+              <p style="margin:12px 0 0; font-size:15px; line-height:1.5; color:#555555;">
+                Your {{ month_name }} distribution is on the way — here's a quick summary.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Portfolio fragments (concatenated AS-IS) -->
+          <tr>
+            <td style="padding:0 40px 24px;">
+              {{ fragments_html|safe }}
+            </td>
+          </tr>
+
+          {% if show_grand_total %}
+          <!-- Grand Total (multi-LLC only) -->
+          <tr>
+            <td style="padding:0 40px 24px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; border-top:3px solid #1E3D58;">
+                <tr style="background-color:#EFF5F9;">
+                  <td style="padding:12px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58;">
+                    Grand Total
+                  </td>
+                  <td style="padding:12px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58; text-align:right; width:110px;">
+                    ${{ grand_total_expected }}
+                  </td>
+                  <td style="padding:12px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58; text-align:right; width:110px;">
+                    ${{ grand_total_collected }}
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="3" style="padding:10px 12px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58;">
+                    Total Distribution: ${{ grand_total_distribution }}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Gap copy -->
+          <tr>
+            <td style="padding:0 40px 8px;">
+              <p style="margin:0; font-size:14px; line-height:1.5; color:#555555;">
+                Your distribution reflects rent collected, less expenses and reserves. The full breakdown is in your owner portal.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Statement reminder -->
+          <tr>
+            <td style="padding:0 40px 24px;">
+              <p style="margin:0; font-size:14px; line-height:1.5; color:#555555;">
+                Your complete {{ month_name }} statement, with the full breakdown of bills and expenses, will be available in your owner portal by {{ by_date }}.
+              </p>
+            </td>
+          </tr>
+
+          {% if portal_url %}
+          <!-- Owner Portal CTA -->
+          <tr>
+            <td style="padding:16px 40px 16px; text-align:center;">
+              <!--[if mso]>
+              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ portal_url }}" style="height:48px;v-text-anchor:middle;width:360px;" arcsize="13%" fillcolor="#1E3D58" stroke="f">
+                <w:anchorlock/>
+                <center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;">View Your Ledger</center>
+              </v:roundrect>
+              <![endif]-->
+              <!--[if !mso]><!--><a href="{{ portal_url }}" target="_blank" style="display:inline-block; padding:14px 32px; background-color:#1E3D58; color:#ffffff; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; text-decoration:none; border-radius:6px; mso-hide:all;">View Your Ledger</a><!--<![endif]-->
+            </td>
+          </tr>
+          {% endif %}
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:32px 40px; background-color:#1E3D58; margin-top:24px;">
+              <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD; text-align:center;">
+                Questions about your distribution? Reply to this email.
+              </p>
+              <p style="margin:12px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#4a7a9e; text-align:center;">
+                Vesta Property Management &bull; Asheville, NC
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
