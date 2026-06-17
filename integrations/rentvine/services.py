@@ -32,6 +32,7 @@ from .mappers import (
     map_property,
     map_tenant_from_lease,
     map_unit,
+    map_work_order,
 )
 
 # RentVine transactionTypeID=7 identifies bill charge transactions
@@ -987,3 +988,156 @@ def link_owners_from_portfolio_contacts():
                 )
 
     return {"linked": linked, "skipped": skipped}
+
+
+class WorkOrderSyncService(_BaseSyncService):
+    """
+    Sync work orders from RentVine GET /maintenance/work-orders.
+
+    Resolves FKs to core.Property, core.Unit, core.Portfolio, and core.Lease
+    by RentVine ID. Leaves FKs null when the referenced object hasn't been
+    synced yet — never crashes on a missing reference.
+    """
+
+    endpoint = "maintenance/work-orders"
+
+    def sync(self, dry_run=False):
+        from maintenance.models import WorkOrder
+
+        log = self._create_log()
+        try:
+            records = self.client.get_all("/maintenance/work-orders")
+        except Exception as exc:
+            self._fail_log(log, exc)
+            raise
+
+        created_count = 0
+        updated_count = 0
+        errors = []
+        resolved_property = 0
+        resolved_unit = 0
+        resolved_portfolio = 0
+        resolved_lease = 0
+        resolved_vendor = 0
+
+        for record in records:
+            try:
+                (
+                    rentvine_id,
+                    property_rv_id,
+                    unit_rv_id,
+                    portfolio_rv_id,
+                    lease_rv_id,
+                    defaults,
+                ) = map_work_order(record)
+
+                if dry_run:
+                    logger.info(
+                        "DRY RUN work_order %s: number=%s, property=%s, unit=%s",
+                        rentvine_id,
+                        defaults.get("work_order_number"),
+                        property_rv_id,
+                        unit_rv_id,
+                    )
+                    continue
+
+                # Resolve Property FK
+                prop = None
+                if property_rv_id:
+                    try:
+                        prop = Property.objects.get(rentvine_id=property_rv_id)
+                        resolved_property += 1
+                    except Property.DoesNotExist:
+                        logger.warning(
+                            "Property %s not found for work order %s",
+                            property_rv_id,
+                            rentvine_id,
+                        )
+                defaults["property"] = prop
+
+                # Resolve Unit FK
+                unit = None
+                if unit_rv_id:
+                    try:
+                        unit = Unit.objects.get(rentvine_id=unit_rv_id)
+                        resolved_unit += 1
+                    except Unit.DoesNotExist:
+                        logger.warning(
+                            "Unit %s not found for work order %s",
+                            unit_rv_id,
+                            rentvine_id,
+                        )
+                defaults["unit"] = unit
+
+                # Resolve Portfolio FK (with fallback through property)
+                portfolio = None
+                if portfolio_rv_id:
+                    try:
+                        portfolio = Portfolio.objects.get(
+                            rentvine_id=portfolio_rv_id
+                        )
+                    except Portfolio.DoesNotExist:
+                        logger.warning(
+                            "Portfolio %s not found for work order %s",
+                            portfolio_rv_id,
+                            rentvine_id,
+                        )
+                if portfolio is None and prop and prop.portfolio_id:
+                    portfolio = prop.portfolio
+                if portfolio:
+                    resolved_portfolio += 1
+                defaults["portfolio"] = portfolio
+
+                # Resolve Lease FK
+                lease = None
+                if lease_rv_id:
+                    try:
+                        lease = Lease.objects.get(rentvine_id=lease_rv_id)
+                        resolved_lease += 1
+                    except Lease.DoesNotExist:
+                        logger.warning(
+                            "Lease %s not found for work order %s",
+                            lease_rv_id,
+                            rentvine_id,
+                        )
+                defaults["lease"] = lease
+
+                # Vendor resolution counter
+                if defaults.get("vendor_contact_id"):
+                    resolved_vendor += 1
+
+                _, was_created = WorkOrder.objects.update_or_create(
+                    rentvine_id=rentvine_id,
+                    defaults=defaults,
+                )
+                if was_created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+
+            except Exception as exc:
+                msg = f"Error syncing work order record: {exc}"
+                logger.error(msg)
+                errors.append(msg)
+
+        self._complete_log(
+            log,
+            created=created_count,
+            updated=updated_count,
+            fetched=len(records),
+            errors=errors,
+        )
+
+        result = {
+            "fetched": len(records),
+            "created": created_count,
+            "updated": updated_count,
+            "errors": len(errors),
+            "resolved_property": resolved_property,
+            "resolved_unit": resolved_unit,
+            "resolved_portfolio": resolved_portfolio,
+            "resolved_lease": resolved_lease,
+            "resolved_vendor": resolved_vendor,
+        }
+        logger.info("WorkOrderSync result: %s", result)
+        return result

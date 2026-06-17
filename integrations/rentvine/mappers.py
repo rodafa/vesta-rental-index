@@ -644,3 +644,144 @@ def map_portfolio_statement(data):
     }
 
     return rentvine_statement_id, portfolio_rentvine_id, defaults
+
+
+# ---------------------------------------------------------------------------
+# WorkOrder mapper
+# ---------------------------------------------------------------------------
+
+
+def map_work_order(data):
+    """
+    Map a RentVine work-order record to model fields.
+
+    API envelope: {"workOrder": {...}, "contact": {...}}.
+    "contact" carries the assigned vendor's details (null when unassigned).
+
+    Returns (rentvine_id, property_rv_id, unit_rv_id, portfolio_rv_id,
+             lease_rv_id, defaults_dict).
+    """
+    raw_data = data
+
+    # Unwrap envelope
+    wo = data.get("workOrder", data) if isinstance(data, dict) else data
+    contact = data.get("contact") if isinstance(data, dict) else None
+
+    rentvine_id = _safe_int(_get(wo, "workOrderID", "id", default=None))
+    if rentvine_id is None:
+        raise ValueError(f"Work order record missing workOrderID: {wo}")
+
+    # FK target IDs (resolved by the sync service)
+    property_rv_id = _safe_int(
+        _get(wo, "propertyID", "property_id", default=None)
+    )
+    unit_rv_id = _safe_int(
+        _get(wo, "unitID", "unit_id", default=None)
+    )
+    portfolio_rv_id = _safe_int(
+        _get(wo, "portfolioID", "portfolio_id", default=None)
+    )
+    lease_rv_id = _safe_int(
+        _get(wo, "leaseID", "lease_id", default=None)
+    )
+
+    # Vendor from sibling contact block
+    vendor_contact_id = None
+    vendor_name = ""
+    if isinstance(contact, dict):
+        vendor_contact_id = _safe_int(
+            _get(contact, "contactID", "contact_id", "id", default=None)
+        )
+        vendor_name = str(
+            _get(
+                contact,
+                "ownerPortalNameOverride",
+                "name",
+                "contactName",
+                default="",
+            )
+        )
+
+    defaults = {
+        "work_order_number": str(
+            _get(wo, "workOrderNumber", "number", default="")
+        ),
+        "description": str(_get(wo, "description", default="")),
+        "priority_id": _safe_int(
+            _get(wo, "priorityID", "priority_id", default=None)
+        ),
+        "vendor_trade_id": _safe_int(
+            _get(wo, "vendorTradeID", "vendor_trade_id", default=None)
+        ),
+        "estimated_amount": _safe_decimal(
+            _get(wo, "estimatedAmount", "estimated_amount", default=None)
+        ),
+        # Vendor
+        "vendor_contact_id": vendor_contact_id,
+        "vendor_name": vendor_name,
+        # Flags
+        "is_internal": _safe_bool(
+            _get(wo, "isInternal", "is_internal", default=False)
+        ),
+        "is_vacant": _safe_bool(
+            _get(wo, "isVacant", "is_vacant", default=False)
+        ),
+        "is_owner_approved": _safe_bool(
+            _get(wo, "isOwnerApproved", "is_owner_approved", default=False)
+        ),
+        "is_shared_with_owner": _safe_bool(
+            _get(wo, "isSharedWithOwner", "is_shared_with_owner", default=False)
+        ),
+        "is_shared_with_tenant": _safe_bool(
+            _get(wo, "isSharedWithTenant", "is_shared_with_tenant", default=False)
+        ),
+        # Lifecycle — raw status IDs
+        "primary_work_order_status_id": _safe_int(
+            _get(wo, "primaryWorkOrderStatusID", default=None)
+        ),
+        "work_order_status_id": _safe_int(
+            _get(wo, "workOrderStatusID", default=None)
+        ),
+        "vendor_work_order_status_id": _safe_int(
+            _get(wo, "vendorWorkOrderStatusID", default=None)
+        ),
+        "portal_vendor_work_order_status_id": _safe_int(
+            _get(wo, "portalVendorWorkOrderStatusID", default=None)
+        ),
+        "closed_by_user_id": _safe_int(
+            _get(wo, "closedByUserID", "closed_by_user_id", default=None)
+        ),
+        "cancelled_by_user_id": _safe_int(
+            _get(wo, "cancelledByUserID", "cancelled_by_user_id", default=None)
+        ),
+        # Dates (UTC datetimes)
+        "source_created_at": _safe_datetime(
+            _get(wo, "dateTimeCreated", "createdAt", default=None)
+        ),
+        "source_modified_at": _safe_datetime(
+            _get(wo, "dateTimeModified", "modifiedAt", default=None)
+        ),
+        # Dates (date-only)
+        "date_closed": _safe_date(
+            _get(wo, "dateClosed", "date_closed", default=None)
+        ),
+        "date_due": _safe_date(
+            _get(wo, "dateDue", "date_due", default=None)
+        ),
+        "scheduled_start_date": _safe_date(
+            _get(wo, "scheduledStartDate", "scheduled_start_date", default=None)
+        ),
+        "scheduled_end_date": _safe_date(
+            _get(wo, "scheduledEndDate", "scheduled_end_date", default=None)
+        ),
+        "actual_start_date": _safe_date(
+            _get(wo, "actualStartDate", "actual_start_date", default=None)
+        ),
+        "actual_end_date": _safe_date(
+            _get(wo, "actualEndDate", "actual_end_date", default=None)
+        ),
+        # Raw
+        "raw_data": raw_data,
+    }
+
+    return rentvine_id, property_rv_id, unit_rv_id, portfolio_rv_id, lease_rv_id, defaults
