@@ -60,6 +60,11 @@ class Command(BaseCommand):
             )
         )
 
+        from accounting.models import Bill
+
+        wo_linked = Bill.objects.filter(work_order_id__isnull=False).count()
+        self.stdout.write(f"  Bills with work_order_id: {wo_linked}")
+
         # --- Bill charges ---
         self.stdout.write("Syncing bill charges from RentVine...")
         charge_result = BillChargeSyncService().sync(

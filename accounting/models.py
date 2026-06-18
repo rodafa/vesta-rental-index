@@ -87,6 +87,14 @@ class Bill(models.Model):
         db_index=True,
     )
 
+    work_order_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="RentVine workOrderID from /accounting/bills. "
+        "Join to WorkOrder.rentvine_id — no FK to avoid sync-ordering coupling.",
+    )
+
     raw_data = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

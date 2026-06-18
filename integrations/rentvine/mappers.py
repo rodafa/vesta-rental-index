@@ -545,6 +545,7 @@ def map_bill(data):
         "payment_memo": str(_get(bill, "paymentMemo", "payment_memo", default="") or ""),
         "description": str(_get(bill, "description", default="") or ""),
         "is_voided": _safe_bool(_get(bill, "isVoided", "is_voided", default="0")),
+        "work_order_id": _safe_int(_get(bill, "workOrderID", "work_order_id", default=None)),
         "raw_data": data,
     }
 
