@@ -35,16 +35,19 @@ Vesta Property Management.
 Voice: Trustworthy, approachable, transparent. You are a knowledgeable property \
 manager giving a clear, factual update — not a salesperson.
 
+Four sections: Awaiting Approval, Approved & Underway, Completed, Cancelled.
+
 Rules:
 - Write in first person plural ("We resolved the issue", "Our team scheduled")
 - 1-2 sentences per work order, never more
 - State facts: what happened, who did it, when
-- For open items: present tense, mention vendor and scheduled date if known
+- For items awaiting approval: flag clearly but not alarmingly
+- For approved/underway items: present tense, mention vendor and scheduled date if known
 - For completed items: past tense, mention vendor and completion date
-- For canceled items: past tense, brief — just note it was canceled
-- For items needing owner approval: flag clearly but not alarmingly
+- For cancelled items: past tense, brief — just note it was cancelled
 - No jargon, no filler, no speculation
-- Do NOT include meld reference numbers or ticket IDs in your prose
+- Do NOT include work order numbers or ticket IDs in your prose
+- NEVER expose dollar figures in your prose — costs are shown structurally
 - The intro paragraph should be 1-2 sentences summarizing the week's activity \
 count (e.g. "This week there are 3 open work orders and 2 were completed.")
 - Do not editorialize or add unnecessary reassurance\
@@ -150,6 +153,67 @@ def _build_meld_payload(melds, section_label):
             parts.append("OWNER APPROVAL REQUESTED")
         lines.append(" | ".join(parts))
     return "\n".join(lines)
+
+
+def _build_work_order_payload(items, section_label):
+    """Format a list of work-order dicts into structured text for the AI prompt."""
+    if not items:
+        return f"{section_label}: none"
+
+    lines = [f"{section_label} ({len(items)}):"]
+    for wo in items:
+        parts = [
+            f"  - [{wo['work_order_number']}]",
+            f"Address: {wo['unit_address']}",
+            f"Issue: {wo['description'][:200]}",
+        ]
+        if wo.get("vendor_name"):
+            parts.append(f"Vendor: {wo['vendor_name']}")
+        if wo.get("cost"):
+            parts.append(f"Cost: ${wo['cost']}")
+        if wo.get("scheduled_start_date"):
+            parts.append(f"Scheduled: {wo['scheduled_start_date']}")
+        if wo.get("date_closed"):
+            parts.append(f"Completed: {wo['date_closed']}")
+        lines.append(" | ".join(parts))
+    return "\n".join(lines)
+
+
+def _build_maintenance_prompt_work_orders(
+    data, portfolio_name, period_start, period_end
+):
+    """
+    Build the AI prompt for a portfolio-grain maintenance note using WorkOrder data.
+
+    Owner-agnostic — no owner name, no cross-portfolio references.
+    AI returns: {"intro": "...", "wo_summaries": {"<work_order_number>": "..."}}
+    """
+    awaiting = _build_work_order_payload(
+        data["awaiting_approval"], "Awaiting owner approval"
+    )
+    approved = _build_work_order_payload(
+        data["approved_underway"], "Approved & underway"
+    )
+    completed = _build_work_order_payload(
+        data["completed"], "Completed this week"
+    )
+    cancelled = _build_work_order_payload(
+        data["cancelled"], "Cancelled this week"
+    )
+
+    return (
+        f'Write a maintenance update for the portfolio "{portfolio_name}".\n'
+        f"Period: {period_start} to {period_end}.\n\n"
+        f"{awaiting}\n\n"
+        f"{approved}\n\n"
+        f"{completed}\n\n"
+        f"{cancelled}\n\n"
+        "Write:\n"
+        "1. A brief intro (1-2 sentences summarizing counts)\n"
+        "2. For each work order identified by its [ID], a concise 1-2 sentence "
+        "summary. Do NOT include the ID or dollar figures in the summary text.\n\n"
+        'Return valid JSON only: {"intro": "...", "wo_summaries": {"<id>": "..."}}'
+    )
 
 
 def _format_period_label(period_type, period_start, period_end):
@@ -1631,7 +1695,7 @@ def _build_maintenance_generated_note(ai_result):
     if intro:
         parts.append(intro)
 
-    summaries = ai_result.get("meld_summaries", {})
+    summaries = ai_result.get("wo_summaries", {})
     if summaries:
         parts.append(
             "\n".join(f"- {s}" for s in summaries.values() if s)
@@ -1648,13 +1712,14 @@ def generate_portfolio_maintenance_notes(
     Generate portfolio-grain maintenance notes (Layer 1: PortfolioMaintenanceNote).
 
     One Anthropic call per portfolio. Owner-agnostic.
+    Data source: maintenance.WorkOrder (RentVine-native).
 
     Wipe-and-regenerate at portfolio grain: deletes DRAFT-status rows for the
     period, preserves APPROVED rows and rows with approved_generated_note.
 
     Returns dict: {generated, skipped, errors, error_details}.
     """
-    from maintenance.selectors import get_portfolio_maintenance_data
+    from maintenance.selectors import get_portfolio_work_order_data
 
     # Enforce: never generate for inactive portfolios
     portfolio_queryset = portfolio_queryset.filter(is_active=True)
@@ -1702,8 +1767,8 @@ def generate_portfolio_maintenance_notes(
                 skipped += 1
                 continue
 
-            # Gather portfolio-grain meld data
-            data = get_portfolio_maintenance_data(
+            # Gather portfolio-grain work-order data
+            data = get_portfolio_work_order_data(
                 portfolio, period_start, period_end
             )
 
@@ -1716,17 +1781,22 @@ def generate_portfolio_maintenance_notes(
                 continue
 
             # Owner-agnostic AI call
-            user_prompt = _build_maintenance_prompt_portfolio(
+            user_prompt = _build_maintenance_prompt_work_orders(
                 data, portfolio.name, period_start, period_end
             )
             ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
 
-            # Attach AI summaries to meld dicts for template rendering
-            summaries = ai_result.get("meld_summaries", {})
-            for section in ("open_melds", "closed_melds", "canceled_melds"):
-                for meld_dict in data.get(section, []):
-                    pm_id = meld_dict["property_meld_id"]
-                    meld_dict["ai_summary"] = summaries.get(pm_id, "")
+            # Attach AI summaries to work-order dicts for template rendering
+            summaries = ai_result.get("wo_summaries", {})
+            for section in (
+                "awaiting_approval",
+                "approved_underway",
+                "completed",
+                "cancelled",
+            ):
+                for wo_dict in data.get(section, []):
+                    wo_num = wo_dict["work_order_number"]
+                    wo_dict["ai_summary"] = summaries.get(wo_num, "")
 
             # Render fragment template
             period_label = _format_period_label(
@@ -1734,12 +1804,14 @@ def generate_portfolio_maintenance_notes(
             )
             context = {
                 "ai_intro": ai_result.get("intro", ""),
-                "open_melds": data["open_melds"],
-                "closed_melds": data["closed_melds"],
-                "canceled_melds": data["canceled_melds"],
-                "open_count": len(data["open_melds"]),
-                "closed_count": len(data["closed_melds"]),
-                "canceled_count": len(data["canceled_melds"]),
+                "awaiting_approval": data["awaiting_approval"],
+                "approved_underway": data["approved_underway"],
+                "completed": data["completed"],
+                "cancelled": data["cancelled"],
+                "awaiting_count": len(data["awaiting_approval"]),
+                "approved_count": len(data["approved_underway"]),
+                "completed_count": len(data["completed"]),
+                "cancelled_count": len(data["cancelled"]),
                 "period_label": period_label,
             }
             notes_html = render_to_string(

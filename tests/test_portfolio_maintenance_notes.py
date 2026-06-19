@@ -3,7 +3,8 @@ Tests for the portfolio-grain maintenance notes system (Layer 1).
 
 Production-shaped fixtures:
   - Portfolio with multiple properties (single-unit and multi-unit)
-  - Melds in all buckets: open, closed, canceled, needs_approval
+  - Melds in all buckets: open, closed, canceled, needs_approval (Meld selector tests)
+  - WorkOrders in four buckets (generation & fragment tests)
   - Exclusions: merged melds, routine lawn/mowing
   - Portfolio with no activity (should be skipped)
 """
@@ -17,11 +18,15 @@ from comms.models import PortfolioMaintenanceNote
 from comms.services import (
     generate_portfolio_maintenance_notes,
     _build_maintenance_prompt_portfolio,
+    _build_maintenance_prompt_work_orders,
     _build_maintenance_generated_note,
 )
 from core.models import Owner, Portfolio, Property, Unit
-from maintenance.models import Meld
-from maintenance.selectors import get_portfolio_maintenance_data
+from maintenance.models import Meld, WorkOrder
+from maintenance.selectors import (
+    get_portfolio_maintenance_data,
+    get_portfolio_work_order_data,
+)
 
 
 pytestmark = pytest.mark.django_db
@@ -185,18 +190,77 @@ def melds(prop_single, prop_multi, unit_single, unit_multi_a, unit_multi_b):
 
 
 @pytest.fixture
+def work_orders(portfolio, prop_single, prop_multi, unit_single, unit_multi_a, unit_multi_b):
+    """
+    Production-shaped work-order set (four-bucket structure):
+      - 1 awaiting approval (open, not approved)
+      - 1 approved & underway (open, approved)
+      - 1 completed within window
+      - 1 cancelled within window
+    """
+    awaiting = WorkOrder.objects.create(
+        rentvine_id=1001,
+        work_order_number="WO-1001",
+        description="<p>Leaky faucet in kitchen</p>",
+        portfolio=portfolio,
+        property=prop_single,
+        unit=unit_single,
+        vendor_name="Quick Plumb LLC",
+        is_owner_approved=False,
+        source_created_at=datetime(2026, 5, 26, 10, 0, tzinfo=timezone.utc),
+    )
+    approved = WorkOrder.objects.create(
+        rentvine_id=1002,
+        work_order_number="WO-1002",
+        description="<div>HVAC not cooling unit B</div>",
+        portfolio=portfolio,
+        property=prop_multi,
+        unit=unit_multi_b,
+        vendor_name="CoolAir Services",
+        is_owner_approved=True,
+        scheduled_start_date=date(2026, 5, 30),
+        source_created_at=datetime(2026, 5, 27, 14, 0, tzinfo=timezone.utc),
+    )
+    completed = WorkOrder.objects.create(
+        rentvine_id=1003,
+        work_order_number="WO-1003",
+        description="Replaced smoke detector batteries",
+        portfolio=portfolio,
+        property=prop_multi,
+        unit=unit_multi_a,
+        vendor_name="In-House",
+        is_owner_approved=True,
+        closed_by_user_id=1,
+        date_closed=date(2026, 5, 28),
+        source_created_at=datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc),
+    )
+    cancelled = WorkOrder.objects.create(
+        rentvine_id=1004,
+        work_order_number="WO-1004",
+        description="Tenant-reported noise issue",
+        portfolio=portfolio,
+        property=prop_single,
+        unit=unit_single,
+        cancelled_by_user_id=1,
+        source_modified_at=datetime(2026, 5, 29, 16, 0, tzinfo=timezone.utc),
+        source_created_at=datetime(2026, 5, 25, 10, 0, tzinfo=timezone.utc),
+    )
+    return awaiting, approved, completed, cancelled
+
+
+@pytest.fixture
 def mock_anthropic():
     """Mock Anthropic API to return portfolio-grain maintenance summaries."""
     mock_message = MagicMock()
     mock_message.content = [
         MagicMock(
             text='{"intro": "This week your portfolio has 2 open work orders, '
-            '1 completed, and 1 canceled.", '
-            '"meld_summaries": {'
-            '"PM100": "Quick Plumb LLC is addressing a kitchen faucet leak at 123 Main St.", '
-            '"PM101": "CoolAir Services has been assigned to investigate the HVAC issue in Unit B. Owner approval has been requested.", '
-            '"PM102": "Smoke detector batteries were replaced in Unit A — completed by in-house staff.", '
-            '"PM103": "The tenant-reported noise issue was canceled by the tenant."}}'
+            '1 completed, and 1 cancelled.", '
+            '"wo_summaries": {'
+            '"WO-1001": "Quick Plumb LLC is addressing a kitchen faucet leak at 123 Main St.", '
+            '"WO-1002": "CoolAir Services has been assigned to investigate the HVAC issue in Unit B.", '
+            '"WO-1003": "Smoke detector batteries were replaced in Unit A — completed by in-house staff.", '
+            '"WO-1004": "The tenant-reported noise issue was cancelled by the tenant."}}'
         )
     ]
     mock_client = MagicMock()
@@ -307,9 +371,9 @@ class TestBuildMaintenanceGeneratedNote:
     def test_builds_plain_text(self):
         ai_result = {
             "intro": "Two open, one closed.",
-            "meld_summaries": {
-                "PM100": "Faucet leak being repaired.",
-                "PM101": "HVAC issue assigned.",
+            "wo_summaries": {
+                "WO-1001": "Faucet leak being repaired.",
+                "WO-1002": "HVAC issue assigned.",
             },
         }
         note = _build_maintenance_generated_note(ai_result)
@@ -318,7 +382,7 @@ class TestBuildMaintenanceGeneratedNote:
         assert "- HVAC issue assigned." in note
 
     def test_empty_summaries(self):
-        ai_result = {"intro": "No activity.", "meld_summaries": {}}
+        ai_result = {"intro": "No activity.", "wo_summaries": {}}
         note = _build_maintenance_generated_note(ai_result)
         assert note == "No activity."
 
@@ -330,7 +394,7 @@ class TestBuildMaintenanceGeneratedNote:
 
 class TestGeneratePortfolioMaintenanceNotes:
     @patch("comms.services.anthropic.Anthropic")
-    def test_generates_note_per_portfolio(self, mock_anthro, portfolio, melds, mock_anthropic):
+    def test_generates_note_per_portfolio(self, mock_anthro, portfolio, work_orders, mock_anthropic):
         mock_anthro.side_effect = mock_anthropic
         with patch("comms.services.anthropic.Anthropic", mock_anthropic):
             result = generate_portfolio_maintenance_notes(
@@ -364,7 +428,7 @@ class TestGeneratePortfolioMaintenanceNotes:
         mock_anthropic.return_value.messages.create.assert_not_called()
 
     @patch("comms.services.anthropic.Anthropic")
-    def test_preserves_approved_note(self, mock_anthro, portfolio, melds, mock_anthropic):
+    def test_preserves_approved_note(self, mock_anthro, portfolio, work_orders, mock_anthropic):
         """Approved rows are never overwritten."""
         mock_anthro.side_effect = mock_anthropic
         PortfolioMaintenanceNote.objects.create(
@@ -390,7 +454,7 @@ class TestGeneratePortfolioMaintenanceNotes:
 
     @patch("comms.services.anthropic.Anthropic")
     def test_preserves_note_with_approved_generated_note(
-        self, mock_anthro, portfolio, melds, mock_anthropic
+        self, mock_anthro, portfolio, work_orders, mock_anthropic
     ):
         """Notes with approved_generated_note set are never overwritten, even if status=draft."""
         mock_anthro.side_effect = mock_anthropic
@@ -415,7 +479,7 @@ class TestGeneratePortfolioMaintenanceNotes:
         assert note.approved_generated_note == "Human-edited version."
 
     @patch("comms.services.anthropic.Anthropic")
-    def test_wipes_stale_drafts(self, mock_anthro, portfolio, melds, mock_anthropic):
+    def test_wipes_stale_drafts(self, mock_anthro, portfolio, work_orders, mock_anthropic):
         """Draft rows are wiped on regeneration."""
         mock_anthro.side_effect = mock_anthropic
         PortfolioMaintenanceNote.objects.create(
@@ -459,7 +523,7 @@ class TestGeneratePortfolioMaintenanceNotes:
         ).exists()
 
     @patch("comms.services.anthropic.Anthropic")
-    def test_no_email_drafts_created(self, mock_anthro, portfolio, melds, mock_anthropic):
+    def test_no_email_drafts_created(self, mock_anthro, portfolio, work_orders, mock_anthropic):
         """Layer 1 generation NEVER creates EmailDraft rows."""
         from comms.models import EmailDraft
 
@@ -480,8 +544,8 @@ class TestGeneratePortfolioMaintenanceNotes:
 
 class TestMaintenanceFragmentRender:
     @patch("comms.services.anthropic.Anthropic")
-    def test_fragment_contains_meld_descriptions(
-        self, mock_anthro, portfolio, melds, mock_anthropic
+    def test_fragment_contains_work_order_descriptions(
+        self, mock_anthro, portfolio, work_orders, mock_anthropic
     ):
         mock_anthro.side_effect = mock_anthropic
         with patch("comms.services.anthropic.Anthropic", mock_anthropic):
@@ -493,7 +557,7 @@ class TestMaintenanceFragmentRender:
         note = PortfolioMaintenanceNote.objects.get(portfolio=portfolio)
         html = note.notes_html
 
-        # Meld descriptions present
+        # Work order descriptions present (HTML stripped)
         assert "Leaky faucet in kitchen" in html
         assert "HVAC not cooling unit B" in html
         assert "Replaced smoke detector batteries" in html
@@ -501,7 +565,7 @@ class TestMaintenanceFragmentRender:
 
     @patch("comms.services.anthropic.Anthropic")
     def test_fragment_contains_ai_summaries(
-        self, mock_anthro, portfolio, melds, mock_anthropic
+        self, mock_anthro, portfolio, work_orders, mock_anthropic
     ):
         mock_anthro.side_effect = mock_anthropic
         with patch("comms.services.anthropic.Anthropic", mock_anthropic):
@@ -519,7 +583,7 @@ class TestMaintenanceFragmentRender:
 
     @patch("comms.services.anthropic.Anthropic")
     def test_fragment_contains_stats_bar(
-        self, mock_anthro, portfolio, melds, mock_anthropic
+        self, mock_anthro, portfolio, work_orders, mock_anthropic
     ):
         mock_anthro.side_effect = mock_anthropic
         with patch("comms.services.anthropic.Anthropic", mock_anthropic):
@@ -531,13 +595,16 @@ class TestMaintenanceFragmentRender:
         note = PortfolioMaintenanceNote.objects.get(portfolio=portfolio)
         html = note.notes_html
 
-        # Stats bar counts present
-        assert ">2<" in html  # open count
-        assert ">1<" in html  # closed/canceled counts
+        # Four-bucket stats bar: each bucket has 1 item
+        assert ">1<" in html
+        assert "Awaiting" in html
+        assert "Underway" in html
+        assert "Completed" in html
+        assert "Cancelled" in html
 
     @patch("comms.services.anthropic.Anthropic")
     def test_fragment_no_envelope_elements(
-        self, mock_anthro, portfolio, melds, mock_anthropic
+        self, mock_anthro, portfolio, work_orders, mock_anthropic
     ):
         """Fragment must NOT contain envelope elements (greeting, header, footer, CTA)."""
         mock_anthro.side_effect = mock_anthropic
@@ -558,7 +625,7 @@ class TestMaintenanceFragmentRender:
 
     @patch("comms.services.anthropic.Anthropic")
     def test_fragment_contains_ai_intro(
-        self, mock_anthro, portfolio, melds, mock_anthropic
+        self, mock_anthro, portfolio, work_orders, mock_anthropic
     ):
         mock_anthro.side_effect = mock_anthropic
         with patch("comms.services.anthropic.Anthropic", mock_anthropic):

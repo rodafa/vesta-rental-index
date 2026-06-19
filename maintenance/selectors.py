@@ -5,15 +5,20 @@ Logic lives here; views and commands are thin orchestrators.
 """
 
 import logging
+import re
 from decimal import Decimal
 
 from django.db.models import Q, Sum
+from django.utils.html import strip_tags
 
 from integrations.property_meld.mappers import EMAIL_CANCELED_BUCKET, EMAIL_CLOSED_BUCKET
 
-from .models import Meld
+from .models import Meld, WorkOrder
 
 logger = logging.getLogger(__name__)
+
+# Regex to collapse whitespace runs left after HTML stripping.
+_WHITESPACE_RUN = re.compile(r"\s+")
 
 
 # ---------------------------------------------------------------------------
@@ -368,3 +373,162 @@ def get_meld_costs(meld_ids: list[int]) -> dict[int, Decimal]:
         .annotate(total=Sum("amount"))
     )
     return {row["bill__meld_id"]: row["total"] for row in rows}
+
+
+# ---------------------------------------------------------------------------
+# WorkOrder selectors (RentVine-native, replaces Meld for weekly emails)
+# ---------------------------------------------------------------------------
+
+
+def _clean_html(raw_html: str) -> str:
+    """Strip HTML tags and collapse whitespace into clean plain text."""
+    if not raw_html:
+        return ""
+    return _WHITESPACE_RUN.sub(" ", strip_tags(raw_html)).strip()
+
+
+def _work_order_to_dict(wo, cost=None):
+    """Convert a WorkOrder instance to a plain dict for template/AI consumption."""
+    unit_address = ""
+    if wo.unit:
+        unit_address = wo.unit.display_address
+    elif wo.property:
+        unit_address = str(wo.property)
+
+    return {
+        "id": wo.pk,
+        "work_order_number": wo.work_order_number,
+        "description": _clean_html(wo.description),
+        "vendor_name": wo.vendor_name,
+        "is_owner_approved": wo.is_owner_approved,
+        "estimated_amount": wo.estimated_amount,
+        "date_closed": wo.date_closed,
+        "scheduled_start_date": wo.scheduled_start_date,
+        "source_created_at": wo.source_created_at,
+        "source_modified_at": wo.source_modified_at,
+        "unit_address": unit_address,
+        "cost": cost,
+    }
+
+
+def get_work_order_costs(rentvine_ids: list[int]) -> dict[int, Decimal]:
+    """
+    Batch cost lookup for work orders via the native bill.work_order_id link.
+
+    Returns {work_order_rentvine_id: Decimal} for work orders that have
+    charges. Missing keys mean no charges (None semantics).
+    """
+    from accounting.models import BillCharge
+
+    if not rentvine_ids:
+        return {}
+
+    rows = (
+        BillCharge.objects.filter(
+            bill__work_order_id__in=rentvine_ids,
+            bill__is_voided=False,
+            is_voided=False,
+        )
+        .values("bill__work_order_id")
+        .annotate(total=Sum("amount"))
+    )
+    return {row["bill__work_order_id"]: row["total"] for row in rows}
+
+
+def get_portfolio_work_order_data(portfolio, period_start, period_end):
+    """
+    Gather work orders for a single portfolio, grouped into four email buckets.
+
+    All work orders for the portfolio are included — no isSharedWithOwner filter,
+    no isInternal exclusion.
+
+    Buckets (using validated lifecycle fields, not status-ID enums):
+      - awaiting_approval: open AND is_owner_approved=False
+      - approved_underway: open AND is_owner_approved=True
+      - completed: closed within the 7-day window
+      - cancelled: cancelled within the 7-day window
+
+    Open work orders are included regardless of age. Completed/cancelled are
+    windowed to 7 days. Windowing uses America/New_York dates (source
+    timestamps are UTC).
+    """
+    import zoneinfo
+
+    tz_east = zoneinfo.ZoneInfo("America/New_York")
+
+    base_qs = WorkOrder.objects.filter(portfolio=portfolio).select_related(
+        "unit", "property"
+    )
+
+    # "Open" = not cancelled AND not closed
+    open_q = Q(cancelled_by_user_id__isnull=True) & Q(
+        closed_by_user_id__isnull=True, date_closed__isnull=True
+    )
+
+    awaiting_qs = list(
+        base_qs.filter(open_q, is_owner_approved=False).order_by(
+            "-source_created_at"
+        )
+    )
+
+    approved_qs = list(
+        base_qs.filter(open_q, is_owner_approved=True).order_by(
+            "-source_created_at"
+        )
+    )
+
+    # Completed: closed_by_user_id set OR date_closed set.
+    # Window by date_closed; fall back to source_modified_at when
+    # date_closed is null.
+    completed_qs = list(
+        base_qs.filter(
+            Q(closed_by_user_id__isnull=False) | Q(date_closed__isnull=False)
+        )
+        .filter(
+            Q(
+                date_closed__gte=period_start,
+                date_closed__lte=period_end,
+            )
+            | Q(
+                date_closed__isnull=True,
+                source_modified_at__date__gte=period_start,
+                source_modified_at__date__lte=period_end,
+            )
+        )
+        .order_by("-date_closed", "-source_modified_at")
+    )
+
+    # Cancelled: cancelled_by_user_id set.
+    # source_modified_at is the cancel-time proxy — RentVine has no
+    # dedicated cancelled-at field.
+    cancelled_qs = list(
+        base_qs.filter(cancelled_by_user_id__isnull=False)
+        .filter(
+            source_modified_at__date__gte=period_start,
+            source_modified_at__date__lte=period_end,
+        )
+        .order_by("-source_modified_at")
+    )
+
+    # Batch cost lookup
+    all_rv_ids = [
+        wo.rentvine_id
+        for wo in awaiting_qs + approved_qs + completed_qs + cancelled_qs
+    ]
+    costs = get_work_order_costs(all_rv_ids)
+
+    def _to_dicts(wo_list):
+        return [
+            _work_order_to_dict(wo, cost=costs.get(wo.rentvine_id))
+            for wo in wo_list
+        ]
+
+    return {
+        "awaiting_approval": _to_dicts(awaiting_qs),
+        "approved_underway": _to_dicts(approved_qs),
+        "completed": _to_dicts(completed_qs),
+        "cancelled": _to_dicts(cancelled_qs),
+        "_has_data": bool(
+            awaiting_qs or approved_qs or completed_qs or cancelled_qs
+        ),
+    }
