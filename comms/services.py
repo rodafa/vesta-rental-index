@@ -1727,6 +1727,7 @@ def generate_portfolio_maintenance_notes(
 
     if not dry_run:
         deleted_count = PortfolioMaintenanceNote.objects.filter(
+            portfolio__in=portfolio_queryset,
             period_type=period_type,
             period_start=period_start,
             status="draft",
@@ -2045,7 +2046,8 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
         pk__in=portfolio_pks, is_active=True,
     ).order_by("name")
 
-    notes_parts = []
+    # Collect (portfolio_name, notes_html) tuples for fragments that rendered
+    fragments = []
     portfolio_info = []
     all_approved = True
 
@@ -2071,11 +2073,36 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
 
         # Use notes_html AS-IS (card-based fragments, never re-render from text)
         if note.notes_html:
-            notes_parts.append(note.notes_html)
+            fragments.append((portfolio.name, note.notes_html))
 
     # Zero-activity owner — no notes found at all
-    if not notes_parts:
+    if not fragments:
         return None
+
+    # Build fragments_html — label each portfolio when 2+ rendered
+    if len(fragments) > 1:
+        from django.utils.html import escape
+
+        labeled_parts = []
+        for idx, (name, html) in enumerate(fragments):
+            margin_top = "0" if idx == 0 else "32px"
+            header = (
+                '<table role="presentation" width="100%" cellpadding="0" '
+                f'cellspacing="0" style="margin:{margin_top} 0 8px;">'
+                "<tr>"
+                '<td style="border-bottom:2px solid #1E3D58; padding-bottom:8px;">'
+                '<h2 style="margin:0; font-family:Helvetica, Arial, sans-serif; '
+                'font-size:20px; font-weight:700; color:#1E3D58;">'
+                f"{escape(name)}"
+                "</h2>"
+                "</td>"
+                "</tr>"
+                "</table>"
+            )
+            labeled_parts.append(header + "\n" + html)
+        fragments_html = "\n".join(labeled_parts)
+    else:
+        fragments_html = fragments[0][1]
 
     # Render envelope with concatenated fragments
     period_end = period_start + __import__("datetime").timedelta(days=6)
@@ -2086,7 +2113,7 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
         {
             "owner_first_name": owner_name,
             "period_label": period_label,
-            "fragments_html": "\n".join(notes_parts),
+            "fragments_html": fragments_html,
         },
     )
 
