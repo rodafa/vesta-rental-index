@@ -54,7 +54,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
               {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
             </p>
             <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
-              {{ wo.description|truncatewords:30 }}
+              {{ wo.title }}
             </p>
           </td>
           <td width="120" style="text-align:right; vertical-align:top;">
@@ -104,7 +104,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
               {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
             </p>
             <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
-              {{ wo.description|truncatewords:30 }}
+              {{ wo.title }}
             </p>
           </td>
         </tr>
@@ -152,7 +152,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
               {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
             </p>
             <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
-              {{ wo.description|truncatewords:30 }}
+              {{ wo.title }}
             </p>
           </td>
         </tr>
@@ -197,7 +197,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
         {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
       </p>
       <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#888888;">
-        {{ wo.description|truncatewords:30 }}
+        {{ wo.title }}
       </p>
       {% if wo.ai_summary %}
       <p style="margin:8px 0 0; font-size:13px; line-height:1.4; color:#888888;">

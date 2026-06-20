@@ -4,6 +4,7 @@ Data selectors for maintenance email products.
 Logic lives here; views and commands are thin orchestrators.
 """
 
+import html
 import logging
 import re
 from decimal import Decimal
@@ -19,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 # Regex to collapse whitespace runs left after HTML stripping.
 _WHITESPACE_RUN = re.compile(r"\s+")
+
+# Strip RentVine's PM-migration boilerplate (anchored on the marker text, not
+# on <hr> — some descriptions contain legitimate <hr> tags from zInspector).
+_MIGRATION_BOILERPLATE = re.compile(
+    r"(<hr\s*/?>)?\s*Migrated from Property Meld.*",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Split on the first block-level break to extract a short title.
+_FIRST_LINE_SPLIT = re.compile(r"<br\s*/?>|</?p\s*/?>|<hr\s*/?>", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -380,11 +391,48 @@ def get_meld_costs(meld_ids: list[int]) -> dict[int, Decimal]:
 # ---------------------------------------------------------------------------
 
 
+def _strip_migration_boilerplate(raw_html: str) -> str:
+    """Remove RentVine PM-migration trailer from raw HTML."""
+    return _MIGRATION_BOILERPLATE.sub("", raw_html)
+
+
 def _clean_html(raw_html: str) -> str:
-    """Strip HTML tags and collapse whitespace into clean plain text."""
+    """Strip migration boilerplate, HTML tags, and collapse whitespace.
+
+    Block-level tags (<br>, <p>, <hr>) are replaced with spaces before
+    stripping so adjacent words don't run together.
+    """
     if not raw_html:
         return ""
-    return _WHITESPACE_RUN.sub(" ", strip_tags(raw_html)).strip()
+    cleaned = _strip_migration_boilerplate(raw_html)
+    # Insert spaces at block-level boundaries before stripping tags
+    cleaned = _FIRST_LINE_SPLIT.sub(" ", cleaned)
+    return _WHITESPACE_RUN.sub(" ", html.unescape(strip_tags(cleaned))).strip()
+
+
+def _extract_title(raw_html: str) -> str:
+    """
+    Extract a short title from a work-order description.
+
+    Strips migration boilerplate, takes the first non-empty segment
+    (before the first <br>, <p>, or <hr> tag), cleans HTML tags +
+    entities, and caps at 120 characters.
+    """
+    if not raw_html:
+        return ""
+    stripped = _strip_migration_boilerplate(raw_html)
+    segments = _FIRST_LINE_SPLIT.split(stripped)
+    # Take the first non-empty segment (descriptions starting with <p>
+    # produce an empty first element).
+    first_line = ""
+    for seg in segments:
+        candidate = _WHITESPACE_RUN.sub(" ", html.unescape(strip_tags(seg))).strip()
+        if candidate:
+            first_line = candidate
+            break
+    if len(first_line) > 120:
+        first_line = first_line[:120].rsplit(" ", 1)[0] + "..."
+    return first_line
 
 
 def _work_order_to_dict(wo, cost=None):
@@ -398,6 +446,7 @@ def _work_order_to_dict(wo, cost=None):
     return {
         "id": wo.pk,
         "work_order_number": wo.work_order_number,
+        "title": _extract_title(wo.description),
         "description": _clean_html(wo.description),
         "vendor_name": wo.vendor_name,
         "is_owner_approved": wo.is_owner_approved,
