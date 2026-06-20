@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand
 
+from comms.maintenance_services import default_maintenance_week_start
 from comms.services import generate_portfolio_maintenance_notes
 from core.models import Portfolio
 
@@ -51,12 +52,10 @@ class Command(BaseCommand):
         period_end_str = options["period_end"]
 
         # Default period: the most recent full week (Mon-Sun)
-        today = date.today()
         if period_start_str:
             period_start = date.fromisoformat(period_start_str)
         else:
-            # Last Monday
-            period_start = today - timedelta(days=today.weekday() + 7)
+            period_start = default_maintenance_week_start()
 
         if period_end_str:
             period_end = date.fromisoformat(period_end_str)

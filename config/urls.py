@@ -3,8 +3,9 @@ from django.urls import include, path
 
 from comms import api as comms_api
 from comms import distribution_api
+from comms import maintenance_api as comms_maintenance_api
 from comms import portfolio_api as comms_portfolio_api
-from comms.views import monthly_notes_page
+from comms.views import maintenance_notes_page, monthly_notes_page
 from config.views import healthcheck
 
 urlpatterns = [
@@ -24,4 +25,10 @@ urlpatterns = [
     path("api/reports/distribution-sends/", include("comms.distribution_sends_urls")),
     path("api/reports/sync-statements", comms_api.sync_statements, name="sync-statements"),
     path("dashboard/monthly-notes/", monthly_notes_page, name="monthly-notes"),
+    # Maintenance notes API (Layer 1 authoring)
+    path("api/reports/maintenance-notes", comms_maintenance_api.list_maintenance_notes, name="maintenance-notes-list"),
+    path("api/reports/maintenance-notes/", include("comms.maintenance_api_urls")),
+    # Maintenance sends API (Layer 2 assembled sends)
+    path("api/reports/maintenance-sends/", include("comms.maintenance_sends_urls")),
+    path("dashboard/maintenance-notes/", maintenance_notes_page, name="maintenance-notes"),
 ]
