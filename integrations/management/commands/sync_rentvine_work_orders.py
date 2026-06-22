@@ -38,7 +38,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"Work orders synced: {result['fetched']} fetched, "
             f"{result['created']} created, {result['updated']} updated, "
-            f"{result['errors']} errors"
+            f"{result['errors']} errors, "
+            f"{result['deactivated']} deactivated"
         ))
         self.stdout.write(
             f"  Resolution: "

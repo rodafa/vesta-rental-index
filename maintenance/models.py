@@ -180,6 +180,7 @@ class WorkOrder(models.Model):
     is_owner_approved = models.BooleanField(default=False)
     is_shared_with_owner = models.BooleanField(default=False)
     is_shared_with_tenant = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, db_index=True)
 
     # ── Lifecycle (raw status IDs stored for traceability) ──────────
     primary_work_order_status_id = models.IntegerField(

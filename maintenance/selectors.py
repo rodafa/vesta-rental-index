@@ -505,7 +505,7 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
 
     tz_east = zoneinfo.ZoneInfo("America/New_York")
 
-    base_qs = WorkOrder.objects.filter(portfolio=portfolio).select_related(
+    base_qs = WorkOrder.objects.filter(portfolio=portfolio, is_active=True).select_related(
         "unit", "property"
     )
 

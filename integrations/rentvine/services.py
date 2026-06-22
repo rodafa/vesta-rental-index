@@ -1014,6 +1014,7 @@ class WorkOrderSyncService(_BaseSyncService):
         created_count = 0
         updated_count = 0
         errors = []
+        fetched_rv_ids = set()
         resolved_property = 0
         resolved_unit = 0
         resolved_portfolio = 0
@@ -1106,6 +1107,8 @@ class WorkOrderSyncService(_BaseSyncService):
                 if defaults.get("vendor_contact_id"):
                     resolved_vendor += 1
 
+                defaults["is_active"] = True
+                fetched_rv_ids.add(rentvine_id)
                 _, was_created = WorkOrder.objects.update_or_create(
                     rentvine_id=rentvine_id,
                     defaults=defaults,
@@ -1120,6 +1123,38 @@ class WorkOrderSyncService(_BaseSyncService):
                 logger.error(msg)
                 errors.append(msg)
 
+        # ── Reconcile deletions (soft-delete) ───────────────────────
+        # Only run if the fetch clearly succeeded: no errors AND we
+        # actually received records.  A partial or failed fetch must
+        # never deactivate everything.
+        deactivated_count = 0
+        deactivated_ids = []
+        if not dry_run and not errors and len(fetched_rv_ids) > 0:
+            stale_qs = WorkOrder.objects.filter(is_active=True).exclude(
+                rentvine_id__in=fetched_rv_ids
+            )
+            deactivated_ids = list(
+                stale_qs.values_list("rentvine_id", flat=True)
+            )
+            if deactivated_ids:
+                deactivated_count = stale_qs.update(is_active=False)
+                logger.info(
+                    "work_order_reconcile_deactivated",
+                    extra={
+                        "deactivated_count": deactivated_count,
+                        "rentvine_ids": deactivated_ids,
+                    },
+                )
+        elif not dry_run and (errors or len(fetched_rv_ids) == 0):
+            logger.warning(
+                "work_order_reconcile_skipped",
+                extra={
+                    "reason": "fetch_errors" if errors else "zero_records",
+                    "error_count": len(errors),
+                    "fetched": len(records),
+                },
+            )
+
         self._complete_log(
             log,
             created=created_count,
@@ -1133,6 +1168,7 @@ class WorkOrderSyncService(_BaseSyncService):
             "created": created_count,
             "updated": updated_count,
             "errors": len(errors),
+            "deactivated": deactivated_count,
             "resolved_property": resolved_property,
             "resolved_unit": resolved_unit,
             "resolved_portfolio": resolved_portfolio,
