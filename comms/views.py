@@ -24,14 +24,25 @@ def maintenance_notes_page(request):
     if not request.user.can_access("maintenance"):
         return HttpResponseForbidden("Access denied.")
 
-    from datetime import timedelta
+    from datetime import date, timedelta
 
     from .maintenance_services import default_maintenance_week_start
 
-    week_start = default_maintenance_week_start()
+    week_param = request.GET.get("week")
+    if week_param:
+        try:
+            anchor = date.fromisoformat(week_param)
+            week_start = anchor - timedelta(days=anchor.weekday())
+        except ValueError:
+            week_start = default_maintenance_week_start()
+    else:
+        week_start = default_maintenance_week_start()
+
     week_end = week_start + timedelta(days=6)
 
     return render(request, "comms/dashboard/maintenance_notes.html", {
         "default_week_start": week_start.isoformat(),
         "default_week_end": week_end.isoformat(),
+        "prev_week_start": (week_start - timedelta(days=7)).isoformat(),
+        "next_week_start": (week_start + timedelta(days=7)).isoformat(),
     })

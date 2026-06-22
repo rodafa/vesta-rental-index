@@ -38,6 +38,8 @@
   .period .week-label{font-size:17px;font-weight:600;}
   .period .range{font-size:11px;color:var(--sky);margin-top:1px;}
   .period .range button{background:none;border:none;color:var(--sky);font:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;}
+  .period .range .week-nav{ text-decoration:none; font-size:14px; padding:0 4px; }
+  .period .range .jump-week{ margin-left:6px; font:inherit; font-size:11px; }
   .spacer{margin-left:auto;}
   .topbar-actions{display:flex;align-items:center;gap:10px;}
 
@@ -215,7 +217,7 @@
 </style>
 </head>
 <body>
-<div class="app" data-week-start="{{ default_week_start }}" data-week-end="{{ default_week_end }}">
+<div class="app" data-week-start="{{ default_week_start }}" data-week-end="{{ default_week_end }}" data-prev-week="{{ prev_week_start }}" data-next-week="{{ next_week_start }}">
 
   <!-- ============ TOP BAR ============ -->
   <header class="topbar">
@@ -229,7 +231,13 @@
     <div class="topbar-divider"></div>
     <div class="period">
       <span class="week-label" id="report-week"></span>
-      <span class="range"><span id="report-range"></span> &middot; <button id="edit-period">change</button></span>
+      <span class="range">
+        <button id="prev-week" class="week-nav" title="Previous week" aria-label="Previous week">&#8249;</button>
+        <span id="report-range"></span>
+        <button id="next-week" class="week-nav" title="Next week" aria-label="Next week">&#8250;</button>
+        &middot; <button id="edit-period">change</button>
+        <input type="date" id="jump-week" class="jump-week" style="display:none">
+      </span>
     </div>
     <div class="spacer"></div>
     <div class="topbar-actions">

@@ -49,6 +49,10 @@
   // via template data attributes — avoids JS getDay() Sunday divergence.
   var periodStart = appEl.getAttribute('data-week-start');
   var periodEnd = appEl.getAttribute('data-week-end');
+  var prevWeek = appEl.getAttribute('data-prev-week');
+  var nextWeek = appEl.getAttribute('data-next-week');
+
+  function gotoWeek(iso) { if (iso) { window.location.search = '?week=' + iso; } }
 
   // --- State ---
   var currentTab = 'portfolios';     // 'portfolios' | 'send'
@@ -606,7 +610,16 @@
   });
 
   // --- Period change ---
-  $('edit-period').addEventListener('click', function () { $('filters').open = true; });
+  $('edit-period').addEventListener('click', function () {
+    var j = $('jump-week');
+    j.value = periodStart;
+    j.style.display = '';
+    j.focus();
+    if (j.showPicker) { try { j.showPicker(); } catch (e) {} }
+  });
+  $('jump-week').addEventListener('change', function () { gotoWeek(this.value); });
+  $('prev-week').addEventListener('click', function () { gotoWeek(prevWeek); });
+  $('next-week').addEventListener('click', function () { gotoWeek(nextWeek); });
 
   // --- Init ---
   updatePeriodDisplay();
