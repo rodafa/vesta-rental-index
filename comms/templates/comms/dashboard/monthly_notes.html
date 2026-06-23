@@ -272,6 +272,7 @@
           </div>
         </div>
       </details>
+      <form method="post" action="{% url 'logout' %}" style="margin:0;">{% csrf_token %}<button class="btn btn-onnavy" type="submit">Log out</button></form>
     </div>
   </header>
 
