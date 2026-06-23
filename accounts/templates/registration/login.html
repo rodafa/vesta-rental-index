@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — Vesta</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:Georgia,"Times New Roman",serif;
+    background:#EFF5F9;
+    color:#222222;
+    font-size:15px;
+    line-height:1.5;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .card{
+    background:#fff;
+    width:100%;
+    max-width:400px;
+    border-radius:8px;
+    box-shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+    padding:40px 36px 36px;
+  }
+
+  /* Brand */
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:28px;justify-content:center;}
+  .brand .mark{width:34px;height:34px;flex:0 0 auto;}
+  .brand .mark path,.brand .mark line{stroke:#1E3D58;stroke-width:1.4;fill:none;}
+  .brand .mark .flame{stroke:#39B54A;}
+  .brand-title{display:flex;flex-direction:column;line-height:1.1;}
+  .brand-title .name{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-size:17px;font-weight:700;letter-spacing:.06em;color:#1E3D58;}
+  .brand-title .sub{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;font-size:9.5px;font-weight:500;letter-spacing:.22em;color:#6EA5CD;text-transform:uppercase;}
+
+  h1{
+    font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:20px;
+    font-weight:600;
+    color:#1E3D58;
+    text-align:center;
+    margin-bottom:24px;
+  }
+
+  /* Errors */
+  .errors{
+    background:#fef2f2;
+    border:1px solid #fecaca;
+    border-radius:6px;
+    padding:10px 14px;
+    margin-bottom:18px;
+    color:#991b1b;
+    font-size:13px;
+    line-height:1.45;
+  }
+  .errors ul{list-style:none;}
+  .errors li{margin-bottom:2px;}
+  .errors li:last-child{margin-bottom:0;}
+  .field-error{color:#991b1b;font-size:12px;margin-top:3px;}
+  .field-error ul{list-style:none;}
+
+  /* Form */
+  label{
+    display:block;
+    font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:13px;
+    font-weight:600;
+    color:#1E3D58;
+    margin-bottom:5px;
+  }
+  input[type="text"],
+  input[type="password"]{
+    width:100%;
+    padding:10px 12px;
+    border:1px solid #d6e1ea;
+    border-radius:6px;
+    font-family:Georgia,"Times New Roman",serif;
+    font-size:15px;
+    color:#222222;
+    background:#fff;
+    transition:border-color .14s;
+  }
+  input[type="text"]:focus,
+  input[type="password"]:focus{
+    outline:none;
+    border-color:#6EA5CD;
+    box-shadow:0 0 0 3px rgba(110,165,205,.18);
+  }
+  .field{margin-bottom:18px;}
+
+  button[type="submit"]{
+    width:100%;
+    padding:11px 16px;
+    background:#1E3D58;
+    color:#fff;
+    border:none;
+    border-radius:6px;
+    font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:15px;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .14s;
+    margin-top:4px;
+  }
+  button[type="submit"]:hover{background:#D67011;}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path class="flame" d="M13 24c-4 0-6-3-6-6 0-4 4-6 4-11 0 0 5 3 5 8 2-1 2-3 2-3 2 2 1 6 1 6 0 4-3 6-6 6z"/>
+      <path d="M19 25V13l6-5 6 5v12"/><line x1="17" y1="25" x2="31" y2="25"/>
+    </svg>
+    <div class="brand-title">
+      <span class="name">VESTA</span>
+      <span class="sub">Property Management</span>
+    </div>
+  </div>
+
+  <h1>Sign in</h1>
+
+  {% if form.non_field_errors %}
+  <div class="errors">
+    <ul>{% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+    <div class="field">
+      <label for="id_username">Username</label>
+      <input type="text" name="username" id="id_username" autofocus required
+             value="{{ form.username.value|default:'' }}">
+      {% if form.username.errors %}<div class="field-error">{{ form.username.errors }}</div>{% endif %}
+    </div>
+
+    <div class="field">
+      <label for="id_password">Password</label>
+      <input type="password" name="password" id="id_password" required>
+      {% if form.password.errors %}<div class="field-error">{{ form.password.errors }}</div>{% endif %}
+    </div>
+
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+
+</body>
+</html>

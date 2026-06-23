@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import include, path
 
 from comms import api as comms_api
@@ -11,6 +12,12 @@ from config.views import healthcheck
 urlpatterns = [
     path("healthz", healthcheck),
     path("admin/", admin.site.urls),
+    # Auth — only login + logout (no password-reset dead routes)
+    path("accounts/login/", LoginView.as_view(
+        template_name="registration/login.html",
+        redirect_authenticated_user=True,
+    ), name="login"),
+    path("accounts/logout/", LogoutView.as_view(), name="logout"),
     # Monthly notes API — list endpoint at the root (no trailing slash)
     path("api/reports/owner-notes", comms_api.list_notes, name="notes-list"),
     # Sub-endpoints with trailing slash from the include
