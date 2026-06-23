@@ -75,6 +75,52 @@ def _parse_week(request):
     return d
 
 
+def _resolve_period(request):
+    """Resolve view period from explicit range or Monday week token.
+
+    Returns (period_start, period_end, explicit) or None.
+    explicit=True: start_date+end_date params, passed through unchanged.
+    explicit=False: Monday week token, resolved to Mon-Sun pair.
+    Used by list + progress endpoints only.
+    """
+    start_str = request.GET.get("start_date", "")
+    end_str = request.GET.get("end_date", "")
+    if start_str and end_str:
+        try:
+            s = date.fromisoformat(start_str)
+            e = date.fromisoformat(end_str)
+        except ValueError:
+            return None
+        logger.info(
+            "comms_maintenance_explicit_range",
+            extra={"start_date": start_str, "end_date": end_str},
+        )
+        return (s, e, True)
+
+    d = _parse_week(request)
+    if d is None:
+        return None
+    return (d, d + timedelta(days=6), False)
+
+
+def _notes_for_period(period_start, period_end, explicit):
+    """Return PortfolioMaintenanceNote queryset for the resolved period.
+
+    Standard week (explicit=False): exact match on period_start only
+    (today's behaviour — period_end is not checked).
+    Explicit range (explicit=True): exact match on BOTH period_start
+    and period_end, so only notes from that generation run appear.
+    """
+    qs = PortfolioMaintenanceNote.objects.filter(
+        period_type="weekly",
+        period_start=period_start,
+        portfolio__is_active=True,
+    )
+    if explicit:
+        qs = qs.filter(period_end=period_end)
+    return qs
+
+
 def _serialize_maintenance_note(note):
     """Serialize a PortfolioMaintenanceNote for the dashboard JS."""
     owners = list(
@@ -117,21 +163,20 @@ def _serialize_maintenance_note(note):
 
 @require_GET
 def list_maintenance_notes(request):
-    """GET /api/reports/maintenance-notes?week=YYYY-MM-DD"""
+    """GET /api/reports/maintenance-notes?week=YYYY-MM-DD
+    or  ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"""
     err = _require_access(request)
     if err:
         return err
 
-    period_start = _parse_week(request)
-    if not period_start:
+    resolved = _resolve_period(request)
+    if not resolved:
         return JsonResponse([], safe=False)
 
+    period_start, period_end, explicit = resolved
+
     notes = (
-        PortfolioMaintenanceNote.objects.filter(
-            period_type="weekly",
-            period_start=period_start,
-            portfolio__is_active=True,
-        )
+        _notes_for_period(period_start, period_end, explicit)
         .select_related("portfolio")
         .order_by("portfolio__name")
     )
@@ -271,23 +316,22 @@ def generate_maintenance_notes_api(request):
 
 @require_GET
 def maintenance_generation_progress(request):
-    """GET /api/reports/maintenance-notes/progress?week=YYYY-MM-DD"""
+    """GET /api/reports/maintenance-notes/progress?week=YYYY-MM-DD
+    or  ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD"""
     import comms.maintenance_services as msvc
 
     err = _require_access(request)
     if err:
         return err
 
-    period_start = _parse_week(request)
-    if not period_start:
-        return JsonResponse({"error": "week param required"}, status=400)
+    resolved = _resolve_period(request)
+    if not resolved:
+        return JsonResponse({"error": "period params required"}, status=400)
+
+    period_start, period_end, explicit = resolved
 
     total = get_portfolio_generation_scope().count()
-    generated = PortfolioMaintenanceNote.objects.filter(
-        period_type="weekly",
-        period_start=period_start,
-        portfolio__is_active=True,
-    ).count()
+    generated = _notes_for_period(period_start, period_end, explicit).count()
 
     with msvc._maintenance_gen_lock:
         running = (

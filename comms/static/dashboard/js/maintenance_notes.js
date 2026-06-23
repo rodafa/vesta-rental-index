@@ -63,6 +63,7 @@
   var portfolioFilter = 'all';
   var sendFilter = 'all';
   var dirty = false;
+  var customRange = null;  // {start, end} set by "Run filtered" only
 
   // --- Init period display ---
   function updatePeriodDisplay() {
@@ -75,7 +76,10 @@
 
   // --- Data fetch ---
   function loadPortfolioNotes() {
-    return VestaAPI.get('/reports/maintenance-notes?week=' + weekParam(periodStart))
+    var url = customRange
+        ? '/reports/maintenance-notes?start_date=' + customRange.start + '&end_date=' + customRange.end
+        : '/reports/maintenance-notes?week=' + weekParam(periodStart);
+    return VestaAPI.get(url)
       .then(function (data) { portfolioNotes = data; })
       .catch(function (e) { console.error('loadPortfolioNotes', e); portfolioNotes = []; });
   }
@@ -544,6 +548,7 @@
     closeGenerateConfirm();
     setStatus('running', 'Starting generation...');
     $('generate').disabled = true;
+    customRange = opts.custom ? { start: opts.start, end: opts.end } : null;
     VestaAPI.post('/reports/maintenance-notes/generate', {
       start_date: opts.start || periodStart,
       end_date: opts.end || periodEnd,
@@ -553,13 +558,16 @@
       .then(function () { pollProgress(); })
       .catch(function (e) {
         $('generate').disabled = false;
+        customRange = null;
         setStatus('warn', 'Generation failed: ' + e.message);
         toast('Generation failed: ' + e.message, 'warn');
       });
   }
 
   function pollProgress() {
-    var url = '/reports/maintenance-notes/progress?week=' + weekParam(periodStart);
+    var url = customRange
+        ? '/reports/maintenance-notes/progress?start_date=' + customRange.start + '&end_date=' + customRange.end
+        : '/reports/maintenance-notes/progress?week=' + weekParam(periodStart);
     var poll = setInterval(function () {
       VestaAPI.get(url)
         .then(function (d) {
@@ -602,6 +610,7 @@
       end: $('end-date-input').value,
       dryRun: $('dry-run-check').checked,
       portfolioName: $('portfolio-name-input').value,
+      custom: true,
     });
   });
   $('run-all-btn').addEventListener('click', function () {
