@@ -3,17 +3,19 @@ Maintenance-notes API — weekly portfolio-grain notes + owner-grain send.
 
 Fork of portfolio_api.py adapted for PortfolioMaintenanceNote (weekly period).
 
-Portfolio authoring (PortfolioMaintenanceNote):
-    GET    /api/reports/maintenance-notes?week=YYYY-MM-DD
+Read/view endpoints accept ?start_date=&end_date= or ?week=YYYY-MM-DD:
+    GET    /api/reports/maintenance-notes?start_date=&end_date= or ?week=
+    GET    /api/reports/maintenance-notes/progress?start_date=&end_date= or ?week=
+
+Mutation/send endpoints require ?week=YYYY-MM-DD (Monday token only):
     PUT    /api/reports/maintenance-notes/{id}
     POST   /api/reports/maintenance-notes/{id}/approve
     POST   /api/reports/maintenance-notes/generate
-    GET    /api/reports/maintenance-notes/progress?week=YYYY-MM-DD
     POST   /api/reports/maintenance-notes/approve-all?week=YYYY-MM-DD
     POST   /api/reports/maintenance-notes/delete-all?week=YYYY-MM-DD
     DELETE /api/reports/maintenance-notes/{id}
 
-Owner-grain send (assembled from PortfolioMaintenanceNote):
+Owner-grain send (standard week only, ?week=YYYY-MM-DD):
     GET  /api/reports/maintenance-sends/recipients?week=YYYY-MM-DD
     GET  /api/reports/maintenance-sends/recipients/{email}/preview?week=YYYY-MM-DD
     POST /api/reports/maintenance-sends/recipients/{email}/send?week=YYYY-MM-DD

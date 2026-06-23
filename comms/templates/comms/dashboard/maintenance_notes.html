@@ -34,12 +34,10 @@
   .brand-title .name{font-size:15px;font-weight:700;letter-spacing:.06em;}
   .brand-title .sub{font-size:9.5px;font-weight:500;letter-spacing:.22em;color:var(--sky);text-transform:uppercase;}
   .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
-  .period{display:flex;flex-direction:column;line-height:1.15;}
-  .period .week-label{font-size:17px;font-weight:600;}
-  .period .range{font-size:11px;color:var(--sky);margin-top:1px;}
-  .period .range button{background:none;border:none;color:var(--sky);font:inherit;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px;}
-  .period .range .week-nav{ text-decoration:none; font-size:14px; padding:0 4px; }
-  .period .range .jump-week{ margin-left:6px; font:inherit; font-size:11px; }
+  .period{display:flex;align-items:center;gap:8px;}
+  .period-input{font:inherit;font-size:13px;padding:4px 8px;border:1px solid rgba(255,255,255,.28);border-radius:var(--r-sm);background:rgba(255,255,255,.08);color:#fff;color-scheme:dark;}
+  .period-input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(110,165,205,.25);}
+  .period-sep{color:var(--sky);font-size:14px;padding:0 2px;}
   .spacer{margin-left:auto;}
   .topbar-actions{display:flex;align-items:center;gap:10px;}
 
@@ -217,7 +215,7 @@
 </style>
 </head>
 <body>
-<div class="app" data-week-start="{{ default_week_start }}" data-week-end="{{ default_week_end }}" data-prev-week="{{ prev_week_start }}" data-next-week="{{ next_week_start }}">
+<div class="app" data-week-start="{{ default_week_start }}" data-week-end="{{ default_week_end }}">
 
   <!-- ============ TOP BAR ============ -->
   <header class="topbar">
@@ -230,14 +228,12 @@
     </div>
     <div class="topbar-divider"></div>
     <div class="period">
-      <span class="week-label" id="report-week"></span>
-      <span class="range">
-        <button id="prev-week" class="week-nav" title="Previous week" aria-label="Previous week">&#8249;</button>
-        <span id="report-range"></span>
-        <button id="next-week" class="week-nav" title="Next week" aria-label="Next week">&#8250;</button>
-        &middot; <button id="edit-period">change</button>
-        <input type="date" id="jump-week" class="jump-week" style="display:none">
-      </span>
+      <span style="font-size:12px;font-weight:600;color:var(--sky);text-transform:uppercase;letter-spacing:.06em;margin-right:2px;">Reporting period</span>
+      <button id="prev-week" class="week-nav" title="Previous week" aria-label="Previous week" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0 4px;">&#8249;</button>
+      <input type="date" id="period-start" class="period-input">
+      <span class="period-sep">&ndash;</span>
+      <input type="date" id="period-end" class="period-input">
+      <button id="next-week" class="week-nav" title="Next week" aria-label="Next week" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0 4px;">&#8250;</button>
     </div>
     <div class="spacer"></div>
     <div class="topbar-actions">
@@ -248,16 +244,8 @@
       <details class="filters" id="filters">
         <summary>Advanced</summary>
         <div class="filters-pop">
-          <div class="frow">
-            <div class="field"><label>Start (Mon)</label><input type="date" id="start-date-input"></div>
-            <div class="field"><label>End (Sun)</label><input type="date" id="end-date-input"></div>
-          </div>
           <div class="field" style="margin-bottom:10px"><label>Portfolio</label><input type="text" placeholder="All" id="portfolio-name-input"></div>
           <label class="check"><input type="checkbox" id="dry-run-check"> Dry run (no DB writes)</label>
-          <div class="pop-actions">
-            <button class="btn btn-quiet btn-sm" id="run-btn">Run filtered</button>
-            <button class="btn btn-navy btn-sm" id="run-all-btn">Run all</button>
-          </div>
         </div>
       </details>
       <form method="post" action="{% url 'logout' %}" style="margin:0;">{% csrf_token %}<button class="btn btn-onnavy" type="submit">Log out</button></form>

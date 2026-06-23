@@ -43,6 +43,4 @@ def maintenance_notes_page(request):
     return render(request, "comms/dashboard/maintenance_notes.html", {
         "default_week_start": week_start.isoformat(),
         "default_week_end": week_end.isoformat(),
-        "prev_week_start": (week_start - timedelta(days=7)).isoformat(),
-        "next_week_start": (week_start + timedelta(days=7)).isoformat(),
     })

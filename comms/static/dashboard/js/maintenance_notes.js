@@ -28,31 +28,42 @@
     $('status-text').textContent = msg;
   }
 
-  // --- Period (weekly) — server-provided default, no client-side computation ---
+  // --- Period helpers ---
   var appEl = document.querySelector('.app');
-  function weekParam(dateStr) {
-    // Full YYYY-MM-DD — no truncation (avoids the monthly period-mismatch bug)
-    return dateStr;
-  }
   function formatWeek(start, end) {
     var s = new Date(start + 'T00:00:00');
     var e = new Date(end + 'T00:00:00');
     return s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-      ' – ' + e.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
-  function formatWeekLabel(start) {
-    var s = new Date(start + 'T00:00:00');
-    return 'Week of ' + s.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      ' \u2013 ' + e.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  // Default week computed server-side (Python weekday math) and injected
-  // via template data attributes — avoids JS getDay() Sunday divergence.
+  function addDays(iso, n) {
+    var d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+
+  // Returns periodStart if it falls on a Monday, null otherwise.
+  // Used by the 7 mutation/send endpoints that require ?week= (Monday token).
+  function weekMonday() {
+    if (!periodStart) return null;
+    var d = new Date(periodStart + 'T00:00:00');
+    return d.getDay() === 1 ? periodStart : null;  // getDay(): 1 = Monday
+  }
+
+  // True when the header inputs describe a standard Mon-Sun week.
+  function isStandardWeek() {
+    if (!periodStart || !periodEnd) return false;
+    var d = new Date(periodStart + 'T00:00:00');
+    if (d.getDay() !== 1) return false;
+    return periodEnd === addDays(periodStart, 6);
+  }
+
+  // Single source of truth — always in sync with header inputs
   var periodStart = appEl.getAttribute('data-week-start');
   var periodEnd = appEl.getAttribute('data-week-end');
-  var prevWeek = appEl.getAttribute('data-prev-week');
-  var nextWeek = appEl.getAttribute('data-next-week');
-
-  function gotoWeek(iso) { if (iso) { window.location.search = '?week=' + iso; } }
 
   // --- State ---
   var currentTab = 'portfolios';     // 'portfolios' | 'send'
@@ -63,29 +74,51 @@
   var portfolioFilter = 'all';
   var sendFilter = 'all';
   var dirty = false;
-  var customRange = null;  // {start, end} set by "Run filtered" only
 
-  // --- Init period display ---
-  function updatePeriodDisplay() {
-    $('report-week').textContent = formatWeekLabel(periodStart);
-    $('report-range').textContent = formatWeek(periodStart, periodEnd);
-    $('start-date-input').value = periodStart;
-    $('end-date-input').value = periodEnd;
-    $('gen-modal-title').textContent = 'Generate maintenance notes for ' + formatWeekLabel(periodStart) + '?';
+  // --- Period sync ---
+  function syncInputs() {
+    $('period-start').value = periodStart;
+    $('period-end').value = periodEnd;
+  }
+
+  function syncGenerateButton() {
+    $('generate').disabled = !periodStart || !periodEnd;
+  }
+
+  // Disable approve-all / delete-all / send actions when the period
+  // is not a standard Mon-Sun week.  Generate stays enabled throughout.
+  var WEEK_HINT = 'Sending is available for standard Mon\u2013Sun weeks. Use the arrows to pick a week.';
+  function syncWeekActions() {
+    var ok = isStandardWeek();
+    $('approve-all-btn').disabled = !ok;
+    $('delete-all-btn').disabled = !ok;
+    $('send-all-ready-btn').disabled = !ok;
+    $('approve-all-btn').title = ok ? '' : WEEK_HINT;
+    $('delete-all-btn').title = ok ? '' : WEEK_HINT;
+    $('send-all-ready-btn').title = ok ? '' : WEEK_HINT;
+  }
+
+  function shiftPeriod(days) {
+    periodStart = addDays(periodStart, days);
+    periodEnd = addDays(periodEnd, days);
+    syncInputs();
+    syncGenerateButton();
+    syncWeekActions();
+    loadAll();
   }
 
   // --- Data fetch ---
   function loadPortfolioNotes() {
-    var url = customRange
-        ? '/reports/maintenance-notes?start_date=' + customRange.start + '&end_date=' + customRange.end
-        : '/reports/maintenance-notes?week=' + weekParam(periodStart);
+    var url = '/reports/maintenance-notes?start_date=' + periodStart + '&end_date=' + periodEnd;
     return VestaAPI.get(url)
       .then(function (data) { portfolioNotes = data; })
       .catch(function (e) { console.error('loadPortfolioNotes', e); portfolioNotes = []; });
   }
 
   function loadRecipients() {
-    return VestaAPI.get('/reports/maintenance-sends/recipients?week=' + weekParam(periodStart))
+    var wk = weekMonday();
+    if (!wk) { recipients = []; return Promise.resolve(); }
+    return VestaAPI.get('/reports/maintenance-sends/recipients?week=' + wk)
       .then(function (data) { recipients = data; })
       .catch(function (e) { console.error('loadRecipients', e); recipients = []; });
   }
@@ -278,7 +311,7 @@
             (gatingText ? '<span style="color:var(--orange)">&middot; waiting: ' + esc(gatingText) + '</span>' : '') +
           '</span>' +
           '<span class="row-actions">' +
-            (r.all_approved && !r.is_sent ? '<button class="btn btn-send btn-sm" data-act="send-recip" data-email="' + esc(r.recipient_email) + '">Send</button>' : '') +
+            (r.all_approved && !r.is_sent && isStandardWeek() ? '<button class="btn btn-send btn-sm" data-act="send-recip" data-email="' + esc(r.recipient_email) + '">Send</button>' : '') +
           '</span>' +
         '</div>' +
       '</div>';
@@ -314,10 +347,13 @@
 
     // Load assembled preview
     $('recip-scroll').innerHTML = '<div class="list-empty">Loading preview...</div>';
-    $('recip-send-btn').disabled = !r.all_approved || r.is_sent;
-    $('test-send-btn').disabled = false;
+    var stdWeek = isStandardWeek();
+    $('recip-send-btn').disabled = !stdWeek || !r.all_approved || r.is_sent;
+    $('test-send-btn').disabled = !stdWeek;
+    $('recip-send-btn').title = stdWeek ? '' : WEEK_HINT;
+    $('test-send-btn').title = stdWeek ? '' : WEEK_HINT;
 
-    VestaAPI.get('/reports/maintenance-sends/recipients/' + encodeURIComponent(r.recipient_email) + '/preview?week=' + weekParam(periodStart))
+    VestaAPI.get('/reports/maintenance-sends/recipients/' + encodeURIComponent(r.recipient_email) + '/preview?week=' + weekMonday())
       .then(function (preview) {
         var gating = (preview.portfolios || []).filter(function (p) { return p.status !== 'approved'; });
         var gatingHtml = '';
@@ -477,14 +513,18 @@
   });
 
   $('approve-all-btn').addEventListener('click', function () {
-    VestaAPI.post('/reports/maintenance-notes/approve-all?week=' + weekParam(periodStart), {})
+    var wk = weekMonday();
+    if (!wk) { toast(WEEK_HINT); return; }
+    VestaAPI.post('/reports/maintenance-notes/approve-all?week=' + wk, {})
       .then(function (r) { toast((r.approved || 0) + ' note(s) approved.', 'ok'); return loadAll(); })
       .catch(function (e) { toast('Approve all failed: ' + e.message, 'warn'); });
   });
 
   $('delete-all-btn').addEventListener('click', function () {
+    var wk = weekMonday();
+    if (!wk) { toast(WEEK_HINT); return; }
     if (!confirm('Delete all draft maintenance notes for this week?')) return;
-    VestaAPI.post('/reports/maintenance-notes/delete-all?week=' + weekParam(periodStart), {})
+    VestaAPI.post('/reports/maintenance-notes/delete-all?week=' + wk, {})
       .then(function (r) {
         activePortfolioId = null;
         $('portfolio-detail').classList.remove('show');
@@ -497,8 +537,10 @@
 
   // --- Recipient send actions ---
   function sendRecipient(email) {
+    var wk = weekMonday();
+    if (!wk) { toast(WEEK_HINT); return; }
     setStatus('running', 'Sending to ' + email + '...');
-    VestaAPI.post('/reports/maintenance-sends/recipients/' + encodeURIComponent(email) + '/send?week=' + weekParam(periodStart), {})
+    VestaAPI.post('/reports/maintenance-sends/recipients/' + encodeURIComponent(email) + '/send?week=' + wk, {})
       .then(function (r) {
         setStatus('done', 'Sent to ' + email + '.');
         toast(r.message || 'Sent.', 'ok');
@@ -513,8 +555,10 @@
 
   $('test-send-btn').addEventListener('click', function () {
     if (!activeRecipientEmail) return;
+    var wk = weekMonday();
+    if (!wk) { toast(WEEK_HINT); return; }
     setStatus('running', 'Sending test email...');
-    VestaAPI.post('/reports/maintenance-sends/recipients/' + encodeURIComponent(activeRecipientEmail) + '/test-send?week=' + weekParam(periodStart), {})
+    VestaAPI.post('/reports/maintenance-sends/recipients/' + encodeURIComponent(activeRecipientEmail) + '/test-send?week=' + wk, {})
       .then(function (r) {
         setStatus('done', r.message || 'Test sent.');
         toast(r.message || 'Test sent.', 'ok');
@@ -523,9 +567,11 @@
   });
 
   $('send-all-ready-btn').addEventListener('click', function () {
+    var wk = weekMonday();
+    if (!wk) { toast(WEEK_HINT); return; }
     if (!confirm('Send to all ready recipients?')) return;
     setStatus('running', 'Sending to all ready recipients...');
-    VestaAPI.post('/reports/maintenance-sends/send-all?week=' + weekParam(periodStart), {})
+    VestaAPI.post('/reports/maintenance-sends/send-all?week=' + wk, {})
       .then(function (r) {
         setStatus('done', (r.sent || 0) + ' sent, ' + (r.failed || 0) + ' failed, ' + (r.skipped || 0) + ' skipped.');
         toast((r.sent || 0) + ' email(s) sent.', 'ok');
@@ -540,34 +586,35 @@
     portfolioNotes.forEach(function (n) { if (n.status === 'approved') safe++; else rebuild++; });
     $('gen-rebuild-n').textContent = rebuild;
     $('gen-safe-n').textContent = safe;
+    $('gen-modal-title').textContent = 'Generate maintenance notes for ' + formatWeek(periodStart, periodEnd) + '?';
     $('gen-modal').classList.add('show');
   }
   function closeGenerateConfirm() { $('gen-modal').classList.remove('show'); }
 
-  function doGenerate(opts) {
+  function doGenerate() {
+    if (!periodStart || !periodEnd) {
+      toast('Set both start and end dates before generating.', 'warn');
+      return;
+    }
     closeGenerateConfirm();
     setStatus('running', 'Starting generation...');
     $('generate').disabled = true;
-    customRange = opts.custom ? { start: opts.start, end: opts.end } : null;
     VestaAPI.post('/reports/maintenance-notes/generate', {
-      start_date: opts.start || periodStart,
-      end_date: opts.end || periodEnd,
-      dry_run: opts.dryRun || false,
-      portfolio_name: opts.portfolioName || '',
+      start_date: periodStart,
+      end_date: periodEnd,
+      dry_run: $('dry-run-check').checked,
+      portfolio_name: $('portfolio-name-input').value,
     })
       .then(function () { pollProgress(); })
       .catch(function (e) {
-        $('generate').disabled = false;
-        customRange = null;
+        syncGenerateButton();
         setStatus('warn', 'Generation failed: ' + e.message);
         toast('Generation failed: ' + e.message, 'warn');
       });
   }
 
   function pollProgress() {
-    var url = customRange
-        ? '/reports/maintenance-notes/progress?start_date=' + customRange.start + '&end_date=' + customRange.end
-        : '/reports/maintenance-notes/progress?week=' + weekParam(periodStart);
+    var url = '/reports/maintenance-notes/progress?start_date=' + periodStart + '&end_date=' + periodEnd;
     var poll = setInterval(function () {
       VestaAPI.get(url)
         .then(function (d) {
@@ -576,8 +623,8 @@
           updateProgressBar(pct);
           if (!d.running || d.generated >= d.total) {
             clearInterval(poll);
-            $('generate').disabled = false;
-            setStatus('done', 'Generation complete — ' + d.generated + ' of ' + d.total + ' portfolios.');
+            syncGenerateButton();
+            setStatus('done', 'Generation complete \u2014 ' + d.generated + ' of ' + d.total + ' portfolios.');
             updateProgressBar(100);
             setTimeout(function () { hideProgressBar(); loadAll(); }, 800);
           }
@@ -599,39 +646,30 @@
 
   $('generate').addEventListener('click', openGenerateConfirm);
   $('gen-cancel').addEventListener('click', closeGenerateConfirm);
-  $('gen-confirm').addEventListener('click', function () { doGenerate({ start: periodStart, end: periodEnd }); });
+  $('gen-confirm').addEventListener('click', doGenerate);
   $('gen-modal').addEventListener('click', function (e) { if (e.target === this) closeGenerateConfirm(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeGenerateConfirm(); });
 
-  $('run-btn').addEventListener('click', function () {
-    $('filters').open = false;
-    doGenerate({
-      start: $('start-date-input').value,
-      end: $('end-date-input').value,
-      dryRun: $('dry-run-check').checked,
-      portfolioName: $('portfolio-name-input').value,
-      custom: true,
-    });
+  // --- Period controls ---
+  $('period-start').addEventListener('change', function () {
+    periodStart = this.value;
+    syncGenerateButton();
+    syncWeekActions();
+    if (periodStart && periodEnd) loadAll();
   });
-  $('run-all-btn').addEventListener('click', function () {
-    $('filters').open = false;
-    openGenerateConfirm();
+  $('period-end').addEventListener('change', function () {
+    periodEnd = this.value;
+    syncGenerateButton();
+    syncWeekActions();
+    if (periodStart && periodEnd) loadAll();
   });
-
-  // --- Period change ---
-  $('edit-period').addEventListener('click', function () {
-    var j = $('jump-week');
-    j.value = periodStart;
-    j.style.display = '';
-    j.focus();
-    if (j.showPicker) { try { j.showPicker(); } catch (e) {} }
-  });
-  $('jump-week').addEventListener('change', function () { gotoWeek(this.value); });
-  $('prev-week').addEventListener('click', function () { gotoWeek(prevWeek); });
-  $('next-week').addEventListener('click', function () { gotoWeek(nextWeek); });
+  $('prev-week').addEventListener('click', function () { shiftPeriod(-7); });
+  $('next-week').addEventListener('click', function () { shiftPeriod(7); });
 
   // --- Init ---
-  updatePeriodDisplay();
+  syncInputs();
+  syncGenerateButton();
+  syncWeekActions();
   loadAll().then(function () { setStatus('idle', 'Ready.'); });
 
 })();
