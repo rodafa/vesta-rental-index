@@ -54,6 +54,15 @@ class EmailDraft(models.Model):
     subject = models.CharField(max_length=500)
     body_html = models.TextField()
     generated_note = models.TextField(blank=True, default="")
+    sent_fragments = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Per-portfolio sent fragments, frozen at send time: "
+            '[{"portfolio_id": int, "portfolio_name": str, '
+            '"period_start": "YYYY-MM-DD", "notes_html": str}]'
+        ),
+    )
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
     )
