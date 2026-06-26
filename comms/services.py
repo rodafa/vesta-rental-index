@@ -1698,7 +1698,11 @@ def _build_maintenance_generated_note(ai_result):
     summaries = ai_result.get("wo_summaries", {})
     if summaries:
         parts.append(
-            "\n".join(f"- {s}" for s in summaries.values() if s)
+            "\n".join(
+                f"- [#{wo_num}] {s}" if wo_num.strip() else f"- {s}"
+                for wo_num, s in summaries.items()
+                if s
+            )
         )
 
     return "\n\n".join(parts)
