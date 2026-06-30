@@ -492,19 +492,14 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
     no isInternal exclusion.
 
     Buckets (using validated lifecycle fields, not status-ID enums):
-      - awaiting_approval: open AND is_owner_approved=False
-      - approved_underway: open AND is_owner_approved=True
-      - completed: closed within the 7-day window
-      - cancelled: cancelled within the 7-day window
+      - open: not closed, not cancelled, no scheduled_start_date
+      - scheduled: not closed, not cancelled, scheduled_start_date IS set
+      - completed: closed within the period window
+      - cancelled: cancelled within the period window
 
-    Open work orders are included regardless of age. Completed/cancelled are
-    windowed to 7 days. Windowing uses America/New_York dates (source
-    timestamps are UTC).
+    Open/scheduled work orders are included regardless of age.
+    Completed/cancelled are windowed to the period.
     """
-    import zoneinfo
-
-    tz_east = zoneinfo.ZoneInfo("America/New_York")
-
     base_qs = WorkOrder.objects.filter(portfolio=portfolio, is_active=True).select_related(
         "unit", "property"
     )
@@ -514,14 +509,14 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
         closed_by_user_id__isnull=True, date_closed__isnull=True
     )
 
-    awaiting_qs = list(
-        base_qs.filter(open_q, is_owner_approved=False).order_by(
+    open_qs = list(
+        base_qs.filter(open_q, scheduled_start_date__isnull=True).order_by(
             "-source_created_at"
         )
     )
 
-    approved_qs = list(
-        base_qs.filter(open_q, is_owner_approved=True).order_by(
+    scheduled_qs = list(
+        base_qs.filter(open_q, scheduled_start_date__isnull=False).order_by(
             "-source_created_at"
         )
     )
@@ -562,7 +557,7 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
     # Batch cost lookup
     all_rv_ids = [
         wo.rentvine_id
-        for wo in awaiting_qs + approved_qs + completed_qs + cancelled_qs
+        for wo in open_qs + scheduled_qs + completed_qs + cancelled_qs
     ]
     costs = get_work_order_costs(all_rv_ids)
 
@@ -573,11 +568,11 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
         ]
 
     return {
-        "awaiting_approval": _to_dicts(awaiting_qs),
-        "approved_underway": _to_dicts(approved_qs),
+        "open": _to_dicts(open_qs),
+        "scheduled": _to_dicts(scheduled_qs),
         "completed": _to_dicts(completed_qs),
         "cancelled": _to_dicts(cancelled_qs),
         "_has_data": bool(
-            awaiting_qs or approved_qs or completed_qs or cancelled_qs
+            open_qs or scheduled_qs or completed_qs or cancelled_qs
         ),
     }

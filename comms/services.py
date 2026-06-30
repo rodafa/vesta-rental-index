@@ -35,16 +35,17 @@ Vesta Property Management.
 Voice: Trustworthy, approachable, transparent. You are a knowledgeable property \
 manager giving a clear, factual update — not a salesperson.
 
-Four sections: Awaiting Approval, Approved & Underway, Completed, Cancelled.
+Four sections: Open, Scheduled, Completed, Cancelled.
 
 Rules:
 - Write in first person plural ("We resolved the issue", "Our team scheduled")
 - 1-2 sentences per work order, never more
 - State facts: what happened, who did it, when
-- For items awaiting approval: flag clearly but not alarmingly
-- For approved/underway items: present tense, mention vendor and scheduled date if known
+- For open items: present tense, state what was reported and any vendor assigned
+- For scheduled items: present tense, state the scheduled date verbatim and vendor if known
 - For completed items: past tense, mention vendor and completion date
 - For cancelled items: past tense, brief — just note it was cancelled
+- NEVER tell the owner to approve, authorize, or take action on any work order
 - No jargon, no filler, no speculation
 - Do NOT include work order numbers or ticket IDs in your prose
 - NEVER expose dollar figures in your prose — costs are shown structurally
@@ -188,11 +189,11 @@ def _build_maintenance_prompt_work_orders(
     Owner-agnostic — no owner name, no cross-portfolio references.
     AI returns: {"intro": "...", "wo_summaries": {"<work_order_number>": "..."}}
     """
-    awaiting = _build_work_order_payload(
-        data["awaiting_approval"], "Awaiting owner approval"
+    open_items = _build_work_order_payload(
+        data["open"], "Open"
     )
-    approved = _build_work_order_payload(
-        data["approved_underway"], "Approved & underway"
+    scheduled = _build_work_order_payload(
+        data["scheduled"], "Scheduled"
     )
     completed = _build_work_order_payload(
         data["completed"], "Completed this week"
@@ -204,8 +205,8 @@ def _build_maintenance_prompt_work_orders(
     return (
         f'Write a maintenance update for the portfolio "{portfolio_name}".\n'
         f"Period: {period_start} to {period_end}.\n\n"
-        f"{awaiting}\n\n"
-        f"{approved}\n\n"
+        f"{open_items}\n\n"
+        f"{scheduled}\n\n"
         f"{completed}\n\n"
         f"{cancelled}\n\n"
         "Write:\n"
@@ -1794,8 +1795,8 @@ def generate_portfolio_maintenance_notes(
             # Attach AI summaries to work-order dicts for template rendering
             summaries = ai_result.get("wo_summaries", {})
             for section in (
-                "awaiting_approval",
-                "approved_underway",
+                "open",
+                "scheduled",
                 "completed",
                 "cancelled",
             ):
@@ -1809,12 +1810,12 @@ def generate_portfolio_maintenance_notes(
             )
             context = {
                 "ai_intro": ai_result.get("intro", ""),
-                "awaiting_approval": data["awaiting_approval"],
-                "approved_underway": data["approved_underway"],
+                "open_items": data["open"],
+                "scheduled": data["scheduled"],
                 "completed": data["completed"],
                 "cancelled": data["cancelled"],
-                "awaiting_count": len(data["awaiting_approval"]),
-                "approved_count": len(data["approved_underway"]),
+                "open_count": len(data["open"]),
+                "scheduled_count": len(data["scheduled"]),
                 "completed_count": len(data["completed"]),
                 "cancelled_count": len(data["cancelled"]),
                 "period_label": period_label,
@@ -2389,7 +2390,7 @@ def send_draft(
 # ---------------------------------------------------------------------------
 
 
-def build_distribution_snapshot(portfolio, month_start, month_end, transactions):
+def build_distribution_snapshot(portfolio, month_start, month_end, transactions, *, balance_index=None):
     """
     Pure function. Calls selectors over pre-fetched transactions and
     assembles the snapshot payload for one portfolio.
@@ -2402,7 +2403,7 @@ def build_distribution_snapshot(portfolio, month_start, month_end, transactions)
             "distribution_amount": Decimal,
             "distribution_date": date | None,
             "line_items": [{"property_id", "property_address",
-                            "expected", "collected"}],
+                            "expected", "collected", "tenant_balance"}],
         }
     """
     from datetime import date as date_type
@@ -2423,6 +2424,8 @@ def build_distribution_snapshot(portfolio, month_start, month_end, transactions)
             "property_address": item["property_address"],
             "expected": str(item["expected"]),
             "collected": str(item["collected"]),
+            "tenant_balance": str(balance_index.get(item["property_id"], 0))
+                if balance_index else "0",
         }
         for item in rent_data
     ]
@@ -2543,11 +2546,14 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
         pk__in=portfolio_pks, is_active=True,
     ).order_by("name")
 
+    from django.utils import timezone as tz
+
     fragments = []
     portfolio_info = []
     grand_expected = Decimal("0")
     grand_collected = Decimal("0")
     grand_distribution = Decimal("0")
+    show_balance_footnote = False
 
     for portfolio in portfolios:
         snapshot = PortfolioDistributionSnapshot.objects.filter(
@@ -2567,15 +2573,26 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
         total_expected = sum(Decimal(item["expected"]) for item in snapshot.line_items)
         total_collected = sum(Decimal(item["collected"]) for item in snapshot.line_items)
 
-        # Format line items for template
-        formatted_items = [
-            {
+        # Derive as-of date from snapshot.updated_at (auto_now=True, ET)
+        balance_as_of = (
+            tz.localtime(snapshot.updated_at)
+            .strftime("%b %d, %Y")
+            .replace(" 0", " ")
+        )
+
+        # Format line items for template — include tenant_balance only when > 0
+        formatted_items = []
+        for item in snapshot.line_items:
+            fi = {
                 "property_address": item["property_address"],
                 "expected": f"{Decimal(item['expected']):,.2f}",
                 "collected": f"{Decimal(item['collected']):,.2f}",
             }
-            for item in snapshot.line_items
-        ]
+            bal = Decimal(item.get("tenant_balance", "0"))
+            if bal > 0:
+                fi["tenant_balance"] = f"{bal:,.2f}"
+                show_balance_footnote = True
+            formatted_items.append(fi)
 
         fragment_context = {
             "portfolio_name": portfolio.name,
@@ -2584,6 +2601,7 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
             "total_collected": f"{total_collected:,.2f}",
             "distribution_amount": f"{snapshot.distribution_amount:,.2f}",
             "distribution_date": snapshot.distribution_date.strftime("%b %d, %Y"),
+            "balance_as_of": balance_as_of,
         }
         if snapshot.undeposited_amount and snapshot.undeposited_amount > 0:
             fragment_context["undeposited_amount"] = f"{snapshot.undeposited_amount:,.2f}"
@@ -2640,6 +2658,7 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
             "month_name": month_name,
             "by_date": by_date,
             "portal_url": portal_url,
+            "show_balance_footnote": show_balance_footnote,
         },
     )
 

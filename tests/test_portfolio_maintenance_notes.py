@@ -193,12 +193,12 @@ def melds(prop_single, prop_multi, unit_single, unit_multi_a, unit_multi_b):
 def work_orders(portfolio, prop_single, prop_multi, unit_single, unit_multi_a, unit_multi_b):
     """
     Production-shaped work-order set (four-bucket structure):
-      - 1 awaiting approval (open, not approved)
-      - 1 approved & underway (open, approved)
+      - 1 open (no scheduled date)
+      - 1 scheduled (has scheduled_start_date)
       - 1 completed within window
       - 1 cancelled within window
     """
-    awaiting = WorkOrder.objects.create(
+    open_wo = WorkOrder.objects.create(
         rentvine_id=1001,
         work_order_number="WO-1001",
         description="<p>Leaky faucet in kitchen</p>",
@@ -206,10 +206,9 @@ def work_orders(portfolio, prop_single, prop_multi, unit_single, unit_multi_a, u
         property=prop_single,
         unit=unit_single,
         vendor_name="Quick Plumb LLC",
-        is_owner_approved=False,
         source_created_at=datetime(2026, 5, 26, 10, 0, tzinfo=timezone.utc),
     )
-    approved = WorkOrder.objects.create(
+    scheduled_wo = WorkOrder.objects.create(
         rentvine_id=1002,
         work_order_number="WO-1002",
         description="<div>HVAC not cooling unit B</div>",
@@ -217,7 +216,6 @@ def work_orders(portfolio, prop_single, prop_multi, unit_single, unit_multi_a, u
         property=prop_multi,
         unit=unit_multi_b,
         vendor_name="CoolAir Services",
-        is_owner_approved=True,
         scheduled_start_date=date(2026, 5, 30),
         source_created_at=datetime(2026, 5, 27, 14, 0, tzinfo=timezone.utc),
     )
@@ -229,7 +227,6 @@ def work_orders(portfolio, prop_single, prop_multi, unit_single, unit_multi_a, u
         property=prop_multi,
         unit=unit_multi_a,
         vendor_name="In-House",
-        is_owner_approved=True,
         closed_by_user_id=1,
         date_closed=date(2026, 5, 28),
         source_created_at=datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc),
@@ -245,7 +242,7 @@ def work_orders(portfolio, prop_single, prop_multi, unit_single, unit_multi_a, u
         source_modified_at=datetime(2026, 5, 29, 16, 0, tzinfo=timezone.utc),
         source_created_at=datetime(2026, 5, 25, 10, 0, tzinfo=timezone.utc),
     )
-    return awaiting, approved, completed, cancelled
+    return open_wo, scheduled_wo, completed, cancelled
 
 
 @pytest.fixture
@@ -597,8 +594,8 @@ class TestMaintenanceFragmentRender:
 
         # Four-bucket stats bar: each bucket has 1 item
         assert ">1<" in html
-        assert "Awaiting" in html
-        assert "Underway" in html
+        assert "Open" in html
+        assert "Scheduled" in html
         assert "Completed" in html
         assert "Cancelled" in html
 

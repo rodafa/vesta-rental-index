@@ -15,13 +15,13 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 24px;">
   <tr>
     <td width="24%" style="text-align:center; padding:16px 4px; background-color:#EFF5F9; border-radius:6px;">
-      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#D67011;">{{ awaiting_count }}</p>
-      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Awaiting</p>
+      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#1E3D58;">{{ open_count }}</p>
+      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Open</p>
     </td>
     <td width="3"></td>
     <td width="24%" style="text-align:center; padding:16px 4px; background-color:#EFF5F9; border-radius:6px;">
-      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#1E3D58;">{{ approved_count }}</p>
-      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Underway</p>
+      <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:28px; font-weight:700; color:#6EA5CD;">{{ scheduled_count }}</p>
+      <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Scheduled</p>
     </td>
     <td width="3"></td>
     <td width="24%" style="text-align:center; padding:16px 4px; background-color:#EFF5F9; border-radius:6px;">
@@ -36,13 +36,13 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 
-{% if awaiting_approval %}
-<!-- Awaiting Approval -->
-<h2 style="margin:0 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#D67011; border-bottom:2px solid #D67011; padding-bottom:8px;">
-  Awaiting Approval ({{ awaiting_count }})
+{% if open_items %}
+<!-- Open -->
+<h2 style="margin:0 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #1E3D58; padding-bottom:8px;">
+  Open ({{ open_count }})
 </h2>
-{% for wo in awaiting_approval %}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #D67011;">
+{% for wo in open_items %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #1E3D58;">
   <tr>
     <td style="padding:16px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -57,9 +57,6 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
             <p style="margin:4px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
               {{ wo.title }}
             </p>
-          </td>
-          <td width="120" style="text-align:right; vertical-align:top;">
-            <span style="display:inline-block; padding:3px 8px; background-color:#D67011; color:#fff; font-family:Helvetica, Arial, sans-serif; font-size:10px; font-weight:700; border-radius:3px; text-transform:uppercase;">APPROVAL NEEDED</span>
           </td>
         </tr>
       </table>
@@ -86,12 +83,12 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 {% endfor %}
 {% endif %}
 
-{% if approved_underway %}
-<!-- Approved & Underway -->
+{% if scheduled %}
+<!-- Scheduled -->
 <h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:8px;">
-  Approved &amp; Underway ({{ approved_count }})
+  Scheduled ({{ scheduled_count }})
 </h2>
-{% for wo in approved_underway %}
+{% for wo in scheduled %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #6EA5CD;">
   <tr>
     <td style="padding:16px;">
@@ -211,7 +208,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 {% endfor %}
 {% endif %}
 
-{% if not awaiting_approval and not approved_underway and not completed and not cancelled %}
+{% if not open_items and not scheduled and not completed and not cancelled %}
 <!-- No activity -->
 <p style="margin:24px 0; font-size:15px; line-height:1.5; color:#555555; text-align:center;">
   No maintenance activity to report this week. Everything is running smoothly.
