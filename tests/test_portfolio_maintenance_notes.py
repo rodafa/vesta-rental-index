@@ -554,6 +554,10 @@ class TestMaintenanceFragmentRender:
         note = PortfolioMaintenanceNote.objects.get(portfolio=portfolio)
         html = note.notes_html
 
+        # Property address group headings present
+        assert "123 Main St" in html
+        assert "456 Oak Ave" in html
+
         # Work order descriptions present (HTML stripped)
         assert "Leaky faucet in kitchen" in html
         assert "HVAC not cooling unit B" in html
@@ -633,6 +637,89 @@ class TestMaintenanceFragmentRender:
 
         note = PortfolioMaintenanceNote.objects.get(portfolio=portfolio)
         assert "2 open work orders" in note.notes_html
+
+
+# ---------------------------------------------------------------------------
+# Address grouping tests
+# ---------------------------------------------------------------------------
+
+
+class TestWorkOrderAddressGrouping:
+    def test_groups_by_property_address(self, portfolio, work_orders):
+        """Each bucket's items are grouped by property address."""
+        data = get_portfolio_work_order_data(portfolio, PERIOD_START, PERIOD_END)
+
+        # Open bucket: 1 WO at prop_single → 1 group
+        assert len(data["open"]) == 1
+        assert data["open"][0]["property_address"] == "123 Main St"
+        assert len(data["open"][0]["work_orders"]) == 1
+
+        # Scheduled bucket: 1 WO at prop_multi → 1 group
+        assert len(data["scheduled"]) == 1
+        assert data["scheduled"][0]["property_address"] == "456 Oak Ave"
+        assert len(data["scheduled"][0]["work_orders"]) == 1
+
+    def test_show_unit_false_single_unit(self, portfolio, work_orders):
+        """show_unit is False when a group has only one distinct unit."""
+        data = get_portfolio_work_order_data(portfolio, PERIOD_START, PERIOD_END)
+
+        # Open: 1 WO at single-unit property → show_unit False
+        assert data["open"][0]["show_unit"] is False
+
+        # Scheduled: 1 WO at multi-unit property but only 1 unit → show_unit False
+        assert data["scheduled"][0]["show_unit"] is False
+
+    def test_show_unit_true_multi_unit(
+        self, portfolio, prop_multi, unit_multi_a, unit_multi_b
+    ):
+        """show_unit is True when a group spans 2+ distinct units."""
+        # Create two open WOs at the same multi-unit property, different units
+        WorkOrder.objects.create(
+            rentvine_id=2001,
+            work_order_number="WO-2001",
+            description="Broken window in Unit A",
+            portfolio=portfolio,
+            property=prop_multi,
+            unit=unit_multi_a,
+            source_created_at=datetime(2026, 5, 26, 10, 0, tzinfo=timezone.utc),
+        )
+        WorkOrder.objects.create(
+            rentvine_id=2002,
+            work_order_number="WO-2002",
+            description="Clogged drain in Unit B",
+            portfolio=portfolio,
+            property=prop_multi,
+            unit=unit_multi_b,
+            source_created_at=datetime(2026, 5, 26, 11, 0, tzinfo=timezone.utc),
+        )
+
+        data = get_portfolio_work_order_data(portfolio, PERIOD_START, PERIOD_END)
+
+        # Both WOs are at 456 Oak Ave → 1 group with 2 WOs
+        oak_groups = [
+            g for g in data["open"]
+            if g["property_address"] == "456 Oak Ave"
+        ]
+        assert len(oak_groups) == 1
+        group = oak_groups[0]
+        assert len(group["work_orders"]) == 2
+        assert group["show_unit"] is True
+
+        # Verify unit_labels are the raw designators
+        labels = {wo["unit_label"] for wo in group["work_orders"]}
+        assert labels == {"A", "B"}
+
+    def test_group_shape(self, portfolio, work_orders):
+        """Each group dict has the expected keys."""
+        data = get_portfolio_work_order_data(portfolio, PERIOD_START, PERIOD_END)
+        group = data["open"][0]
+        assert "property_address" in group
+        assert "work_orders" in group
+        assert "show_unit" in group
+        wo = group["work_orders"][0]
+        assert "property_address" in wo
+        assert "unit_label" in wo
+        assert "unit_address" in wo
 
 
 # ---------------------------------------------------------------------------

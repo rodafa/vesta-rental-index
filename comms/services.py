@@ -156,27 +156,33 @@ def _build_meld_payload(melds, section_label):
     return "\n".join(lines)
 
 
-def _build_work_order_payload(items, section_label):
-    """Format a list of work-order dicts into structured text for the AI prompt."""
-    if not items:
+def _build_work_order_payload(address_groups, section_label):
+    """Format address-grouped work-order dicts into structured text for the AI prompt.
+
+    address_groups is a list of {"property_address", "work_orders", "show_unit"} dicts
+    produced by the selector's _group_by_address().
+    """
+    if not address_groups:
         return f"{section_label}: none"
 
-    lines = [f"{section_label} ({len(items)}):"]
-    for wo in items:
-        parts = [
-            f"  - [{wo['work_order_number']}]",
-            f"Address: {wo['unit_address']}",
-            f"Issue: {wo['description'][:200]}",
-        ]
-        if wo.get("vendor_name"):
-            parts.append(f"Vendor: {wo['vendor_name']}")
-        if wo.get("cost"):
-            parts.append(f"Cost: ${wo['cost']}")
-        if wo.get("scheduled_start_date"):
-            parts.append(f"Scheduled: {wo['scheduled_start_date']}")
-        if wo.get("date_closed"):
-            parts.append(f"Completed: {wo['date_closed']}")
-        lines.append(" | ".join(parts))
+    total = sum(len(g["work_orders"]) for g in address_groups)
+    lines = [f"{section_label} ({total}):"]
+    for group in address_groups:
+        lines.append(f"  {group['property_address']}:")
+        for wo in group["work_orders"]:
+            parts = [
+                f"    - [{wo['work_order_number']}]",
+                f"Issue: {wo['description'][:200]}",
+            ]
+            if wo.get("vendor_name"):
+                parts.append(f"Vendor: {wo['vendor_name']}")
+            if wo.get("cost"):
+                parts.append(f"Cost: ${wo['cost']}")
+            if wo.get("scheduled_start_date"):
+                parts.append(f"Scheduled: {wo['scheduled_start_date']}")
+            if wo.get("date_closed"):
+                parts.append(f"Completed: {wo['date_closed']}")
+            lines.append(" | ".join(parts))
     return "\n".join(lines)
 
 
@@ -1800,9 +1806,10 @@ def generate_portfolio_maintenance_notes(
                 "completed",
                 "cancelled",
             ):
-                for wo_dict in data.get(section, []):
-                    wo_num = wo_dict["work_order_number"]
-                    wo_dict["ai_summary"] = summaries.get(wo_num, "")
+                for group in data.get(section, []):
+                    for wo_dict in group["work_orders"]:
+                        wo_num = wo_dict["work_order_number"]
+                        wo_dict["ai_summary"] = summaries.get(wo_num, "")
 
             # Render fragment template
             period_label = _format_period_label(
@@ -1814,10 +1821,10 @@ def generate_portfolio_maintenance_notes(
                 "scheduled": data["scheduled"],
                 "completed": data["completed"],
                 "cancelled": data["cancelled"],
-                "open_count": len(data["open"]),
-                "scheduled_count": len(data["scheduled"]),
-                "completed_count": len(data["completed"]),
-                "cancelled_count": len(data["cancelled"]),
+                "open_count": sum(len(g["work_orders"]) for g in data["open"]),
+                "scheduled_count": sum(len(g["work_orders"]) for g in data["scheduled"]),
+                "completed_count": sum(len(g["work_orders"]) for g in data["completed"]),
+                "cancelled_count": sum(len(g["work_orders"]) for g in data["cancelled"]),
                 "period_label": period_label,
             }
             notes_html = render_to_string(

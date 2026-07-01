@@ -1,7 +1,8 @@
 {% load humanize %}
 {% comment %}
 Maintenance fragment — rendered into PortfolioMaintenanceNote.notes_html.
-Contains: AI intro, summary stats bar, work-order cards in four buckets.
+Contains: AI intro, summary stats bar, work-order cards in four buckets,
+grouped by property address within each bucket.
 NO greeting, header, footer, or CTA — those belong to the owner-grain envelope (Layer 2).
 {% endcomment %}
 
@@ -41,16 +42,22 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <h2 style="margin:0 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #1E3D58; padding-bottom:8px;">
   Open ({{ open_count }})
 </h2>
-{% for wo in open_items %}
+{% for group in open_items %}
+<p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#1E3D58;">
+  {{ group.property_address }}
+</p>
+{% for wo in group.work_orders %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #1E3D58;">
   <tr>
     <td style="padding:16px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
           <td>
+            {% if group.show_unit and wo.unit_label %}
             <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
-              {{ wo.unit_address }}
+              {{ wo.unit_label }}
             </p>
+            {% endif %}
             <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
               {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
             </p>
@@ -81,6 +88,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 {% endfor %}
+{% endfor %}
 {% endif %}
 
 {% if scheduled %}
@@ -88,16 +96,22 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:8px;">
   Scheduled ({{ scheduled_count }})
 </h2>
-{% for wo in scheduled %}
+{% for group in scheduled %}
+<p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#1E3D58;">
+  {{ group.property_address }}
+</p>
+{% for wo in group.work_orders %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #6EA5CD;">
   <tr>
     <td style="padding:16px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
           <td>
+            {% if group.show_unit and wo.unit_label %}
             <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
-              {{ wo.unit_address }}
+              {{ wo.unit_label }}
             </p>
+            {% endif %}
             <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
               {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
             </p>
@@ -129,6 +143,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 {% endfor %}
+{% endfor %}
 {% endif %}
 
 {% if completed %}
@@ -136,16 +151,22 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#39B54A; border-bottom:2px solid #39B54A; padding-bottom:8px;">
   Completed This Week ({{ completed_count }})
 </h2>
-{% for wo in completed %}
+{% for group in completed %}
+<p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#1E3D58;">
+  {{ group.property_address }}
+</p>
+{% for wo in group.work_orders %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #39B54A;">
   <tr>
     <td style="padding:16px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
           <td>
+            {% if group.show_unit and wo.unit_label %}
             <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
-              {{ wo.unit_address }}
+              {{ wo.unit_label }}
             </p>
+            {% endif %}
             <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
               {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
             </p>
@@ -177,6 +198,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 {% endfor %}
+{% endfor %}
 {% endif %}
 
 {% if cancelled %}
@@ -184,13 +206,19 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#888888; border-bottom:2px solid #cccccc; padding-bottom:8px;">
   Cancelled ({{ cancelled_count }})
 </h2>
-{% for wo in cancelled %}
+{% for group in cancelled %}
+<p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#888888;">
+  {{ group.property_address }}
+</p>
+{% for wo in group.work_orders %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #cccccc;">
   <tr>
     <td style="padding:12px 16px;">
+      {% if group.show_unit and wo.unit_label %}
       <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#aaaaaa;">
-        {{ wo.unit_address }}
+        {{ wo.unit_label }}
       </p>
+      {% endif %}
       <p style="margin:2px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD;">
         {% if wo.work_order_number %}#{{ wo.work_order_number }}{% endif %}
       </p>
@@ -205,6 +233,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
     </td>
   </tr>
 </table>
+{% endfor %}
 {% endfor %}
 {% endif %}
 

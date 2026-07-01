@@ -438,10 +438,22 @@ def _extract_title(raw_html: str) -> str:
 def _work_order_to_dict(wo, cost=None):
     """Convert a WorkOrder instance to a plain dict for template/AI consumption."""
     unit_address = ""
+    property_address = ""
+    unit_label = ""
+
     if wo.unit:
         unit_address = wo.unit.display_address
-    elif wo.property:
-        unit_address = str(wo.property)
+        unit_label = (wo.unit.unit_number or "").strip()
+    if wo.property:
+        property_address = (wo.property.address_line_1 or str(wo.property)).strip()
+    if not property_address and unit_address:
+        property_address = unit_address
+    if not unit_address and property_address:
+        unit_address = property_address
+    if not property_address:
+        property_address = "Address not specified"
+    if not unit_address:
+        unit_address = property_address
 
     return {
         "id": wo.pk,
@@ -456,8 +468,32 @@ def _work_order_to_dict(wo, cost=None):
         "source_created_at": wo.source_created_at,
         "source_modified_at": wo.source_modified_at,
         "unit_address": unit_address,
+        "property_address": property_address,
+        "unit_label": unit_label,
         "cost": cost,
     }
+
+
+def _group_by_address(wo_dicts):
+    """Group work-order dicts by property_address, preserving insertion order.
+
+    Returns [{"property_address": str, "work_orders": [dict], "show_unit": bool}].
+    show_unit is True only when the group spans more than one distinct
+    non-blank unit_label (i.e. a multi-unit property with WOs in different units).
+    """
+    from collections import OrderedDict
+
+    groups = OrderedDict()
+    for wo in wo_dicts:
+        groups.setdefault(wo["property_address"], []).append(wo)
+    return [
+        {
+            "property_address": addr,
+            "work_orders": wos,
+            "show_unit": len({w["unit_label"] for w in wos if w["unit_label"]}) > 1,
+        }
+        for addr, wos in groups.items()
+    ]
 
 
 def get_work_order_costs(rentvine_ids: list[int]) -> dict[int, Decimal]:
@@ -568,10 +604,10 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
         ]
 
     return {
-        "open": _to_dicts(open_qs),
-        "scheduled": _to_dicts(scheduled_qs),
-        "completed": _to_dicts(completed_qs),
-        "cancelled": _to_dicts(cancelled_qs),
+        "open": _group_by_address(_to_dicts(open_qs)),
+        "scheduled": _group_by_address(_to_dicts(scheduled_qs)),
+        "completed": _group_by_address(_to_dicts(completed_qs)),
+        "cancelled": _group_by_address(_to_dicts(cancelled_qs)),
         "_has_data": bool(
             open_qs or scheduled_qs or completed_qs or cancelled_qs
         ),
