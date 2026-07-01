@@ -191,6 +191,14 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
           <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; font-weight:600; color:#1E3D58;">
             ${{ wo.cost|floatformat:2|intcomma }}
           </td>
+          {% elif wo.estimated_amount %}
+          <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
+            Est.&nbsp;${{ wo.estimated_amount|floatformat:2|intcomma }}
+          </td>
+          {% else %}
+          <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; font-style:italic; color:#888888;">
+            Work completed, billing pending
+          </td>
           {% endif %}
         </tr>
       </table>

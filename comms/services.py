@@ -2117,7 +2117,31 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
         fragments_html = fragments[0][1]
 
     # Render envelope with concatenated fragments
-    period_end = period_start + __import__("datetime").timedelta(days=6)
+    # Read period_end from the notes assembled for this email; fall back to +6.
+    _assembled_pks = [p["id"] for p in portfolio_info]
+    _note_period_ends = list(
+        PortfolioMaintenanceNote.objects.filter(
+            portfolio_id__in=_assembled_pks,
+            period_type=period_type,
+            period_start=period_start,
+        )
+        .exclude(period_end__isnull=True)
+        .values_list("period_end", flat=True)
+        .distinct()
+    )
+    if len(_note_period_ends) > 1:
+        logger.warning(
+            "comms_period_end_mismatch",
+            extra={
+                "portfolio_pks": _assembled_pks,
+                "distinct_period_ends": sorted(
+                    str(d) for d in _note_period_ends
+                ),
+            },
+        )
+    period_end = max(_note_period_ends, default=None) or (
+        period_start + __import__("datetime").timedelta(days=6)
+    )
     period_label = _format_period_label(period_type, period_start, period_end)
 
     body_html = render_to_string(

@@ -28,8 +28,11 @@ _MIGRATION_BOILERPLATE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# Split on the first block-level break to extract a short title.
-_FIRST_LINE_SPLIT = re.compile(r"<br\s*/?>|</?p\s*/?>|<hr\s*/?>", re.IGNORECASE)
+# Split on the first block-level break or newline to extract a short title.
+_FIRST_LINE_SPLIT = re.compile(r"<br\s*/?>|</?p\s*/?>|<hr\s*/?>|\r?\n", re.IGNORECASE)
+
+# Strip internal WO references like "(WO #7ddd9fc9)" from titles.
+_INTERNAL_WO_REF = re.compile(r"\s*\(WO\s+#[0-9a-fA-F]+\)")
 
 
 # ---------------------------------------------------------------------------
@@ -415,8 +418,8 @@ def _extract_title(raw_html: str) -> str:
     Extract a short title from a work-order description.
 
     Strips migration boilerplate, takes the first non-empty segment
-    (before the first <br>, <p>, or <hr> tag), cleans HTML tags +
-    entities, and caps at 120 characters.
+    (before the first <br>, <p>, <hr>, or newline), cleans HTML tags +
+    entities, strips internal WO refs, and caps at 120 characters.
     """
     if not raw_html:
         return ""
@@ -430,6 +433,7 @@ def _extract_title(raw_html: str) -> str:
         if candidate:
             first_line = candidate
             break
+    first_line = _INTERNAL_WO_REF.sub("", first_line).strip()
     if len(first_line) > 120:
         first_line = first_line[:120].rsplit(" ", 1)[0] + "..."
     return first_line

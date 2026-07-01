@@ -14,12 +14,13 @@ Usage:
     python manage.py send_maintenance_emails --period-start 2026-05-25 --acting-user rodrigo --test-email me@example.com --owner-email owner@example.com
 """
 
+import logging
 from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import User
-from comms.models import EmailDraft
+from comms.models import EmailDraft, PortfolioMaintenanceNote
 from comms.services import (
     _normalize_email,
     _format_period_label,
@@ -27,6 +28,8 @@ from comms.services import (
     send_draft,
 )
 from core.models import Owner
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -143,6 +146,33 @@ class Command(BaseCommand):
                     self.stderr.write(f"  {norm_email}: no active owner found — skipped")
                     skipped += 1
                     continue
+
+                # Read period_end from this recipient's notes; fall back to +6.
+                _assembled_pks = [p["id"] for p in assembled["portfolios"]]
+                _note_period_ends = list(
+                    PortfolioMaintenanceNote.objects.filter(
+                        portfolio_id__in=_assembled_pks,
+                        period_type=period_type,
+                        period_start=period_start,
+                    )
+                    .exclude(period_end__isnull=True)
+                    .values_list("period_end", flat=True)
+                    .distinct()
+                )
+                if len(_note_period_ends) > 1:
+                    logger.warning(
+                        "comms_period_end_mismatch",
+                        extra={
+                            "recipient": norm_email,
+                            "portfolio_pks": _assembled_pks,
+                            "distinct_period_ends": sorted(
+                                str(d) for d in _note_period_ends
+                            ),
+                        },
+                    )
+                period_end = max(_note_period_ends, default=None) or (
+                    period_start + timedelta(days=6)
+                )
 
                 period_label = _format_period_label(period_type, period_start, period_end)
                 subject = f"Weekly Maintenance Update — {period_label}"
