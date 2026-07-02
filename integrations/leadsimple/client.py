@@ -21,9 +21,12 @@ DEFAULT_BASE_URL = "https://api.leadsimple.com/rest"
 DEFAULT_PER_PAGE = 100
 DEFAULT_MAX_PAGES = 20
 DEFAULT_TASKS_MAX_PAGES = 200
-MAX_RETRIES = 3
+MAX_RETRIES = 4
 BACKOFF_FACTOR = 2  # seconds: 2, 4, 8
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+INTER_PAGE_PAUSE = 1.0         # seconds between successive page fetches (pacing)
+RATE_LIMIT_FALLBACK_WAIT = 90  # seconds to wait on 429 when no Retry-After header
+RATE_LIMIT_MAX_WAIT = 120      # cap on an honored Retry-After value (safety)
 
 
 def _get_auth():
@@ -173,12 +176,35 @@ def fetch_tasks(*, period_start=None, max_pages=None):
     return all_tasks
 
 
+def _retry_wait_seconds(resp, status_code, attempt):
+    """Seconds to wait before a retry.
+
+    On 429 (rate limit) honor the server's window: prefer the Retry-After
+    header, else fall back to a fixed patient wait. Other retryable codes
+    (500/502/503/504) are transient blips and use exponential backoff.
+    """
+    if status_code == 429:
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                secs = int(retry_after)
+            except (TypeError, ValueError):
+                secs = None
+            if secs is not None and 0 < secs <= RATE_LIMIT_MAX_WAIT:
+                return secs
+        return RATE_LIMIT_FALLBACK_WAIT
+    return BACKOFF_FACTOR ** attempt
+
+
 def _get_page(base_url, headers, page, *, endpoint="/processes", extra_params=None):
     """Fetch a single page with retry logic. Returns parsed JSON or DEGRADED."""
     url = f"{base_url}{endpoint}"
     params = {"per_page": DEFAULT_PER_PAGE, "page": page}
     if extra_params:
         params.update(extra_params)
+
+    if page > 1:
+        time.sleep(INTER_PAGE_PAUSE)
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -197,15 +223,17 @@ def _get_page(base_url, headers, page, *, endpoint="/processes", extra_params=No
             return resp.json()
 
         if resp.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+            wait_s = _retry_wait_seconds(resp, resp.status_code, attempt)
             logger.warning(
                 "leadsimple_retryable_error",
                 extra={
                     "page": page,
                     "attempt": attempt,
                     "status_code": resp.status_code,
+                    "wait_seconds": wait_s,
                 },
             )
-            time.sleep(BACKOFF_FACTOR ** attempt)
+            time.sleep(wait_s)
             continue
 
         logger.error(
