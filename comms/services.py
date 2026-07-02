@@ -845,8 +845,8 @@ def _render_notes_html(context):
                 f'background-color:#fef3c7; border-radius:6px;">'
                 f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
                 f'font-size:13px; color:#92400e;">'
-                f'Maintenance: {maint.get("open_count", 0)} open &bull; '
-                f'{maint.get("closed_count", 0)} closed &bull; '
+                f'Maintenance: {maint.get("open_count", 0)} open • '
+                f'{maint.get("closed_count", 0)} closed • '
                 f'{maint.get("canceled_count", 0)} canceled'
                 f'</p></div>'
             )
