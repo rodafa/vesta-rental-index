@@ -66,13 +66,16 @@ Every problem is paired with what is being done about it.
 Structure — choose based on unit count:
 
 SINGLE-UNIT PORTFOLIO:
-- Intro paragraph (2-3 sentences summarizing the month)
+- Intro: when the portfolio had real activity, open with the month's most \
+significant actual item — not a generic energy assessment. Do NOT use \
+"active month" as a stock opener. When the portfolio was genuinely quiet, a \
+brief stable/quiet summary is correct.
 - Category-grouped bullets (Leasing & Occupancy / Property & Turns / \
 Collections / Issues). Omit empty categories entirely.
 - Maintenance line (from summary_line, if provided)
 
 MULTI-UNIT PORTFOLIO:
-- Intro paragraph (2-3 sentences)
+- Intro: same rule as single-unit — lead with the most significant actual item.
 - Per-unit sections, headed by property address (add unit number when the \
 property has more than one unit). Order most-serious-first.
 - Quiet roll-up: "The portfolio's remaining N units had no leasing or \
@@ -90,7 +93,8 @@ expose raw task counts or work-order counts.
 
 Rules:
 - Write in first person plural ("We completed", "Our team coordinated")
-- 1-2 sentences per process, never more
+- Length matches the fact: a single clause when that's all it needs, never \
+padded. Never more than two sentences for one process.
 - State facts: what happened or is happening, current status, next step
 - NEVER expose numeric task counts, work-order counts, or dollar figures
 - NEVER reference internal system names, ticket IDs, pipeline references, \
@@ -98,7 +102,18 @@ or process IDs
 - NEVER address or greet the owner by name
 - NEVER reference "your other properties" or any other portfolio
 - All dates in plain English format (e.g. "May 15, 2026") — never ISO format
-- No jargon, no filler, no speculation, no editorializing\
+- No jargon, no filler, no speculation, no editorializing
+- No effort- or activity-language. Never describe how hard the team worked. \
+Banned phrasings include "requiring close attention," "considerable effort," \
+"working diligently," "working this effort closely," and "actively working" \
+used as filler. State what was done or what happens next — not effort.
+- One fact, one clause. Match sentence length to the fact. A small fact gets a \
+short sentence; never pad a single fact into two sentences.
+- No run-on sentences. Say what needs saying and stop.
+- For a single-property portfolio, you will be given a street address as the \
+identifier instead of a portfolio name. Refer to the property by that address \
+throughout (e.g. "Everything was quiet at 123 Main Street") — never by a \
+portfolio or LLC name.\
 """,
 }
 
@@ -409,9 +424,19 @@ def _build_single_portfolio_prompt(section, period_start):
     unit_count = section.get("unit_count", 1)
     structure = "MULTI-UNIT" if unit_count > 1 else "SINGLE-UNIT"
 
+    # Single-property portfolios: use the street address as the identifier
+    # so the model writes "at 123 Main St" instead of an LLC name.
+    distinct_addresses = sorted({
+        u["address"] for u in section.get("units", []) if u.get("address")
+    })
+    identifier = (
+        distinct_addresses[0] if len(distinct_addresses) == 1
+        else section["portfolio_name"]
+    )
+
     parts = [
         f"Render a monthly operational summary for the portfolio "
-        f'"{section["portfolio_name"]}" ({structure}, {unit_count} unit{"s" if unit_count != 1 else ""}).',
+        f'"{identifier}" ({structure}, {unit_count} unit{"s" if unit_count != 1 else ""}).',
         f"Period: {period_start.strftime('%B %Y')}.",
         "",
         "IMPORTANT RULES:",
@@ -472,10 +497,12 @@ def _build_single_portfolio_prompt(section, period_start):
     parts.append("")
     parts.append(
         "Write:\n"
-        "1. A brief intro (2-3 sentences summarizing the month's activity "
-        "for this portfolio)\n"
-        "2. For each process identified by its [ID], a concise 1-2 sentence "
-        "summary. Render the status_line faithfully. Weave surfaced_fragments "
+        "1. A brief intro — lead with the most significant actual item, not a "
+        "generic energy assessment. 2-3 sentences max, fewer if the month was "
+        "quiet.\n"
+        "2. For each process identified by its [ID], a summary as short as the "
+        "fact allows — a single clause if that's all it needs; never padded. "
+        "Render the status_line faithfully. Weave surfaced_fragments "
         "naturally. Use activity_band as color but NEVER expose raw counts.\n"
         "Do NOT include the ID in the summary text.\n\n"
         'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
