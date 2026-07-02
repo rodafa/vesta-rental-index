@@ -948,7 +948,7 @@ def build_portfolio_section(
     When prefetched_processes/prefetched_tasks_index are provided, passes
     them through to the pipeline selector (fetch-once pattern).
     """
-    from maintenance.selectors import get_portfolio_maintenance_summary
+    from maintenance.selectors import get_portfolio_work_order_summary
     from integrations.leadsimple.selectors import get_portfolio_pipeline_data
     from core.models import Unit
 
@@ -973,7 +973,7 @@ def build_portfolio_section(
     return {
         "portfolio_name": portfolio.name,
         "financials": _get_latest_statement(portfolio),
-        "maintenance": get_portfolio_maintenance_summary(
+        "maintenance": get_portfolio_work_order_summary(
             portfolio, period_start, period_end
         ),
         "pipeline": get_portfolio_pipeline_data(

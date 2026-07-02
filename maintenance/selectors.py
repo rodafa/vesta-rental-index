@@ -616,3 +616,94 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
             open_qs or scheduled_qs or completed_qs or cancelled_qs
         ),
     }
+
+
+def get_portfolio_work_order_summary(portfolio, period_start, period_end):
+    """
+    Light maintenance overview for a single portfolio's monthly section,
+    sourced from RentVine WorkOrder (replaces the Meld-based
+    get_portfolio_maintenance_summary for the monthly owner note).
+
+    Returns dict with counts of open, closed, and canceled items for the
+    period.  Same return shape as get_portfolio_maintenance_summary().
+
+    Bucket rules (lifecycle fields, not status-ID enums):
+      - open: not closed AND not cancelled (includes scheduled — no
+        scheduled_start_date filter). No period window.
+      - closed: (closed_by_user_id set OR date_closed set) AND NOT
+        cancelled. Period-windowed by date_closed; falls back to
+        source_modified_at when date_closed is null.
+      - canceled: cancelled_by_user_id set. Period-windowed by
+        source_modified_at.
+    Cancellation wins when a WO is both closed and cancelled, matching
+    WorkOrder.derived_status precedence.
+    """
+    base_qs = WorkOrder.objects.filter(portfolio=portfolio, is_active=True)
+
+    # Open: not cancelled AND not closed — regardless of age
+    open_count = (
+        base_qs.filter(
+            cancelled_by_user_id__isnull=True,
+            closed_by_user_id__isnull=True,
+            date_closed__isnull=True,
+        )
+        .count()
+    )
+
+    # Canceled: cancelled_by_user_id set, windowed by source_modified_at
+    canceled_count = (
+        base_qs.filter(cancelled_by_user_id__isnull=False)
+        .filter(
+            source_modified_at__date__gte=period_start,
+            source_modified_at__date__lte=period_end,
+        )
+        .count()
+    )
+
+    # Closed: (closed_by_user_id set OR date_closed set) AND NOT cancelled.
+    # Window by date_closed; fall back to source_modified_at when
+    # date_closed is null.
+    closed_count = (
+        base_qs.filter(
+            Q(closed_by_user_id__isnull=False) | Q(date_closed__isnull=False)
+        )
+        .filter(cancelled_by_user_id__isnull=True)
+        .filter(
+            Q(
+                date_closed__gte=period_start,
+                date_closed__lte=period_end,
+            )
+            | Q(
+                date_closed__isnull=True,
+                source_modified_at__date__gte=period_start,
+                source_modified_at__date__lte=period_end,
+            )
+        )
+        .count()
+    )
+
+    total = open_count + closed_count + canceled_count
+    has_data = bool(total)
+
+    summary_line = ""
+    if has_data:
+        breakdown = []
+        if open_count:
+            breakdown.append(f"{open_count} open")
+        if closed_count:
+            breakdown.append(f"{closed_count} completed")
+        if canceled_count:
+            breakdown.append(f"{canceled_count} canceled")
+        summary_line = (
+            f"{total} work order{'s' if total != 1 else ''} this period"
+            f" ({', '.join(breakdown)})."
+        )
+
+    return {
+        "open_count": open_count,
+        "closed_count": closed_count,
+        "canceled_count": canceled_count,
+        "summary_line": summary_line,
+        "notable_items": [],
+        "_has_data": has_data,
+    }
