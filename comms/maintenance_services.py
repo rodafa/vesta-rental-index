@@ -43,6 +43,16 @@ _maintenance_gen_started_at = None   # monotonic timestamp or None
 _MAINTENANCE_GEN_TTL = 1800          # seconds — auto-expire a stuck lock
 
 
+def note_has_sendable_content(note):
+    """Return True when a PortfolioMaintenanceNote has renderable email content.
+
+    Single source of truth used by both approval endpoints and the send loop.
+    Keys on notes_html — the field assemble_owner_maintenance_email uses to
+    build email fragments.
+    """
+    return bool(note.notes_html and note.notes_html.strip())
+
+
 # ---------------------------------------------------------------------------
 # Maintenance recipients
 # ---------------------------------------------------------------------------
@@ -136,6 +146,7 @@ def get_maintenance_recipients_for_period(period_start, period_type="weekly"):
         recipients.append({
             "recipient_email": norm_email,
             "owner_name": owner_name,
+            "owner_id": rep_owner.pk,
             "owner_names": [o.name for o in sorted(group_owners, key=lambda o: o.pk)],
             "portfolio_count": len(portfolio_info),
             "portfolios": portfolio_info,

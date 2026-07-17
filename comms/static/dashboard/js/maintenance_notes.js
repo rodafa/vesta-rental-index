@@ -516,7 +516,12 @@
     var wk = weekMonday();
     if (!wk) { toast(WEEK_HINT); return; }
     VestaAPI.post('/reports/maintenance-notes/approve-all?week=' + wk, {})
-      .then(function (r) { toast((r.approved || 0) + ' note(s) approved.', 'ok'); return loadAll(); })
+      .then(function (r) {
+        var msg = (r.approved || 0) + ' note(s) approved.';
+        if (r.skipped_empty) msg += ' ' + r.skipped_empty + ' skipped (no content).';
+        toast(msg, r.skipped_empty ? 'warn' : 'ok');
+        return loadAll();
+      })
       .catch(function (e) { toast('Approve all failed: ' + e.message, 'warn'); });
   });
 

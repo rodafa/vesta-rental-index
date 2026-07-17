@@ -35,6 +35,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from .maintenance_services import (
     get_maintenance_recipients_for_period,
+    note_has_sendable_content,
     _maintenance_gen_lock,
     _maintenance_gen_started_at,
     _MAINTENANCE_GEN_TTL,
@@ -240,6 +241,11 @@ def approve_maintenance_note(request, note_id):
     except PortfolioMaintenanceNote.DoesNotExist:
         return JsonResponse({"error": "Not found"}, status=404)
 
+    if not note_has_sendable_content(note):
+        return JsonResponse({
+            "error": "Cannot approve: this note has no email content. Re-generate this portfolio.",
+        }, status=422)
+
     note.status = "approved"
     note.save(update_fields=["status", "updated_at"])
 
@@ -365,15 +371,19 @@ def approve_all_maintenance_notes(request):
         status="draft",
     )
 
-    count = 0
+    approved = 0
+    skipped_empty = 0
     for note in notes:
+        if not note_has_sendable_content(note):
+            skipped_empty += 1
+            continue
         if not note.approved_generated_note:
             note.approved_generated_note = note.generated_note
         note.status = "approved"
         note.save(update_fields=["status", "approved_generated_note", "updated_at"])
-        count += 1
+        approved += 1
 
-    return JsonResponse({"approved": count})
+    return JsonResponse({"approved": approved, "skipped_empty": skipped_empty})
 
 
 @require_POST
@@ -650,10 +660,7 @@ def send_all_maintenance_ready(request):
 
             from core.models import Owner
 
-            rep_owner = Owner.objects.filter(
-                is_active=True,
-                email__iexact=norm_email,
-            ).order_by("pk").first()
+            rep_owner = Owner.objects.filter(pk=recip["owner_id"]).first()
 
             if not rep_owner:
                 skipped += 1
