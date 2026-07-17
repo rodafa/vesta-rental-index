@@ -338,8 +338,16 @@ def maintenance_generation_progress(request):
 
     period_start, period_end, explicit = resolved
 
-    total = get_portfolio_generation_scope().count()
-    generated = _notes_for_period(period_start, period_end, explicit).count()
+    portfolio_name = request.GET.get("portfolio_name", "").strip()
+
+    scope = get_portfolio_generation_scope()
+    notes = _notes_for_period(period_start, period_end, explicit)
+    if portfolio_name:
+        scope = scope.filter(name__icontains=portfolio_name)
+        notes = notes.filter(portfolio__name__icontains=portfolio_name)
+
+    total = scope.count()
+    generated = notes.count()
 
     with msvc._maintenance_gen_lock:
         running = (

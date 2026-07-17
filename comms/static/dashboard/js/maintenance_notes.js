@@ -619,7 +619,9 @@
   }
 
   function pollProgress() {
+    var pName = $('portfolio-name-input').value;
     var url = '/reports/maintenance-notes/progress?start_date=' + periodStart + '&end_date=' + periodEnd;
+    if (pName) url += '&portfolio_name=' + encodeURIComponent(pName);
     var poll = setInterval(function () {
       VestaAPI.get(url)
         .then(function (d) {
@@ -629,7 +631,9 @@
           if (!d.running || d.generated >= d.total) {
             clearInterval(poll);
             syncGenerateButton();
-            setStatus('done', 'Generation complete \u2014 ' + d.generated + ' of ' + d.total + ' portfolios.');
+            setStatus('done', d.generated > 0
+              ? 'Generation complete \u2014 ' + d.generated + ' of ' + d.total + ' portfolios.'
+              : 'Done \u2014 no portfolios had maintenance activity this period.');
             updateProgressBar(100);
             setTimeout(function () { hideProgressBar(); loadAll(); }, 800);
           }
