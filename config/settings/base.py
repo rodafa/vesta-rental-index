@@ -167,6 +167,14 @@ LEADSIMPLE_API_KEY = os.environ.get("LEADSIMPLE_API_KEY", "")
 LEADSIMPLE_BASE_URL = os.environ.get(
     "LEADSIMPLE_BASE_URL", "https://api.leadsimple.com/rest"
 )
+LEADSIMPLE_OWNER_LEADS_PIPELINE_ID = os.environ.get(
+    "LEADSIMPLE_OWNER_LEADS_PIPELINE_ID",
+    "38235371-e68f-40a5-a922-100365c7efaa",
+)
+LEADSIMPLE_ONBOARD_FILLED_STAGE_ID = os.environ.get(
+    "LEADSIMPLE_ONBOARD_FILLED_STAGE_ID",
+    "292cb5ee-0ec6-4283-8eef-040a3cd73f1f",
+)
 
 # --- Slack / Automations ---
 
