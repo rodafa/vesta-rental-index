@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "maintenance",
     "comms",
     "accounting",
+    "automations",
 ]
 
 MIDDLEWARE = [
@@ -166,6 +167,11 @@ LEADSIMPLE_API_KEY = os.environ.get("LEADSIMPLE_API_KEY", "")
 LEADSIMPLE_BASE_URL = os.environ.get(
     "LEADSIMPLE_BASE_URL", "https://api.leadsimple.com/rest"
 )
+
+# --- Slack / Automations ---
+
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+ONBOARD_SHARED_SECRET = os.environ.get("ONBOARD_SHARED_SECRET", "")
 
 # --- Owner Distribution Email ---
 

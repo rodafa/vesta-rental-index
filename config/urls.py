@@ -38,4 +38,6 @@ urlpatterns = [
     # Maintenance sends API (Layer 2 assembled sends)
     path("api/reports/maintenance-sends/", include("comms.maintenance_sends_urls")),
     path("dashboard/maintenance-notes/", maintenance_notes_page, name="maintenance-notes"),
+    # Automations — onboarding webhook
+    path("api/onboard/", include("automations.urls")),
 ]
