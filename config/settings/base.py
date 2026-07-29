@@ -135,6 +135,13 @@ RENTVINE = {
     "API_SECRET": os.environ.get("RENTVINE_API_SECRET", ""),
 }
 
+RENTENGINE = {
+    "API_TOKEN": os.environ.get("RENTENGINE_API_TOKEN", ""),
+    "BASE_URL": os.environ.get(
+        "RENTENGINE_API_URL", "https://app.rentengine.io/api/public/v1"
+    ),
+}
+
 PROPERTY_MELD = {
     "BASE_URL": os.environ.get(
         "PROPERTY_MELD_BASE_URL", "https://api.propertymeld.com/api/v2"
