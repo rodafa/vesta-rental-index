@@ -17,3 +17,4 @@ venv/
 staticfiles/
 .claude/
 tmp/
+.backfill_events_progress.txt

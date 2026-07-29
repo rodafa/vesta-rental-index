@@ -210,3 +210,62 @@ class RentEngineClient:
             extra={"path": path, "total_records": len(all_records)},
         )
         return all_records
+
+    def get_all_enveloped(self, path, params=None, page_size=None):
+        """
+        Fetch all records from an enveloped paginated endpoint.
+
+        Expects responses shaped as {"data": [...], "page": {"has_more": bool,
+        "next_page_number": int|null, ...}}.  Merges caller-supplied params
+        (e.g. prospect_id) with pagination params on each page.
+        """
+        page_size = page_size or self.DEFAULT_PAGE_SIZE
+        all_records = []
+        page_number = 0
+        base_params = dict(params or {})
+
+        while True:
+            req_params = {
+                **base_params,
+                "limit": page_size,
+                "page_number": page_number,
+            }
+            data = self.get(path, params=req_params)
+
+            if not isinstance(data, dict) or "data" not in data:
+                logger.warning(
+                    "rentengine_unexpected_envelope",
+                    extra={"path": path, "type": type(data).__name__},
+                )
+                break
+
+            records = data["data"]
+            if not isinstance(records, list):
+                break
+
+            all_records.extend(records)
+            logger.info(
+                "rentengine_envelope_page_fetched",
+                extra={
+                    "path": path,
+                    "page_number": page_number,
+                    "page_records": len(records),
+                    "total_so_far": len(all_records),
+                },
+            )
+
+            page_meta = data.get("page") or {}
+            if not page_meta.get("has_more"):
+                break
+
+            next_page = page_meta.get("next_page_number")
+            if next_page is None:
+                break
+
+            page_number = next_page
+
+        logger.info(
+            "rentengine_envelope_fetch_complete",
+            extra={"path": path, "total_records": len(all_records)},
+        )
+        return all_records
