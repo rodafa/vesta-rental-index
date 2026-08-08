@@ -104,19 +104,35 @@ def _resolve_ledger_ids():
     GET /accounting/ledgers/search?ledgerTypeID=2 returns portfolio-type ledgers.
     Each record has objectID (= portfolio's RentVine internal ID) and ledgerID.
 
+    Paginates the response so all ledgers are captured, not just the first page.
+
     Returns {portfolio_rentvine_id: ledger_id} dict.
     """
     client = RentvineClient()
-    data = client.get("/accounting/ledgers/search", params={"ledgerTypeID": 2})
-
     ledger_map = {}
-    records = data if isinstance(data, list) else data.get("data", data.get("results", []))
-    for record in records:
-        obj = record.get("ledger", record) if isinstance(record, dict) else record
-        obj_id = obj.get("objectID")
-        ledger_id = obj.get("ledgerID")
-        if obj_id and ledger_id:
-            ledger_map[int(obj_id)] = int(ledger_id)
+    page = 1
+    page_size = 100
+
+    while True:
+        data = client.get(
+            "/accounting/ledgers/search",
+            params={"ledgerTypeID": 2, "page": page, "pageSize": page_size},
+        )
+
+        records = data if isinstance(data, list) else data.get("data", data.get("results", []))
+        if not records:
+            break
+
+        for record in records:
+            obj = record.get("ledger", record) if isinstance(record, dict) else record
+            obj_id = obj.get("objectID")
+            ledger_id = obj.get("ledgerID")
+            if obj_id and ledger_id:
+                ledger_map[int(obj_id)] = int(ledger_id)
+
+        if len(records) < page_size:
+            break
+        page += 1
 
     logger.info(
         "comms_distribution_ledger_map",
