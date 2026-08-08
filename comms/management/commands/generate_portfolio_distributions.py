@@ -28,6 +28,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from accounts.models import User
+from comms.models import PortfolioDistributionSnapshot
 from comms.selectors import get_undeposited_rent
 from comms.services import (
     _normalize_email,
@@ -253,14 +254,33 @@ class Command(BaseCommand):
                     portfolio, month_start, month_end, transactions
                 )
 
-                # Fetch undeposited balance only for portfolios with a distribution
-                if payload["distribution_amount"] > 0 and payload["distribution_date"]:
+                # Fetch undeposited balance for every active portfolio.
+                # Once captured (undeposited_as_of is set), freeze — never
+                # re-fetch so a later re-run cannot overwrite the original value.
+                existing_snapshot = (
+                    PortfolioDistributionSnapshot.objects.filter(
+                        portfolio=portfolio,
+                        period_type="monthly",
+                        period_start=month_start,
+                    )
+                    .values("undeposited_amount", "undeposited_as_of")
+                    .first()
+                )
+
+                if existing_snapshot and existing_snapshot["undeposited_as_of"] is not None:
+                    # Already captured — carry forward unchanged
+                    payload["undeposited_amount"] = existing_snapshot["undeposited_amount"]
+                    payload["undeposited_as_of"] = existing_snapshot["undeposited_as_of"]
+                    undeposited_source = "frozen"
+                else:
+                    # First capture — fetch live from RentVine
                     ledger_id = ledger_map.get(portfolio.rentvine_id)
                     if ledger_id:
                         try:
                             balances = _fetch_portfolio_balances(ledger_id)
                             payload["undeposited_amount"] = get_undeposited_rent(balances)
                             payload["undeposited_as_of"] = today_et
+                            undeposited_source = "fetched"
                         except Exception as bal_exc:
                             logger.warning(
                                 "comms_distribution_balances_error",
@@ -270,6 +290,7 @@ class Command(BaseCommand):
                                     "error": str(bal_exc),
                                 },
                             )
+                            undeposited_source = "error"
                             # Default to $0 — don't crash the batch
                     else:
                         logger.warning(
@@ -279,6 +300,7 @@ class Command(BaseCommand):
                                 "rentvine_id": portfolio.rentvine_id,
                             },
                         )
+                        undeposited_source = "no-ledger"
                         # Default to $0 — undeposited stays at model default
 
                 snapshot, was_created = upsert_distribution_snapshot(payload)
@@ -299,7 +321,12 @@ class Command(BaseCommand):
 
                 undeposited_str = ""
                 if payload.get("undeposited_amount"):
-                    undeposited_str = f" | undeposited=${payload['undeposited_amount']:,.2f}"
+                    undeposited_str = (
+                        f" | undeposited=${payload['undeposited_amount']:,.2f}"
+                        f" ({undeposited_source})"
+                    )
+                else:
+                    undeposited_str = f" | undeposited=$0 ({undeposited_source})"
 
                 self.stdout.write(
                     f"  [{idx}/{portfolio_count}] {portfolio.name}: {label} | "
