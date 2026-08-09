@@ -29,6 +29,7 @@ urlpatterns = [
     path("api/reports/owner-sends/", include("comms.owner_sends_urls")),
     # Distribution snapshots + send API
     path("api/reports/distribution-snapshots", distribution_api.list_snapshots, name="distribution-snapshots"),
+    path("api/reports/distribution-snapshots/generate", distribution_api.generate_snapshots, name="distribution-snapshots-generate"),
     path("api/reports/distribution-sends/", include("comms.distribution_sends_urls")),
     path("api/reports/sync-statements", comms_api.sync_statements, name="sync-statements"),
     path("dashboard/monthly-notes/", monthly_notes_page, name="monthly-notes"),

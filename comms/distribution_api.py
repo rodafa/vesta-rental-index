@@ -3,6 +3,7 @@ Dashboard API for owner distribution emails.
 
 Snapshot listing:
     GET  /api/reports/distribution-snapshots?month=YYYY-MM
+    POST /api/reports/distribution-snapshots/generate?month=YYYY-MM
 
 Send endpoints:
     GET  /api/reports/distribution-sends/recipients?month=YYYY-MM
@@ -286,3 +287,54 @@ def test_send_recipient(request, email):
         return JsonResponse(
             {"ok": False, "error": f"Test send failed: {exc}"}, status=500
         )
+
+
+@require_POST
+def generate_snapshots(request):
+    """POST /api/reports/distribution-snapshots/generate?month=YYYY-MM"""
+    from .distribution_services import generate_distribution_snapshots
+
+    err = _require_access(request)
+    if err:
+        return err
+
+    parsed = _parse_month(request)
+    if not parsed:
+        return JsonResponse({"error": "month param required"}, status=400)
+
+    year, month = parsed
+    period_start, period_end = _period_from_month(year, month)
+
+    try:
+        result = generate_distribution_snapshots(period_start, period_end)
+    except Exception as exc:
+        logger.exception(
+            "comms_distribution_generate_failed",
+            extra={"month": f"{year}-{month:02d}"},
+        )
+        return JsonResponse(
+            {"ok": False, "error": f"Generation failed: {exc}"}, status=500
+        )
+
+    return JsonResponse({
+        "ok": True,
+        "created": result["created"],
+        "updated": result["updated"],
+        "errors": result["errors"],
+        "fetch_stats": result["fetch_stats"],
+        "outcomes": [
+            {
+                "portfolio_name": o["portfolio_name"],
+                "status": o["status"],
+                "properties": o["properties"],
+                "expected": str(o["expected"]),
+                "collected": str(o["collected"]),
+                "distribution_amount": str(o["distribution_amount"]),
+                "distribution_date": str(o["distribution_date"]) if o["distribution_date"] else None,
+                "undeposited_amount": str(o["undeposited_amount"]),
+                "undeposited_source": o["undeposited_source"],
+                "error_message": o["error_message"],
+            }
+            for o in result["outcomes"]
+        ],
+    })
