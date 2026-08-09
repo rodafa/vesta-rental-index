@@ -2623,8 +2623,7 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
         if not snapshot:
             continue
 
-        # Inclusion gate: must have distribution_amount > 0 AND distribution_date set
-        if snapshot.distribution_amount <= 0 or snapshot.distribution_date is None:
+        if not snapshot.line_items:
             continue
 
         # Compute subtotals from line_items
@@ -2652,13 +2651,22 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
                 show_balance_footnote = True
             formatted_items.append(fi)
 
+        has_distribution = (
+            snapshot.distribution_amount > 0 and snapshot.distribution_date is not None
+        )
+
         fragment_context = {
             "portfolio_name": portfolio.name,
             "line_items": formatted_items,
             "total_expected": f"{total_expected:,.2f}",
             "total_collected": f"{total_collected:,.2f}",
             "distribution_amount": f"{snapshot.distribution_amount:,.2f}",
-            "distribution_date": snapshot.distribution_date.strftime("%b %d, %Y"),
+            "has_distribution": has_distribution,
+            "distribution_date": (
+                snapshot.distribution_date.strftime("%b %d, %Y")
+                if has_distribution
+                else ""
+            ),
             "balance_as_of": balance_as_of,
         }
         if snapshot.undeposited_amount and snapshot.undeposited_amount > 0:

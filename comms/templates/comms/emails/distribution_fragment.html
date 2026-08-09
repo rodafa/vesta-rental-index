@@ -51,9 +51,15 @@ NO greeting, header, footer, or CTA — those belong to the envelope.
 </table>
 
 <!-- Distribution line -->
+{% if has_distribution %}
 <p style="margin:8px 0 16px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
   Owner Distribution: <span style="color:#D67011;">${{ distribution_amount }}</span> <span style="font-weight:400; color:#222222;">on {{ distribution_date }}</span>
 </p>
+{% else %}
+<p style="margin:8px 0 16px; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#1E3D58;">
+  No distribution this month
+</p>
+{% endif %}
 {% if undeposited_amount %}
 <!-- Undeposited clearing line -->
 <p style="margin:-8px 0 16px; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222; font-style:italic;">
