@@ -20,204 +20,18 @@ Usage:
 """
 
 import calendar
-import logging
 from datetime import date
-from decimal import Decimal
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
 from accounts.models import User
-from comms.models import PortfolioDistributionSnapshot
-from comms.selectors import get_undeposited_rent
+from comms.distribution_services import generate_distribution_snapshots
 from comms.services import (
     _normalize_email,
-    build_distribution_snapshot,
     send_distribution_email,
-    upsert_distribution_snapshot,
 )
 from core.models import Owner, Portfolio
-from integrations.rentvine.client import RentvineClient
-
-logger = logging.getLogger(__name__)
-
-
-def _fetch_month_transactions(month_start, month_end):
-    """
-    Fetch all transactions from RentVine for the target month.
-
-    Paginates the full /accounting/transactions endpoint and keeps
-    only records with datePosted within [month_start, month_end].
-    No type or account filtering — that's the selectors' job.
-
-    Returns a list of raw transaction dicts.
-    """
-    client = RentvineClient()
-    records = []
-    page = 1
-    page_size = 100
-    total_scanned = 0
-
-    month_start_str = str(month_start)
-    month_end_str = str(month_end)
-
-    while True:
-        data = client.get(
-            "/accounting/transactions",
-            params={"page": page, "pageSize": page_size},
-        )
-        if not isinstance(data, list) or not data:
-            break
-
-        for record in data:
-            total_scanned += 1
-            tx = (
-                record.get("transaction", record)
-                if isinstance(record, dict)
-                else record
-            )
-            date_posted = tx.get("datePosted") or ""
-            if month_start_str <= date_posted <= month_end_str:
-                records.append(record)
-
-        if len(data) < page_size:
-            break
-        page += 1
-
-    logger.info(
-        "comms_distribution_fetch_transactions",
-        extra={
-            "month_start": month_start_str,
-            "month_end": month_end_str,
-            "total_scanned": total_scanned,
-            "kept": len(records),
-            "pages": page,
-        },
-    )
-    return records
-
-
-def _resolve_ledger_ids():
-    """
-    Fetch the portfolio → ledgerID mapping from RentVine once per run.
-
-    GET /accounting/ledgers/search?ledgerTypeID=2 returns portfolio-type ledgers.
-    Each record has objectID (= portfolio's RentVine internal ID) and ledgerID.
-
-    Paginates the response so all ledgers are captured, not just the first page.
-
-    Returns {portfolio_rentvine_id: ledger_id} dict.
-    """
-    client = RentvineClient()
-    ledger_map = {}
-    page = 1
-    page_size = 100
-
-    while True:
-        data = client.get(
-            "/accounting/ledgers/search",
-            params={"ledgerTypeID": 2, "page": page, "pageSize": page_size},
-        )
-
-        records = data if isinstance(data, list) else data.get("data", data.get("results", []))
-        if not records:
-            break
-
-        for record in records:
-            obj = record.get("ledger", record) if isinstance(record, dict) else record
-            obj_id = obj.get("objectID")
-            ledger_id = obj.get("ledgerID")
-            if obj_id and ledger_id:
-                ledger_map[int(obj_id)] = int(ledger_id)
-
-        if len(records) < page_size:
-            break
-        page += 1
-
-    logger.info(
-        "comms_distribution_ledger_map",
-        extra={"ledger_count": len(ledger_map)},
-    )
-    return ledger_map
-
-
-def _fetch_portfolio_balances(ledger_id):
-    """
-    Fetch balances for a single ledger from RentVine.
-
-    GET /accounting/ledgers/{ledgerID}/balances
-    Returns the raw balances dict.
-    """
-    client = RentvineClient()
-    data = client.get(f"/accounting/ledgers/{ledger_id}/balances")
-    # Response may be a dict directly or wrapped in a list/data key
-    if isinstance(data, list) and len(data) == 1:
-        return data[0]
-    return data
-
-
-def _fetch_lease_balances():
-    """
-    Fetch all active leases from RentVine and build a per-property
-    tenant balance index.
-
-    Paginates GET /leases/search, filters client-side for active lease
-    statuses (2–5) with positive currentBalance.
-
-    Returns {int(propertyID): Decimal} — sum of positive balances per property.
-    """
-    ACTIVE_STATUSES = {"2", "3", "4", "5"}
-    client = RentvineClient()
-    balance_index = {}
-    page = 1
-    page_size = 100
-    total_scanned = 0
-
-    while True:
-        data = client.get(
-            "/leases/search",
-            params={"page": page, "pageSize": page_size},
-        )
-        if not isinstance(data, list) or not data:
-            break
-
-        for record in data:
-            total_scanned += 1
-            lease = record.get("lease", record) if isinstance(record, dict) else record
-            status_id = str(lease.get("leaseStatusID", ""))
-            if status_id not in ACTIVE_STATUSES:
-                continue
-
-            current_balance = lease.get("currentBalance")
-            if current_balance is None:
-                continue
-
-            bal = Decimal(str(current_balance))
-            if bal <= 0:
-                continue
-
-            prop = record.get("property", {})
-            prop_id_raw = prop.get("propertyID")
-            if prop_id_raw is None:
-                continue
-
-            prop_id = int(prop_id_raw)
-            balance_index[prop_id] = balance_index.get(prop_id, Decimal("0")) + bal
-
-        if len(data) < page_size:
-            break
-        page += 1
-
-    logger.info(
-        "comms_distribution_fetch_lease_balances",
-        extra={
-            "total_scanned": total_scanned,
-            "properties_with_balance": len(balance_index),
-            "pages": page,
-        },
-    )
-    return balance_index
 
 
 class Command(BaseCommand):
@@ -287,164 +101,79 @@ class Command(BaseCommand):
         if has_send_flag:
             self._handle_send(options, month_start, month_end)
         else:
-            self._handle_generate(options, month_start, month_end, month_str)
+            self._handle_generate(options, month_start, month_end)
 
-    def _handle_generate(self, options, month_start, month_end, month_str):
-        """Generate mode: fetch transactions, build snapshots."""
+    def _handle_generate(self, options, month_start, month_end):
+        """Generate mode: thin wrapper around generate_distribution_snapshots."""
         self.stdout.write(
             f"Generating distribution snapshots for {month_start} to {month_end}..."
         )
 
-        # Resolve portfolios
-        if options["portfolio"]:
-            portfolios = Portfolio.objects.filter(
-                rentvine_id=options["portfolio"], is_active=True
-            )
-            if not portfolios.exists():
+        # Validate --portfolio up front (CLI-specific error)
+        portfolio_rentvine_id = options["portfolio"]
+        if portfolio_rentvine_id is not None:
+            if not Portfolio.objects.filter(
+                rentvine_id=portfolio_rentvine_id, is_active=True
+            ).exists():
                 raise CommandError(
-                    f"Portfolio with rentvine_id={options['portfolio']} not found or inactive."
-                )
-        else:
-            portfolios = Portfolio.objects.filter(is_active=True).order_by("name")
-
-        portfolio_count = portfolios.count()
-        self.stdout.write(f"Processing {portfolio_count} portfolio(s).")
-
-        # Fetch all transactions for the month ONCE
-        self.stdout.write("Fetching transactions from RentVine...")
-        transactions = _fetch_month_transactions(month_start, month_end)
-        self.stdout.write(f"Fetched {len(transactions)} transactions for the month.")
-
-        # Resolve ledger IDs once for undeposited balances
-        self.stdout.write("Resolving portfolio ledger IDs...")
-        ledger_map = _resolve_ledger_ids()
-        self.stdout.write(f"Resolved {len(ledger_map)} ledger ID(s).")
-
-        # Fetch per-property tenant balances once
-        self.stdout.write("Fetching lease balances from RentVine...")
-        balance_index = _fetch_lease_balances()
-        self.stdout.write(
-            f"Found {len(balance_index)} property/properties with positive tenant balance."
-        )
-
-        # ET-aware "today" for undeposited_as_of
-        today_et = timezone.localtime(timezone.now()).date()
-
-        # Build snapshots
-        created = 0
-        updated = 0
-        errors = []
-
-        for idx, portfolio in enumerate(portfolios, 1):
-            try:
-                payload = build_distribution_snapshot(
-                    portfolio, month_start, month_end, transactions,
-                    balance_index=balance_index,
+                    f"Portfolio with rentvine_id={portfolio_rentvine_id} not found or inactive."
                 )
 
-                # Fetch undeposited balance for every active portfolio.
-                # Once captured (undeposited_as_of is set), freeze — never
-                # re-fetch so a later re-run cannot overwrite the original value.
-                existing_snapshot = (
-                    PortfolioDistributionSnapshot.objects.filter(
-                        portfolio=portfolio,
-                        period_type="monthly",
-                        period_start=month_start,
-                    )
-                    .values("undeposited_amount", "undeposited_as_of")
-                    .first()
-                )
-
-                if existing_snapshot and existing_snapshot["undeposited_as_of"] is not None:
-                    # Already captured — carry forward unchanged
-                    payload["undeposited_amount"] = existing_snapshot["undeposited_amount"]
-                    payload["undeposited_as_of"] = existing_snapshot["undeposited_as_of"]
-                    undeposited_source = "frozen"
+        def _progress(event, payload):
+            if event == "portfolios_resolved":
+                self.stdout.write(f"Processing {payload['count']} portfolio(s).")
+            elif event == "fetch_start":
+                messages = {
+                    "transactions": "Fetching transactions from RentVine...",
+                    "ledger_ids": "Resolving portfolio ledger IDs...",
+                    "lease_balances": "Fetching lease balances from RentVine...",
+                }
+                self.stdout.write(messages[payload["step"]])
+            elif event == "fetch_end":
+                messages = {
+                    "transactions": lambda c: f"Fetched {c} transactions for the month.",
+                    "ledger_ids": lambda c: f"Resolved {c} ledger ID(s).",
+                    "lease_balances": lambda c: f"Found {c} property/properties with positive tenant balance.",
+                }
+                self.stdout.write(messages[payload["step"]](payload["count"]))
+            elif event == "portfolio_done":
+                o = payload
+                if o["status"] == "error":
+                    msg = f"  [{o['index']}/{o['total']}] {o['portfolio_name']}: ERROR — {o['error_message']}"
+                    self.stderr.write(self.style.ERROR(msg))
                 else:
-                    # First capture — fetch live from RentVine
-                    ledger_id = ledger_map.get(portfolio.rentvine_id)
-                    if ledger_id:
-                        try:
-                            balances = _fetch_portfolio_balances(ledger_id)
-                            payload["undeposited_amount"] = get_undeposited_rent(balances)
-                            payload["undeposited_as_of"] = today_et
-                            undeposited_source = "fetched"
-                        except Exception as bal_exc:
-                            logger.warning(
-                                "comms_distribution_balances_error",
-                                extra={
-                                    "portfolio": str(portfolio),
-                                    "ledger_id": ledger_id,
-                                    "error": str(bal_exc),
-                                },
-                            )
-                            undeposited_source = "error"
-                            # Default to $0 — don't crash the batch
-                    else:
-                        logger.warning(
-                            "comms_distribution_missing_ledger",
-                            extra={
-                                "portfolio": str(portfolio),
-                                "rentvine_id": portfolio.rentvine_id,
-                            },
+                    undeposited_str = ""
+                    if o["undeposited_amount"]:
+                        undeposited_str = (
+                            f" | undeposited=${o['undeposited_amount']:,.2f}"
+                            f" ({o['undeposited_source']})"
                         )
-                        undeposited_source = "no-ledger"
-                        # Default to $0 — undeposited stays at model default
+                    else:
+                        undeposited_str = f" | undeposited=$0 ({o['undeposited_source']})"
 
-                snapshot, was_created = upsert_distribution_snapshot(payload)
-
-                label = "created" if was_created else "updated"
-                if was_created:
-                    created += 1
-                else:
-                    updated += 1
-
-                prop_count = len(payload["line_items"])
-                total_expected = sum(
-                    float(item["expected"]) for item in payload["line_items"]
-                )
-                total_collected = sum(
-                    float(item["collected"]) for item in payload["line_items"]
-                )
-
-                undeposited_str = ""
-                if payload.get("undeposited_amount"):
-                    undeposited_str = (
-                        f" | undeposited=${payload['undeposited_amount']:,.2f}"
-                        f" ({undeposited_source})"
+                    self.stdout.write(
+                        f"  [{o['index']}/{o['total']}] {o['portfolio_name']}: {o['status']} | "
+                        f"properties={o['properties']} | "
+                        f"expected=${o['expected']:,.2f} | "
+                        f"collected=${o['collected']:,.2f} | "
+                        f"distribution=${o['distribution_amount']:,.2f} "
+                        f"({o['distribution_date'] or 'no date'})"
+                        f"{undeposited_str}"
                     )
-                else:
-                    undeposited_str = f" | undeposited=$0 ({undeposited_source})"
-
+            elif event == "complete":
+                self.stdout.write("")
                 self.stdout.write(
-                    f"  [{idx}/{portfolio_count}] {portfolio.name}: {label} | "
-                    f"properties={prop_count} | "
-                    f"expected=${total_expected:,.2f} | "
-                    f"collected=${total_collected:,.2f} | "
-                    f"distribution=${payload['distribution_amount']:,.2f} "
-                    f"({payload['distribution_date'] or 'no date'})"
-                    f"{undeposited_str}"
+                    self.style.SUCCESS(
+                        f"Done: created={payload['created']}  updated={payload['updated']}  "
+                        f"errors={payload['errors']}"
+                    )
                 )
 
-            except Exception as exc:
-                msg = f"  [{idx}/{portfolio_count}] {portfolio.name}: ERROR — {exc}"
-                self.stderr.write(self.style.ERROR(msg))
-                errors.append(msg)
-                logger.exception(
-                    "comms_distribution_snapshot_error",
-                    extra={
-                        "portfolio": str(portfolio),
-                        "month": str(month_start),
-                        "error": str(exc),
-                    },
-                )
-
-        self.stdout.write("")
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Done: created={created}  updated={updated}  "
-                f"errors={len(errors)}"
-            )
+        generate_distribution_snapshots(
+            month_start,
+            month_end,
+            portfolio_rentvine_id=portfolio_rentvine_id,
+            progress_cb=_progress,
         )
 
     def _handle_send(self, options, month_start, month_end):
