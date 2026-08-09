@@ -35,6 +35,13 @@ NO greeting, header, footer, or CTA — those belong to the envelope.
       ${{ item.collected }}
     </td>
   </tr>
+  {% if item.tenant_balance %}
+  <tr style="background-color:#ffffff;">
+    <td colspan="3" style="padding:2px 12px 8px; font-family:Georgia, serif; font-size:13px; color:#1E3D58;">
+      Tenant balance owed as of {{ balance_as_of }}: <strong>${{ item.tenant_balance }}</strong>
+    </td>
+  </tr>
+  {% endif %}
   {% endfor %}
   <!-- Subtotal row -->
   <tr style="background-color:#EFF5F9;">

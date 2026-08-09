@@ -22,6 +22,7 @@ Usage:
 import calendar
 import logging
 from datetime import date
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -156,6 +157,69 @@ def _fetch_portfolio_balances(ledger_id):
     return data
 
 
+def _fetch_lease_balances():
+    """
+    Fetch all active leases from RentVine and build a per-property
+    tenant balance index.
+
+    Paginates GET /leases/search, filters client-side for active lease
+    statuses (2–5) with positive currentBalance.
+
+    Returns {int(propertyID): Decimal} — sum of positive balances per property.
+    """
+    ACTIVE_STATUSES = {"2", "3", "4", "5"}
+    client = RentvineClient()
+    balance_index = {}
+    page = 1
+    page_size = 100
+    total_scanned = 0
+
+    while True:
+        data = client.get(
+            "/leases/search",
+            params={"page": page, "pageSize": page_size},
+        )
+        if not isinstance(data, list) or not data:
+            break
+
+        for record in data:
+            total_scanned += 1
+            lease = record.get("lease", record) if isinstance(record, dict) else record
+            status_id = str(lease.get("leaseStatusID", ""))
+            if status_id not in ACTIVE_STATUSES:
+                continue
+
+            current_balance = lease.get("currentBalance")
+            if current_balance is None:
+                continue
+
+            bal = Decimal(str(current_balance))
+            if bal <= 0:
+                continue
+
+            prop = record.get("property", {})
+            prop_id_raw = prop.get("propertyID")
+            if prop_id_raw is None:
+                continue
+
+            prop_id = int(prop_id_raw)
+            balance_index[prop_id] = balance_index.get(prop_id, Decimal("0")) + bal
+
+        if len(data) < page_size:
+            break
+        page += 1
+
+    logger.info(
+        "comms_distribution_fetch_lease_balances",
+        extra={
+            "total_scanned": total_scanned,
+            "properties_with_balance": len(balance_index),
+            "pages": page,
+        },
+    )
+    return balance_index
+
+
 class Command(BaseCommand):
     help = "Generate owner distribution snapshots and/or send distribution emails."
 
@@ -256,6 +320,13 @@ class Command(BaseCommand):
         ledger_map = _resolve_ledger_ids()
         self.stdout.write(f"Resolved {len(ledger_map)} ledger ID(s).")
 
+        # Fetch per-property tenant balances once
+        self.stdout.write("Fetching lease balances from RentVine...")
+        balance_index = _fetch_lease_balances()
+        self.stdout.write(
+            f"Found {len(balance_index)} property/properties with positive tenant balance."
+        )
+
         # ET-aware "today" for undeposited_as_of
         today_et = timezone.localtime(timezone.now()).date()
 
@@ -267,7 +338,8 @@ class Command(BaseCommand):
         for idx, portfolio in enumerate(portfolios, 1):
             try:
                 payload = build_distribution_snapshot(
-                    portfolio, month_start, month_end, transactions
+                    portfolio, month_start, month_end, transactions,
+                    balance_index=balance_index,
                 )
 
                 # Fetch undeposited balance for every active portfolio.

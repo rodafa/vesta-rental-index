@@ -86,6 +86,17 @@
             </td>
           </tr>
 
+          {% if show_balance_footnote %}
+          <!-- Tenant balance footnote -->
+          <tr>
+            <td style="padding:0 32px 24px;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:13px; line-height:1.5; color:#666666;">
+                Tenant balance reflects all amounts a tenant currently owes — unpaid rent from any period plus late/NSF fees — and is separate from this month's rent collection above.
+              </p>
+            </td>
+          </tr>
+          {% endif %}
+
           {% if portal_url %}
           <!-- Owner Portal CTA -->
           <tr>
