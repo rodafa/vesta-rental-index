@@ -132,6 +132,38 @@
   .toast.show{opacity:1;transform:translateY(0);}
   .toast.ok{background:var(--green);}
   .toast.warn{background:var(--orange);}
+
+  /* ---------- Recipients section ---------- */
+  .recipients-section{margin-top:28px;}
+
+  .test-send-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fff;border:1px solid var(--line);border-radius:var(--r);margin-bottom:16px;font-size:13px;}
+  .test-send-bar label{font-weight:600;color:var(--ink-soft);white-space:nowrap;}
+  .test-send-bar select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r-sm);color:var(--ink);background:#fff;max-width:260px;}
+  .test-send-bar .arrow{color:var(--ink-faint);font-size:16px;}
+  .test-send-bar .test-addr{font-weight:600;color:var(--navy);font-size:13px;}
+  .test-result{font-size:12px;color:var(--green);margin-left:4px;}
+  .test-result.test-error{color:var(--orange);}
+
+  .preview-link{font-size:12px;color:var(--sky);text-decoration:none;font-weight:600;}
+  .preview-link:hover{text-decoration:underline;color:var(--navy);}
+
+  .send-all-bar{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:16px;}
+  .btn-send-all{background:var(--orange);color:#fff;font-size:14px;padding:10px 24px;}
+  .btn-send-all:hover:not(:disabled){background:#c0620e;}
+  .btn-send-all.is-sent{background:var(--green);cursor:default;}
+
+  .badge-sent{background:var(--navy);color:#fff;}
+  .badge-unsent{background:var(--orange-soft);color:#a4530a;}
+
+  .send-confirm-stats{margin:16px 0;padding:14px;background:var(--grey-bg);border:1px solid var(--line);border-radius:var(--r-sm);}
+  .send-confirm-stats .stat{display:flex;justify-content:space-between;padding:4px 0;font-size:14px;}
+  .send-confirm-stats .stat .v{font-weight:700;color:var(--navy);}
+  .send-confirm-field{margin:16px 0 8px;}
+  .send-confirm-field label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;}
+  .send-confirm-field input{font:inherit;font-size:15px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--r-sm);width:100%;text-align:center;letter-spacing:.15em;font-weight:700;color:var(--navy);}
+  .send-confirm-field input:focus{outline:none;border-color:var(--orange);box-shadow:0 0 0 3px var(--orange-soft);}
+
+  .send-errors{margin-top:12px;}
 </style>
 </head>
 <body>
@@ -202,6 +234,42 @@
         <tfoot id="results-foot"></tfoot>
       </table>
       <div id="errors-box"></div>
+
+      <!-- Recipients section -->
+      <div class="recipients-section" id="recipients-section" style="display:none;">
+        <div class="results-header">
+          <h2>Recipients</h2>
+          <span class="results-meta" id="recip-meta"></span>
+        </div>
+        <div class="test-send-bar">
+          <label>Test send</label>
+          <select id="test-recip-select"></select>
+          <span class="arrow">&rarr;</span>
+          <span class="test-addr">{{ request.user.email }}</span>
+          <button class="btn btn-quiet btn-sm" id="test-send-btn" disabled>Send test</button>
+          <span class="test-result" id="test-result"></span>
+        </div>
+        <table class="dist-table">
+          <thead>
+            <tr>
+              <th>Owner</th>
+              <th>Email</th>
+              <th class="num">Portfolios</th>
+              <th class="num">Total Distribution</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="recip-body"></tbody>
+        </table>
+        <div class="send-errors" id="send-errors"></div>
+        <div class="send-all-bar">
+          <button class="btn btn-send-all" id="send-all-btn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+            Send all
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -216,6 +284,28 @@
     <div class="modal-foot">
       <button class="btn btn-quiet" id="gen-cancel">Cancel</button>
       <button class="btn btn-primary" id="gen-confirm">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SEND CONFIRM MODAL ============ -->
+<div class="modal-overlay" id="send-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="send-modal-title">
+    <div class="modal-head"><h3 id="send-modal-title">Send distribution emails?</h3></div>
+    <div class="modal-body">
+      <p>You are about to send distribution emails to real owners. This cannot be undone.</p>
+      <div class="send-confirm-stats">
+        <div class="stat"><span>Recipients</span><span class="v" id="send-count">0</span></div>
+        <div class="stat"><span>Total distribution</span><span class="v" id="send-total">$0.00</span></div>
+      </div>
+      <div class="send-confirm-field">
+        <label>Type SEND to confirm</label>
+        <input type="text" id="send-confirm-input" autocomplete="off" spellcheck="false" placeholder="SEND">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-quiet" id="send-cancel">Cancel</button>
+      <button class="btn btn-send-all" id="send-confirm-btn" disabled>Send all</button>
     </div>
   </div>
 </div>
