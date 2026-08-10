@@ -1861,6 +1861,15 @@ def generate_portfolio_maintenance_notes(
             # Build plain-text note
             generated_note = _build_maintenance_generated_note(ai_result)
 
+            # Freeze structured payload for later card rebuilds
+            work_order_snapshot = {
+                "intro": ai_result.get("intro", ""),
+                "open": data["open"],
+                "scheduled": data["scheduled"],
+                "completed": data["completed"],
+                "cancelled": data["cancelled"],
+            }
+
             if dry_run:
                 logger.info(
                     "comms_maintenance_note_dry_run",
@@ -1881,6 +1890,7 @@ def generate_portfolio_maintenance_notes(
                     "notes_html": notes_html,
                     "generated_note": generated_note,
                     "approved_generated_note": "",
+                    "work_order_snapshot": work_order_snapshot,
                     "status": "draft",
                 },
             )

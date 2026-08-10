@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 
@@ -218,6 +219,16 @@ class PortfolioMaintenanceNote(models.Model):
         blank=True,
         default="",
         help_text="Human-reviewed/edited version of generated_note. Blank = not yet reviewed.",
+    )
+    work_order_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Frozen structured work-order payload (buckets, per-WO facts + AI "
+            "summaries, intro) captured at generation. Source for rebuilding "
+            "notes_html on edit. Write-only for now — nothing reads it yet."
+        ),
     )
 
     status = models.CharField(
