@@ -1,0 +1,228 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner Distributions — Vesta</title>
+<style>
+  :root {
+    --navy:#1E3D58; --navy-700:#18324a; --navy-900:#122639;
+    --sky:#6EA5CD; --sky-soft:#e3eef6;
+    --green:#39B54A; --green-soft:#e4f5e7;
+    --grey-bg:#EFF5F9; --orange:#D67011; --orange-soft:#fbeadb;
+    --ink:#1E3D58; --ink-soft:#5b7185; --ink-faint:#93a4b3;
+    --line:#d6e1ea; --line-soft:#e8eef4; --white:#fff;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --r:8px; --r-sm:6px;
+    --shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+    --shadow-lift:0 4px 16px rgba(30,61,88,.10);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+  .app{display:flex;flex-direction:column;height:100vh;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:26px;flex:0 0 auto;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand .mark{width:30px;height:30px;flex:0 0 auto;}
+  .brand .mark path,.brand .mark line{stroke:#fff;stroke-width:1.4;fill:none;}
+  .brand .mark .flame{stroke:var(--green);}
+  .brand-title{display:flex;flex-direction:column;line-height:1.1;}
+  .brand-title .name{font-size:15px;font-weight:700;letter-spacing:.06em;}
+  .brand-title .sub{font-size:9.5px;font-weight:500;letter-spacing:.22em;color:var(--sky);text-transform:uppercase;}
+  .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
+  .period{display:flex;align-items:center;gap:8px;}
+  .period .month-label{font-size:17px;font-weight:600;}
+  .period select{font:inherit;font-size:13px;padding:5px 8px;border:1px solid rgba(255,255,255,.28);border-radius:var(--r-sm);background:rgba(255,255,255,.08);color:#fff;color-scheme:dark;cursor:pointer;}
+  .period select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(110,165,205,.25);}
+  .spacer{margin-left:auto;}
+  .topbar-actions{display:flex;align-items:center;gap:10px;}
+
+  /* ---------- Buttons ---------- */
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;transition:background .14s,border-color .14s,color .14s,opacity .14s;white-space:nowrap;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn svg{width:15px;height:15px;}
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:#2f9d3e;}
+  .btn-onnavy{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.28);}
+  .btn-onnavy:hover:not(:disabled){background:rgba(255,255,255,.16);}
+  .btn-quiet{background:var(--white);color:var(--ink);border-color:var(--line);}
+  .btn-quiet:hover:not(:disabled){background:var(--grey-bg);border-color:var(--sky);}
+
+  /* ---------- Status bar ---------- */
+  .statusbar{flex:0 0 auto;background:#fff;border-bottom:1px solid var(--line);padding:9px 22px;font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;}
+  .statusbar .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-faint);flex:0 0 auto;}
+  .statusbar.is-running .dot{background:var(--sky);animation:pulse 1.1s ease-in-out infinite;}
+  .statusbar.is-done .dot{background:var(--green);}
+  .statusbar.is-warn .dot,.statusbar.is-error .dot{background:var(--orange);}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* ---------- Main ---------- */
+  .main{flex:1 1 auto;overflow-y:auto;padding:28px 32px;}
+
+  /* ---------- Placeholder ---------- */
+  .placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--ink-faint);gap:14px;text-align:center;padding:80px 40px;}
+  .placeholder svg{width:46px;height:46px;opacity:.5;}
+  .placeholder p{font-size:14px;max-width:400px;}
+
+  /* ---------- Spinner overlay ---------- */
+  .spinner-overlay{display:none;flex-direction:column;align-items:center;justify-content:center;padding:80px 40px;text-align:center;gap:18px;}
+  .spinner-overlay.show{display:flex;}
+  .spinner-ring{width:48px;height:48px;border:4px solid var(--line);border-top-color:var(--sky);border-radius:50%;animation:spin .9s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spinner-overlay .msg{font-size:15px;color:var(--ink-soft);font-weight:500;}
+  .spinner-overlay .sub{font-size:12.5px;color:var(--ink-faint);max-width:360px;}
+
+  /* ---------- Results table ---------- */
+  .results{display:none;}
+  .results.show{display:block;}
+  .results-header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;}
+  .results-header h2{font-size:17px;font-weight:700;color:var(--navy);}
+  .results-meta{font-size:12px;color:var(--ink-faint);}
+
+  .dist-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);}
+  .dist-table thead{background:var(--navy);color:#fff;}
+  .dist-table th{padding:10px 14px;font-size:11.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;text-align:left;white-space:nowrap;}
+  .dist-table th.num{text-align:right;}
+  .dist-table td{padding:10px 14px;font-size:13px;border-top:1px solid var(--line-soft);vertical-align:middle;}
+  .dist-table td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:500;}
+  .dist-table td.money{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--navy);}
+  .dist-table td.money.is-green{color:var(--green);}
+  .dist-table tr:hover td{background:var(--sky-soft);}
+
+  .dist-table tfoot{background:var(--grey-bg);border-top:2px solid var(--line);}
+  .dist-table tfoot td{font-weight:700;font-size:13.5px;color:var(--navy);}
+
+  /* Status badge in table */
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;}
+  .badge-created{background:var(--green-soft);color:#1f7a2b;}
+  .badge-updated{background:var(--sky-soft);color:var(--navy);}
+  .badge-skipped{background:var(--grey-bg);color:var(--ink-faint);border:1px solid var(--line);}
+  .badge-error{background:var(--orange-soft);color:#a4530a;}
+  .badge-snapshot{background:var(--sky-soft);color:var(--navy);}
+
+  /* Error rows */
+  .error-row td{background:var(--orange-soft);}
+  .error-msg{font-size:12px;color:#a4530a;margin-top:4px;}
+
+  /* Undeposited */
+  .undeposited-note{font-size:11px;color:var(--ink-faint);margin-top:2px;}
+
+  /* Errors summary */
+  .errors-summary{margin-top:16px;padding:14px 18px;background:var(--orange-soft);border:1px solid var(--orange);border-radius:var(--r);color:#8a4609;font-size:13px;}
+  .errors-summary h3{font-size:13px;font-weight:700;margin-bottom:8px;}
+  .errors-summary ul{list-style:none;margin:0;padding:0;}
+  .errors-summary li{padding:4px 0;display:flex;align-items:center;gap:6px;}
+  .errors-summary li::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--orange);flex:0 0 auto;}
+
+  /* ---------- Confirm modal ---------- */
+  .modal-overlay{position:fixed;inset:0;z-index:300;background:rgba(18,38,57,.45);display:none;align-items:center;justify-content:center;padding:24px;}
+  .modal-overlay.show{display:flex;}
+  .modal{background:#fff;border-radius:12px;width:100%;max-width:460px;box-shadow:0 12px 40px rgba(18,38,57,.28);overflow:hidden;animation:modalIn .16s ease-out;}
+  @keyframes modalIn{from{opacity:0;transform:translateY(8px) scale(.98);}to{opacity:1;transform:none;}}
+  .modal-head{padding:20px 24px 4px;}
+  .modal-head h3{font-size:17px;font-weight:700;color:var(--navy);}
+  .modal-body{padding:12px 24px 4px;color:var(--ink-soft);font-size:13.5px;line-height:1.55;}
+  .modal-foot{padding:16px 24px 20px;display:flex;justify-content:flex-end;gap:10px;}
+
+  /* ---------- Toast ---------- */
+  .toast{position:fixed;bottom:22px;right:22px;background:var(--navy);color:#fff;padding:12px 18px;border-radius:var(--r-sm);font-size:13px;box-shadow:var(--shadow-lift);opacity:0;transform:translateY(8px);transition:all .25s;z-index:200;display:flex;align-items:center;gap:9px;}
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast.ok{background:var(--green);}
+  .toast.warn{background:var(--orange);}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path class="flame" d="M13 24c-4 0-6-3-6-6 0-4 4-6 4-11 0 0 5 3 5 8 2-1 2-3 2-3 2 2 1 6 1 6 0 4-3 6-6 6z"/>
+        <path d="M19 25V13l6-5 6 5v12"/><line x1="17" y1="25" x2="31" y2="25"/>
+      </svg>
+      <div class="brand-title"><span class="name">VESTA</span><span class="sub">Property Management</span></div>
+    </div>
+    <div class="topbar-divider"></div>
+    <div class="period">
+      <span class="month-label" id="month-label"></span>
+      <select id="month-select"></select>
+    </div>
+    <div class="spacer"></div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary" id="generate">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+        Generate
+      </button>
+      <form method="post" action="{% url 'logout' %}" style="margin:0;">{% csrf_token %}<button class="btn btn-onnavy" type="submit">Log out</button></form>
+    </div>
+  </header>
+
+  <!-- ============ STATUS BAR ============ -->
+  <div class="statusbar" id="statusbar"><span class="dot"></span><span id="status-text">Ready.</span></div>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main" id="main-area">
+    <!-- Placeholder: shown before first generate -->
+    <div class="placeholder" id="placeholder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+      <p>Select a month and click <strong>Generate</strong> to pull distribution data from Rentvine and build snapshots.</p>
+    </div>
+
+    <!-- Spinner: shown during generate -->
+    <div class="spinner-overlay" id="spinner">
+      <div class="spinner-ring"></div>
+      <div class="msg">Generating distribution snapshots...</div>
+      <div class="sub">This calls the Rentvine API for each portfolio. Usually takes ~90 seconds. Please stay on this page.</div>
+    </div>
+
+    <!-- Results: shown after generate completes -->
+    <div class="results" id="results">
+      <div class="results-header">
+        <h2>Distribution Snapshots</h2>
+        <span class="results-meta" id="results-meta"></span>
+      </div>
+      <table class="dist-table">
+        <thead>
+          <tr>
+            <th>Portfolio</th>
+            <th>Status</th>
+            <th class="num">Expected</th>
+            <th class="num">Collected</th>
+            <th class="num">Distribution</th>
+            <th>Date</th>
+            <th class="num">Undeposited</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+        <tfoot id="results-foot"></tfoot>
+      </table>
+      <div id="errors-box"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ GENERATE CONFIRM MODAL ============ -->
+<div class="modal-overlay" id="gen-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="gen-modal-title">
+    <div class="modal-head"><h3 id="gen-modal-title">Generate distribution snapshots?</h3></div>
+    <div class="modal-body">
+      This will call the Rentvine API for every active portfolio to pull transactions, calculate distributions, and save snapshots. Any existing snapshots for this month will be updated.
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-quiet" id="gen-cancel">Cancel</button>
+      <button class="btn btn-primary" id="gen-confirm">Generate</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="{% static 'dashboard/js/api.js' %}"></script>
+<script src="{% static 'dashboard/js/distributions.js' %}"></script>
+</body>
+</html>

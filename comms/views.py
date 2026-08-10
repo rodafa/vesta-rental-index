@@ -44,3 +44,12 @@ def maintenance_notes_page(request):
         "default_week_start": week_start.isoformat(),
         "default_week_end": week_end.isoformat(),
     })
+
+
+@login_required
+def distribution_page(request):
+    """Serve the Owner Distributions dashboard page."""
+    if not request.user.can_access("owner_distributions"):
+        return HttpResponseForbidden("Access denied.")
+
+    return render(request, "comms/dashboard/distributions.html")

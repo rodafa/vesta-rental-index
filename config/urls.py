@@ -6,7 +6,7 @@ from comms import api as comms_api
 from comms import distribution_api
 from comms import maintenance_api as comms_maintenance_api
 from comms import portfolio_api as comms_portfolio_api
-from comms.views import maintenance_notes_page, monthly_notes_page
+from comms.views import distribution_page, maintenance_notes_page, monthly_notes_page
 from config.views import healthcheck
 
 urlpatterns = [
@@ -39,6 +39,7 @@ urlpatterns = [
     # Maintenance sends API (Layer 2 assembled sends)
     path("api/reports/maintenance-sends/", include("comms.maintenance_sends_urls")),
     path("dashboard/maintenance-notes/", maintenance_notes_page, name="maintenance-notes"),
+    path("dashboard/distributions/", distribution_page, name="distributions"),
     # Automations — onboarding webhook
     path("api/onboard/", include("automations.urls")),
 ]
