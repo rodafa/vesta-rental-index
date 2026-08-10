@@ -52,4 +52,21 @@ def distribution_page(request):
     if not request.user.can_access("owner_distributions"):
         return HttpResponseForbidden("Access denied.")
 
-    return render(request, "comms/dashboard/distributions.html")
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    today = timezone.localtime(timezone.now()).date()
+    months = []
+    d = today.replace(day=1)
+    for _ in range(13):
+        months.append({
+            "value": d.strftime("%Y-%m"),
+            "label": d.strftime("%B %Y"),
+        })
+        d = (d - timedelta(days=1)).replace(day=1)
+
+    return render(request, "comms/dashboard/distributions.html", {
+        "months": months,
+        "default_month": months[0]["value"],
+    })

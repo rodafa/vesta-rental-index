@@ -181,7 +181,11 @@
     <div class="topbar-divider"></div>
     <div class="period">
       <span class="month-label" id="month-label"></span>
-      <select id="month-select"></select>
+      <select id="month-select">
+          {% for m in months %}
+          <option value="{{ m.value }}"{% if m.value == default_month %} selected{% endif %}>{{ m.label }}</option>
+          {% endfor %}
+        </select>
     </div>
     <div class="spacer"></div>
     <div class="topbar-actions">
