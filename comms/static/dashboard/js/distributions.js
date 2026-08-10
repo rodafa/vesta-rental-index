@@ -73,30 +73,13 @@
 
   // --- Month helpers ---
 
-  function monthsList(count) {
-    var months = [];
-    var d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - 1); // start from last month
-    for (var i = 0; i < count; i++) {
-      var y = d.getFullYear();
-      var m = d.getMonth() + 1;
-      months.push({
-        value: y + '-' + String(m).padStart(2, '0'),
-        label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-      });
-      d.setMonth(d.getMonth() - 1);
-    }
-    return months;
-  }
-
   function formatMonth(ym) {
     var d = new Date(ym + '-01T00:00:00');
     return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
 
   // --- State ---
-  var selectedMonth = monthsList(1)[0].value; // default to last month
+  var selectedMonth = ''; // set by initMonthSelector from server-rendered <select>
   var recipients = [];
   var grandTotalCents = 0;
   var sendingInFlight = false;
@@ -104,11 +87,7 @@
   // --- Init month selector ---
   function initMonthSelector() {
     var sel = $('month-select');
-    var months = monthsList(6);
-    sel.innerHTML = months.map(function (m) {
-      return '<option value="' + m.value + '">' + m.label + '</option>';
-    }).join('');
-    sel.value = selectedMonth;
+    selectedMonth = sel.value;
     $('month-label').textContent = 'Distribution Snapshots';
 
     sel.addEventListener('change', function () {
