@@ -23,6 +23,7 @@ Owner-grain send (standard week only, ?week=YYYY-MM-DD):
     POST /api/reports/maintenance-sends/send-all?week=YYYY-MM-DD
 """
 
+import copy
 import json
 import logging
 import threading
@@ -47,6 +48,7 @@ from .services import (
     assemble_owner_maintenance_email,
     generate_portfolio_maintenance_notes,
     get_portfolio_generation_scope,
+    render_maintenance_notes_html_from_snapshot,
     send_draft,
 )
 
@@ -150,6 +152,7 @@ def _serialize_maintenance_note(note):
         "display_note": display_note,
         "word_count": word_count,
         "notes_html": note.notes_html,
+        "work_order_snapshot": note.work_order_snapshot,
         "owners": [
             {"id": o["pk"], "name": o["name"], "email": o["email"]}
             for o in owners
@@ -207,24 +210,63 @@ def maintenance_note_detail(request, note_id):
         note.delete()
         return JsonResponse({}, status=200)
 
-    # PUT — update the note text
+    # PUT — discrete-field edit (intro + per-WO ai_summary)
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-    new_note = body.get("generated_note", "")
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "Expected JSON object"}, status=400)
 
-    def _norm(s):
-        return (s or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    intro = body.get("intro", "")
+    edits = body.get("edits", [])
 
-    if _norm(new_note) == _norm(note.generated_note):
-        if note.approved_generated_note:
-            note.approved_generated_note = ""
-            note.save(update_fields=["approved_generated_note", "updated_at"])
-    else:
-        note.approved_generated_note = new_note
-        note.save(update_fields=["approved_generated_note", "updated_at"])
+    if not isinstance(edits, list):
+        return JsonResponse({"error": "'edits' must be a list"}, status=400)
+
+    VALID_BUCKETS = ("open", "scheduled", "completed", "cancelled")
+
+    snap = copy.deepcopy(note.work_order_snapshot or {})
+    for bucket in VALID_BUCKETS:
+        snap.setdefault(bucket, [])
+    snap["intro"] = intro
+
+    unmatched = []
+    for edit in edits:
+        bucket = edit.get("bucket", "")
+        wo_num = edit.get("work_order_number", "")
+        ai_summary = edit.get("ai_summary", "")
+
+        if bucket not in VALID_BUCKETS:
+            unmatched.append({"bucket": bucket, "work_order_number": wo_num, "reason": "invalid bucket"})
+            continue
+
+        found = False
+        for group in snap[bucket]:
+            for wo in group.get("work_orders", []):
+                if wo.get("work_order_number") == wo_num:
+                    wo["ai_summary"] = ai_summary
+                    found = True
+                    break
+            if found:
+                break
+
+        if not found:
+            unmatched.append({"bucket": bucket, "work_order_number": wo_num, "reason": "not found"})
+
+    if unmatched:
+        return JsonResponse(
+            {"error": "Unmatched edits — nothing saved", "unmatched": unmatched},
+            status=422,
+        )
+
+    notes_html = render_maintenance_notes_html_from_snapshot(snap)
+
+    note.work_order_snapshot = snap
+    note.notes_html = notes_html
+    note.status = "draft"
+    note.save(update_fields=["work_order_snapshot", "notes_html", "status", "updated_at"])
 
     return JsonResponse(_serialize_maintenance_note(note))
 
