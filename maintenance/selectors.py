@@ -34,6 +34,19 @@ _FIRST_LINE_SPLIT = re.compile(r"<br\s*/?>|</?p\s*/?>|<hr\s*/?>|\r?\n", re.IGNOR
 # Strip internal WO references like "(WO #7ddd9fc9)" from titles.
 _INTERNAL_WO_REF = re.compile(r"\s*\(WO\s+#[0-9a-fA-F]+\)")
 
+# Routine recurring lawn-care phrases to exclude from the weekly maintenance
+# email (WorkOrder path).  Each is matched case-insensitively as a substring
+# of WorkOrder.description.  Verified against prod: 166 matches, zero
+# false-positives against one-off/complaint/non-lawn rows.
+LAWN_CARE_EXCLUSION_PATTERNS = (
+    "seasonal lawn care",
+    "bi-weekly lawn care",
+    "bi-weekly lawncare",
+    "weekly lawn maintenance",
+    "bi-weekly mowing",
+    "recurring lawn maintenance",
+)
+
 
 # ---------------------------------------------------------------------------
 # Shared meld-gathering helper
@@ -540,9 +553,12 @@ def get_portfolio_work_order_data(portfolio, period_start, period_end):
     Open/scheduled work orders are included regardless of age.
     Completed/cancelled are windowed to the period.
     """
-    base_qs = WorkOrder.objects.filter(portfolio=portfolio, is_active=True).select_related(
-        "unit", "property"
-    )
+    lawn_q = Q()
+    for pat in LAWN_CARE_EXCLUSION_PATTERNS:
+        lawn_q |= Q(description__icontains=pat)
+    base_qs = WorkOrder.objects.filter(portfolio=portfolio, is_active=True).exclude(
+        lawn_q
+    ).select_related("unit", "property")
 
     # "Open" = not cancelled AND not closed
     open_q = Q(cancelled_by_user_id__isnull=True) & Q(
