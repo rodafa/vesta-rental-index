@@ -194,7 +194,54 @@
     st.className = 'badge badge-' + n.status;
     st.textContent = n.status;
 
-    var displayNote = n.display_note || '';
+    var snap = n.work_order_snapshot || {};
+    var introText = snap.intro || '';
+
+    // Build work-order fields by bucket
+    var BUCKETS = [
+      { key: 'open', label: 'Open' },
+      { key: 'scheduled', label: 'Scheduled' },
+      { key: 'completed', label: 'Completed' },
+      { key: 'cancelled', label: 'Cancelled' }
+    ];
+    var woHtml = '';
+    var hasAnyWo = false;
+
+    BUCKETS.forEach(function (b) {
+      var groups = snap[b.key];
+      if (!groups || !groups.length) return;
+      var woCount = 0;
+      groups.forEach(function (g) { woCount += (g.work_orders || []).length; });
+      if (woCount === 0) return;
+      hasAnyWo = true;
+
+      woHtml += '<div class="wo-bucket">' +
+        '<div class="wo-bucket-head">' + esc(b.label) + ' (' + woCount + ')</div>';
+
+      groups.forEach(function (g) {
+        woHtml += '<div class="wo-prop-head">' + esc(g.property_address) + '</div>';
+        (g.work_orders || []).forEach(function (wo) {
+          var labelParts = [];
+          if (wo.work_order_number) labelParts.push('#' + esc(String(wo.work_order_number)));
+          if (wo.title) labelParts.push(esc(wo.title));
+          var metaParts = [];
+          if (g.show_unit && wo.unit_label) metaParts.push(esc(wo.unit_label));
+          if (wo.vendor_name) metaParts.push(esc(wo.vendor_name));
+
+          woHtml += '<div class="wo-card">' +
+            '<div class="wo-label">' + labelParts.join(' \u2014 ') + '</div>' +
+            (metaParts.length ? '<div class="wo-meta">' + metaParts.join(' &middot; ') + '</div>' : '') +
+            '<textarea class="wo-summary" data-bucket="' + b.key + '" data-wo="' + esc(String(wo.work_order_number || '')) + '">' + esc(wo.ai_summary || '') + '</textarea>' +
+          '</div>';
+        });
+      });
+
+      woHtml += '</div>';
+    });
+
+    if (!hasAnyWo) {
+      woHtml = '<div class="wo-empty">No work orders for this period.</div>';
+    }
 
     var ownersHtml = (n.owners || []).map(function (o) {
       return '<li class="recipient"><span class="av">' + esc(initials(o.name).toUpperCase()) + '</span>' +
@@ -204,15 +251,12 @@
     $('detail-scroll').innerHTML =
       '<div class="pf">' +
         '<div class="block">' +
-          '<div class="note-toolbar">' +
-            '<div class="block-label" style="margin:0">Notes</div>' +
-            '<div style="display:flex;align-items:center;gap:12px">' +
-              '<span class="note-words" data-words="note">' + words(displayNote) + ' words</span>' +
-              '<div class="toggle" data-toggle="note"><button class="active" data-mode="edit">Edit</button><button data-mode="preview">Preview</button></div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="note-edit" data-edit="note"><textarea data-ta="note">' + esc(displayNote) + '</textarea></div>' +
-          '<div class="note-preview" data-preview="note"><div class="em-h">' + esc(n.portfolio_name) + '</div><div class="em-body">' + (displayNote ? esc(displayNote).replace(/\n/g, '<br>') : '<em>No note generated.</em>') + '</div></div>' +
+          '<div class="block-label">Intro</div>' +
+          '<div class="note-edit"><textarea data-ta="intro">' + esc(introText) + '</textarea></div>' +
+        '</div>' +
+        '<div class="block">' +
+          '<div class="block-label">Work Orders</div>' +
+          woHtml +
         '</div>' +
       '</div>' +
       '<div class="pf recip-card">' +
@@ -224,27 +268,11 @@
         '</div>' +
       '</div>';
 
-    // Wire toggle
-    var toggles = $('detail-scroll').querySelectorAll('.toggle');
-    Array.prototype.forEach.call(toggles, function (tg) {
-      var idx = tg.getAttribute('data-toggle');
-      tg.addEventListener('click', function (e) {
-        var b = e.target.closest('button'); if (!b) return;
-        var mode = b.getAttribute('data-mode');
-        Array.prototype.forEach.call(tg.querySelectorAll('button'), function (x) { x.classList.remove('active'); });
-        b.classList.add('active');
-        $('detail-scroll').querySelector('[data-edit="' + idx + '"]').classList.toggle('hide', mode === 'preview');
-        $('detail-scroll').querySelector('[data-preview="' + idx + '"]').classList.toggle('show', mode === 'preview');
-      });
-    });
-
-    // Wire textarea word count + dirty
+    // Wire all textareas: set dirty on input
     var textareas = $('detail-scroll').querySelectorAll('textarea');
     Array.prototype.forEach.call(textareas, function (ta) {
       ta.addEventListener('input', function () {
         dirty = true;
-        var idx = ta.getAttribute('data-ta');
-        $('detail-scroll').querySelector('[data-words="' + idx + '"]').textContent = words(ta.value) + ' words';
       });
     });
 
