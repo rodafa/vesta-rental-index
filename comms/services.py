@@ -8,9 +8,11 @@ send_draft() — delivers a single EmailDraft via SendGrid with role-gating,
 safety modes (sandbox / test-email / live), and structured logging.
 """
 
+import copy
 import json
 import logging
 import threading
+from datetime import date as _date
 from importlib import import_module
 
 import anthropic
@@ -1912,6 +1914,46 @@ def generate_portfolio_maintenance_notes(
         "errors": len(errors),
         "error_details": errors[:20],
     }
+
+
+def render_maintenance_notes_html_from_snapshot(snapshot):
+    """Render the maintenance card fragment HTML from a frozen work_order_snapshot.
+
+    Pure function — takes the JSON-deserialized snapshot dict, returns an HTML
+    string identical to what generate_portfolio_maintenance_notes produces via
+    its inline render_to_string call.
+
+    Coercion: scheduled_start_date and date_closed are stored as ISO strings
+    after JSON round-tripping; the Django ``date`` template filter requires
+    real date objects, so they are parsed back.  cost and estimated_amount
+    pass through ``floatformat`` which handles strings natively — left as-is.
+
+    The input snapshot is NOT mutated (operates on a deep copy).
+    """
+    data = copy.deepcopy(snapshot)
+
+    # Coerce ISO-string dates back to date objects for the |date filter
+    for bucket in ("open", "scheduled", "completed", "cancelled"):
+        for group in data.get(bucket, []):
+            for wo in group.get("work_orders", []):
+                for field in ("scheduled_start_date", "date_closed"):
+                    val = wo.get(field)
+                    if val and isinstance(val, str):
+                        wo[field] = _date.fromisoformat(val)
+
+    context = {
+        "ai_intro": data.get("intro", ""),
+        "open_items": data.get("open", []),
+        "scheduled": data.get("scheduled", []),
+        "completed": data.get("completed", []),
+        "cancelled": data.get("cancelled", []),
+        "open_count": sum(len(g["work_orders"]) for g in data.get("open", [])),
+        "scheduled_count": sum(len(g["work_orders"]) for g in data.get("scheduled", [])),
+        "completed_count": sum(len(g["work_orders"]) for g in data.get("completed", [])),
+        "cancelled_count": sum(len(g["work_orders"]) for g in data.get("cancelled", [])),
+    }
+
+    return render_to_string("comms/emails/maintenance_fragment.html", context)
 
 
 # ---------------------------------------------------------------------------
