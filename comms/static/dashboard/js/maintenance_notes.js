@@ -512,9 +512,18 @@
 
   $('save-btn').addEventListener('click', function () {
     if (!activePortfolioId) return;
-    var ta = $('detail-scroll').querySelector('textarea[data-ta="note"]');
-    if (!ta) return;
-    VestaAPI.put('/reports/maintenance-notes/' + activePortfolioId, { generated_note: ta.value })
+    var introEl = $('detail-scroll').querySelector('textarea[data-ta="intro"]');
+    var intro = introEl ? introEl.value : '';
+    var edits = [];
+    var woEls = $('detail-scroll').querySelectorAll('textarea.wo-summary');
+    Array.prototype.forEach.call(woEls, function (el) {
+      edits.push({
+        bucket: el.getAttribute('data-bucket'),
+        work_order_number: el.getAttribute('data-wo'),
+        ai_summary: el.value
+      });
+    });
+    VestaAPI.put('/reports/maintenance-notes/' + activePortfolioId, { intro: intro, edits: edits })
       .then(function () { dirty = false; toast('Note saved.', 'ok'); return loadAll(); })
       .catch(function (e) { toast('Save failed: ' + e.message, 'warn'); });
   });
@@ -534,9 +543,17 @@
   });
 
   $('copy-btn').addEventListener('click', function () {
-    var ta = $('detail-scroll').querySelector('textarea[data-ta="note"]');
-    if (ta) {
-      navigator.clipboard.writeText(ta.value).then(function () { toast('Copied to clipboard.', 'ok'); });
+    var parts = [];
+    var introEl = $('detail-scroll').querySelector('textarea[data-ta="intro"]');
+    if (introEl && introEl.value.trim()) parts.push(introEl.value.trim());
+    var woEls = $('detail-scroll').querySelectorAll('textarea.wo-summary');
+    Array.prototype.forEach.call(woEls, function (el) {
+      var wo = el.getAttribute('data-wo');
+      var summary = el.value.trim();
+      if (summary) parts.push((wo ? '#' + wo + ' ' : '') + summary);
+    });
+    if (parts.length) {
+      navigator.clipboard.writeText(parts.join('\n\n')).then(function () { toast('Copied to clipboard.', 'ok'); });
     }
   });
 
