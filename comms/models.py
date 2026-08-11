@@ -234,6 +234,14 @@ class PortfolioMaintenanceNote(models.Model):
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
     )
+    is_edited = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "True once a human has edited this note's snapshot. Protects it "
+            "from being overwritten on regeneration. Set False on fresh generation."
+        ),
+    )
 
     generated_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
