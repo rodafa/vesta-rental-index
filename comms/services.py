@@ -1772,6 +1772,7 @@ def generate_portfolio_maintenance_notes(
             period_start=period_start,
             status="draft",
             approved_generated_note="",
+            is_edited=False,
         ).delete()[0]
         if deleted_count:
             logger.info(
@@ -1796,6 +1797,7 @@ def generate_portfolio_maintenance_notes(
             if existing and (
                 existing.status == "approved"
                 or existing.approved_generated_note
+                or existing.is_edited
             ):
                 logger.info(
                     "comms_maintenance_note_locked",
@@ -1894,6 +1896,7 @@ def generate_portfolio_maintenance_notes(
                     "approved_generated_note": "",
                     "work_order_snapshot": work_order_snapshot,
                     "status": "draft",
+                    "is_edited": False,
                 },
             )
             generated += 1

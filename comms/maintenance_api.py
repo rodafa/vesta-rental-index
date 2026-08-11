@@ -266,7 +266,8 @@ def maintenance_note_detail(request, note_id):
     note.work_order_snapshot = snap
     note.notes_html = notes_html
     note.status = "draft"
-    note.save(update_fields=["work_order_snapshot", "notes_html", "status", "updated_at"])
+    note.is_edited = True
+    note.save(update_fields=["work_order_snapshot", "notes_html", "status", "is_edited", "updated_at"])
 
     return JsonResponse(_serialize_maintenance_note(note))
 
@@ -427,10 +428,8 @@ def approve_all_maintenance_notes(request):
         if not note_has_sendable_content(note):
             skipped_empty += 1
             continue
-        if not note.approved_generated_note:
-            note.approved_generated_note = note.generated_note
         note.status = "approved"
-        note.save(update_fields=["status", "approved_generated_note", "updated_at"])
+        note.save(update_fields=["status", "updated_at"])
         approved += 1
 
     return JsonResponse({"approved": approved, "skipped_empty": skipped_empty})
