@@ -188,6 +188,7 @@ LEADSIMPLE_ONBOARD_FILLED_STAGE_ID = os.environ.get(
 
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 ONBOARD_SHARED_SECRET = os.environ.get("ONBOARD_SHARED_SECRET", "")
+RENTENGINE_WEBHOOK_SECRET = os.environ.get("RENTENGINE_WEBHOOK_SECRET", "")
 
 # --- Owner Distribution Email ---
 

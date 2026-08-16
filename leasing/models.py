@@ -100,3 +100,49 @@ class LeasingEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type} @ {self.event_timestamp}"
+
+
+class RentEngineWebhookDelivery(models.Model):
+    """
+    Append-only raw inbox. Every authenticated request is stored before any
+    parsing is attempted, so an unrecognized payload shape is never lost.
+    """
+
+    received_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    target_entity = models.CharField(
+        max_length=100, blank=True, default="", db_index=True
+    )
+    operation = models.CharField(
+        max_length=50, blank=True, default="", db_index=True
+    )
+    raw_payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=20,
+        db_index=True,
+        choices=[
+            ("processed", "Processed"),
+            ("unparseable", "Unparseable"),
+            ("ignored", "Ignored"),
+        ],
+    )
+    error_message = models.TextField(blank=True, default="")
+    resulting_event = models.ForeignKey(
+        LeasingEvent,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webhook_deliveries",
+    )
+    resulting_prospect = models.ForeignKey(
+        Prospect,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webhook_deliveries",
+    )
+
+    class Meta:
+        ordering = ["-received_at"]
+
+    def __str__(self):
+        return f"{self.target_entity}/{self.operation} @ {self.received_at}"
