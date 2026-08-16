@@ -26,7 +26,6 @@ EVENT_TYPE_APPLICATION_RECEIVED = "Application Received"  # 179
 
 _EVENT_TYPE_TO_KEY = {
     EVENT_TYPE_SHOWING_SCHEDULED: "showings_scheduled",
-    EVENT_TYPE_SHOWING_COMPLETE: "showings_completed",
     EVENT_TYPE_SHOWING_CANCELED: "showings_canceled",
     EVENT_TYPE_MISSED_SHOWING: "showings_missed",
     EVENT_TYPE_APPLICATION_RECEIVED: "applications_received",
@@ -34,7 +33,11 @@ _EVENT_TYPE_TO_KEY = {
 
 _TRACKED_EVENT_TYPES = tuple(_EVENT_TYPE_TO_KEY.keys())
 
-_ZERO_METRICS = {"new_leads": 0, **{key: 0 for key in _EVENT_TYPE_TO_KEY.values()}}
+_ZERO_METRICS = {
+    "new_leads": 0,
+    "showings_completed": 0,
+    **{key: 0 for key in _EVENT_TYPE_TO_KEY.values()},
+}
 
 
 def compute_leasing_metrics(unit, start_date, end_date):
@@ -66,7 +69,7 @@ def compute_leasing_metrics(unit, start_date, end_date):
 
 def compute_leasing_metrics_bulk(units, start_date, end_date):
     """
-    Compute leasing metrics for multiple units in two database queries.
+    Compute leasing metrics for multiple units in three database queries.
 
     Args:
         units: iterable of core.Unit instances.
@@ -105,6 +108,33 @@ def compute_leasing_metrics_bulk(units, start_date, end_date):
         unit_id = row["unit_id"]
         key = _EVENT_TYPE_TO_KEY[row["event_type"]]
         result[unit_id][key] = row["count"]
+
+    # showings_completed: deduplicate on (unit, prospect, event_date).
+    # Unit 112, prospect 3040, 2026-06-30 had two "Showing Complete" events
+    # 29 seconds apart (different rentengine_ids). Raw count reports 5
+    # completions when 4 occurred. Dedupe in Python rather than DB-level
+    # DISTINCT because SQL DISTINCT collapses NULLs — a NULL prospect is
+    # unknown, not the same prospect, so each must count as 1.
+    completion_rows = (
+        LeasingEvent.objects.filter(
+            unit__in=units,
+            event_type=EVENT_TYPE_SHOWING_COMPLETE,
+            event_date__range=(start_date, end_date),
+        )
+        .values_list("unit_id", "prospect_id", "event_date")
+    )
+
+    seen_completions = set()
+    for unit_id, prospect_id, event_date in completion_rows:
+        if unit_id not in result:
+            continue
+        if prospect_id is None:
+            result[unit_id]["showings_completed"] += 1
+        else:
+            key = (unit_id, prospect_id, event_date)
+            if key not in seen_completions:
+                seen_completions.add(key)
+                result[unit_id]["showings_completed"] += 1
 
     # new_leads: count prospects by source_created_at, not events.
     prospect_rows = (
