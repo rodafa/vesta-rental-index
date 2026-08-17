@@ -131,9 +131,9 @@ def _load_selector(dotted_path):
 
 
 def _get_or_create_voice_guide(product_name):
-    """Load the VoiceGuide for a product, creating or updating the default."""
+    """Load the VoiceGuide for a product, seeding the default on first creation only."""
     default_text = DEFAULT_VOICE_GUIDES.get(product_name, DEFAULT_VOICE_GUIDES["maintenance"])
-    guide, created = VoiceGuide.objects.update_or_create(
+    guide, created = VoiceGuide.objects.get_or_create(
         product=product_name,
         defaults={"instructions": default_text},
     )

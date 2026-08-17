@@ -4,6 +4,7 @@ Pure mapping functions for RentEngine API responses.
 
 import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 
 # Matches a trailing integer after the last slash
 _LISTING_ID_RE = re.compile(r"/(\d+)$")
@@ -24,6 +25,16 @@ def parse_rentvine_listing_id(extracted_from):
     return None
 
 
+def _safe_decimal(value):
+    """Convert to Decimal or return None."""
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
 def map_unit(raw):
     """
     Normalize a RentEngine unit dict into a flat dict of the fields we use.
@@ -37,6 +48,11 @@ def map_unit(raw):
         "city": address.get("city", ""),
         "zip_code": address.get("zip_code", ""),
         "status": raw.get("status", ""),
+        # RentEngine's "target_rental_rate" is the ADVERTISED listing price.
+        # This is NOT the same as core.Unit.target_rental_rate, which comes
+        # from RentVine and represents the owner's target rent — a different
+        # number from a different system with a confusingly similar name.
+        "advertised_rent": _safe_decimal(raw.get("target_rental_rate")),
     }
 
 

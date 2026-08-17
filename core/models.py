@@ -189,6 +189,18 @@ class Unit(models.Model):
             "appears in our data and can change. Current state only; not historical."
         ),
     )
+    rentengine_advertised_rent = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            "Advertised listing rent from RentEngine's /units endpoint. "
+            "Distinct from target_rental_rate, which comes from RentVine "
+            "and is the target rent, not the advertised price. "
+            "Null means unknown; never zero."
+        ),
+    )
 
     property = models.ForeignKey(
         Property, on_delete=models.CASCADE, related_name="units"
