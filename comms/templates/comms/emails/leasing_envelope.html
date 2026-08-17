@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weekly Leasing Update</title>
+</head>
+<body style="margin:0; padding:0; background-color:#EFF5F9; font-family:Georgia, serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1E3D58; padding:32px 40px; text-align:center;">
+              <h1 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:26px; font-weight:700; color:#39B54A; letter-spacing:-0.5px;">
+                Weekly Leasing Update
+              </h1>
+              <p style="margin:8px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:14px; color:#6EA5CD;">
+                {{ period_label }}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="padding:32px 40px 16px;">
+              <p style="margin:0; font-size:16px; line-height:1.5; color:#333333;">
+                Hi {{ owner_first_name }},
+              </p>
+            </td>
+          </tr>
+
+          <!-- Portfolio fragments (concatenated AS-IS) -->
+          <tr>
+            <td style="padding:0 40px 24px;">
+              {{ fragments_html|safe }}
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:32px 40px; background-color:#1E3D58; margin-top:24px;">
+              <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#6EA5CD; text-align:center;">
+                Questions about a listing? Reply to this email or call or text us at <a href="tel:+18284581396" style="color:#6EA5CD; text-decoration:none;">(828) 458-1396</a>.
+              </p>
+              <p style="margin:12px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#4a7a9e; text-align:center;">
+                Vesta Property Management &bull; Asheville, NC
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

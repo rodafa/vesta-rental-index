@@ -94,15 +94,28 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 </table>
 
 <!-- AI Note -->
-{% if u.ai_note %}
+{% if u.ai_note_blocks %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:8px auto 0;">
+  {% for block in u.ai_note_blocks %}
   <tr>
-    <td>
+    <td{% if not forloop.first %} style="padding-top:8px;"{% endif %}>
+      {% if block.type == "paragraph" %}
       <p style="margin:0; font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222;">
-        {{ u.ai_note }}
+        {{ block.text }}
       </p>
+      {% elif block.type == "bullets" %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {% for item in block.items %}
+        <tr>
+          <td width="20" valign="top" style="font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222; padding:0;">&#8226;</td>
+          <td style="font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222; padding:0 0 2px;">{{ item }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
     </td>
   </tr>
+  {% endfor %}
 </table>
 {% endif %}
 

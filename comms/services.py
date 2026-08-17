@@ -130,10 +130,13 @@ Collaborative: invite the owner into decisions rather than acting unilaterally.
 Action-oriented: close with what Vesta is doing next or what the owner must decide.
 
 STRUCTURE
-Two to three short paragraphs. One is fine for a quiet week. Never more than four. \
-Flowing prose only. 80 to 150 words per unit.
-Loose order: what happened this week, specific prospect detail, what Vesta is doing \
-next, what is coming up, and a recommendation or question for the owner.
+Three parts, in this order:
+1. An opening line or two of prose: the headline of the week. What happened, plainly.
+2. A short bullet list of two to four supporting facts.
+3. A closing line or two of prose: the single most important next action.
+Total 90 to 120 words including bullets. Never more.
+Write bullets as lines beginning with "- ". Each bullet is one short clause, not a \
+sentence with multiple ideas. No sub-bullets.
 
 NEVER NAME A PROSPECT
 Feedback may include prospect names. Never use them. Write "they", "the prospect", \
@@ -147,14 +150,30 @@ Close with the single most important next action, not "we will keep you posted".
 Use numbers when meaningful: "4 tours this afternoon", "3 new leads".
 
 NEVER
-No bullet points. No dashes or hyphens separating ideas — use a period.
+No hyphens or dashes of any kind. No em dashes, no en dashes, no hyphens joining \
+ideas. Use a period and start a new sentence.
 Never start with "I".
 No corporate language: no "herewith", "please be advised", "as per".
-No filler. If there is nothing to report, be brief and honest.
+No filler. Cut any sentence that does not carry a fact or a next step. Phrases like \
+"that is the story we need to change" and "we are encouraged to see" are padding.
 Do not repeat the property address; it is already in the row header.
 At most one exclamation point per note, and only when genuinely warranted.
 Never fabricate a specific. If no tour time was supplied, write "we are working to \
 get something scheduled".
+
+LENGTH
+90 to 120 words total. This is a hard ceiling, not a target to approach.
+If the note runs long, cut adjectives and framing first, never facts.
+
+EXAMPLE OF THE RIGHT SHAPE
+Unit B has been on the market for 144 days. We saw 6 new leads this week, but all 5 \
+scheduled showings canceled before they happened.
+- 10 calls and 58 texts to keep prospects engaged
+- Three tours booked: Jun 23 at 4:45pm, Jun 30 at 4:00pm, Jun 30 at 6:00pm
+- Lead volume is above our price review threshold, so we are not recommending a \
+reduction. The issue is conversion, not interest.
+We will confirm each tour ahead of time and push for feedback right after. Getting \
+these three to complete is the priority.
 
 PHRASES THAT SOUND LIKE US
 These are samples of our voice, not a checklist. Use them naturally, and do not \
@@ -2321,6 +2340,170 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
         "body_html": body_html,
         "portfolios": portfolio_info,
         "all_approved": all_approved,
+    }
+
+
+def assemble_owner_leasing_email(recipient_email, period_start, period_end, period_type="weekly"):
+    """
+    Pure function. Assemble a leasing owner email for one recipient
+    from portfolio-grain PortfolioLeasingNote rows.
+
+    Returns dict or None:
+        None — zero-activity owner (no notes for this period).
+        {
+            "owner_name": str,
+            "body_html": str,          # Full HTML email (envelope + fragments)
+            "portfolios": [
+                {"id": int, "name": str, "status": str}, ...
+            ],
+            "all_approved": bool,
+            "rep_owner": Owner,
+            "unit_count": int,
+        }
+
+    Uses notes_html AS-IS (card-based fragments — no re-render from text).
+    Quiet portfolios (no note this period) are simply omitted.
+    """
+    from core.models import Owner, Portfolio
+    from leasing.models import PortfolioLeasingNote
+
+    norm_email = _normalize_email(recipient_email)
+    if not norm_email:
+        return None
+
+    # Group active owners sharing this email, union their portfolios
+    owners = list(
+        Owner.objects.filter(
+            is_active=True,
+            email__iexact=norm_email,
+        ).prefetch_related("portfolios")
+    )
+    if not owners:
+        return None
+
+    # Representative owner (lowest PK, deterministic)
+    rep_owner = min(owners, key=lambda o: o.pk)
+    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+
+    # Union portfolios, dedupe by PK
+    portfolio_pks = set()
+    for owner in owners:
+        for pk in owner.portfolios.values_list("pk", flat=True):
+            portfolio_pks.add(pk)
+
+    if not portfolio_pks:
+        return None
+
+    # Fetch portfolio notes for this period, ordered alphabetically
+    portfolios = Portfolio.objects.filter(
+        pk__in=portfolio_pks, is_active=True,
+    ).order_by("name")
+
+    # Collect (portfolio_name, notes_html) tuples for fragments that rendered
+    fragments = []
+    portfolio_info = []
+    all_approved = True
+    unit_count = 0
+
+    for portfolio in portfolios:
+        note = PortfolioLeasingNote.objects.filter(
+            portfolio=portfolio,
+            period_type=period_type,
+            period_start=period_start,
+        ).first()
+
+        if not note:
+            # Quiet portfolio — simply omit (no "no activity" line)
+            continue
+
+        portfolio_info.append({
+            "id": portfolio.pk,
+            "name": portfolio.name,
+            "status": note.status,
+        })
+
+        if note.status != "approved":
+            all_approved = False
+
+        # Count units from snapshot
+        if note.unit_snapshot and "unit_contexts" in note.unit_snapshot:
+            unit_count += len(note.unit_snapshot["unit_contexts"])
+
+        # Use notes_html AS-IS (card-based fragments, never re-render from text)
+        if note.notes_html:
+            fragments.append((portfolio.name, note.notes_html))
+
+    # Zero-activity owner — no notes found at all
+    if not fragments:
+        return None
+
+    # Build fragments_html — label each portfolio when 2+ rendered
+    if len(fragments) > 1:
+        from django.utils.html import escape
+
+        labeled_parts = []
+        for idx, (name, html) in enumerate(fragments):
+            margin_top = "0" if idx == 0 else "32px"
+            header = (
+                '<table role="presentation" width="100%" cellpadding="0" '
+                f'cellspacing="0" style="margin:{margin_top} 0 8px;">'
+                "<tr>"
+                '<td style="border-bottom:2px solid #1E3D58; padding-bottom:8px;">'
+                '<h2 style="margin:0; font-family:Helvetica, Arial, sans-serif; '
+                'font-size:20px; font-weight:700; color:#1E3D58;">'
+                f"{escape(name)}"
+                "</h2>"
+                "</td>"
+                "</tr>"
+                "</table>"
+            )
+            labeled_parts.append(header + "\n" + html)
+        fragments_html = "\n".join(labeled_parts)
+    else:
+        fragments_html = fragments[0][1]
+
+    # Render envelope with concatenated fragments
+    # Read period_end from the notes if available; fall back to passed-in value.
+    _assembled_pks = [p["id"] for p in portfolio_info]
+    _note_period_ends = list(
+        PortfolioLeasingNote.objects.filter(
+            portfolio_id__in=_assembled_pks,
+            period_type=period_type,
+            period_start=period_start,
+        )
+        .exclude(period_end__isnull=True)
+        .values_list("period_end", flat=True)
+        .distinct()
+    )
+    if len(_note_period_ends) > 1:
+        logger.warning(
+            "comms_leasing_period_end_mismatch",
+            extra={
+                "portfolio_pks": _assembled_pks,
+                "distinct_period_ends": sorted(
+                    str(d) for d in _note_period_ends
+                ),
+            },
+        )
+    resolved_period_end = max(_note_period_ends, default=None) or period_end
+    period_label = _format_period_label(period_type, period_start, resolved_period_end)
+
+    body_html = render_to_string(
+        "comms/emails/leasing_envelope.html",
+        {
+            "owner_first_name": owner_name,
+            "period_label": period_label,
+            "fragments_html": fragments_html,
+        },
+    )
+
+    return {
+        "owner_name": owner_name,
+        "body_html": body_html,
+        "portfolios": portfolio_info,
+        "all_approved": all_approved,
+        "rep_owner": rep_owner,
+        "unit_count": unit_count,
     }
 
 

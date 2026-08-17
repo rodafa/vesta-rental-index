@@ -80,23 +80,57 @@ def _dedup_feedback(raw_feedback):
     return list(best.values())
 
 
-def _ordinal(n):
-    """Return day-of-month with ordinal suffix: 1st, 2nd, 3rd, 4th..."""
-    if 11 <= (n % 100) <= 13:
-        return f"{n}th"
-    return f"{n}{['th', 'st', 'nd', 'rd', 'th'][min(n % 10, 4)]}"
-
-
 def _format_tour_time(dt):
-    """Format a UTC datetime as e.g. 'Monday, July 13th at 2:00pm' in Eastern time."""
+    """Format a UTC datetime as e.g. 'Jun 23 at 4:45pm' in Eastern time."""
     eastern = dt.astimezone(ET)
     hour = eastern.strftime("%I").lstrip("0") or "12"
     minute = eastern.strftime("%M")
     ampm = eastern.strftime("%p").lower()
-    day_name = eastern.strftime("%A")
-    month_name = eastern.strftime("%B")
+    month_abbr = eastern.strftime("%b")
     day = eastern.day
-    return f"{day_name}, {month_name} {_ordinal(day)} at {hour}:{minute}{ampm}"
+    return f"{month_abbr} {day} at {hour}:{minute}{ampm}"
+
+
+def _parse_ai_note_blocks(text):
+    """
+    Parse an AI note into structured blocks for template rendering.
+
+    Returns a list of dicts:
+        {"type": "paragraph", "text": "..."}
+        {"type": "bullets", "items": ["...", ...]}
+
+    Consecutive "- " lines group into one bullet block.
+    Indented continuation lines are joined to the preceding bullet.
+    """
+    if not text:
+        return []
+
+    blocks = []
+    current_bullets = []
+
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            if current_bullets:
+                blocks.append({"type": "bullets", "items": current_bullets})
+                current_bullets = []
+            continue
+
+        if stripped.startswith("- "):
+            current_bullets.append(stripped[2:])
+        elif current_bullets and line[0] == " ":
+            # Indented continuation of previous bullet
+            current_bullets[-1] += " " + stripped
+        else:
+            if current_bullets:
+                blocks.append({"type": "bullets", "items": current_bullets})
+                current_bullets = []
+            blocks.append({"type": "paragraph", "text": stripped})
+
+    if current_bullets:
+        blocks.append({"type": "bullets", "items": current_bullets})
+
+    return blocks
 
 
 def _format_val(val, delta=None):
@@ -334,9 +368,10 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
     )
     lines.append("")
     lines.append(
-        "Write one concise leasing note per unit (2-3 short paragraphs, flowing "
-        "prose, no bullets). The intro is a 1-2 sentence portfolio-level summary "
-        "of leasing activity this week. Return valid JSON only:\n"
+        "Write one concise leasing note per unit (opening prose, a short bullet "
+        "list using '- ' prefix, and a closing action line). The intro is a 1-2 "
+        "sentence portfolio-level summary of leasing activity this week. Return "
+        "valid JSON only:\n"
         '{"intro": "...", "unit_summaries": {"<unit_id>": "..."}}'
     )
 
@@ -464,9 +499,11 @@ def generate_portfolio_leasing_note(
     # Render HTML fragment
     template_units = []
     for ctx in unit_contexts:
+        ai_note = unit_summaries.get(str(ctx["unit_id"]), "")
         template_units.append({
             **ctx,
-            "ai_note": unit_summaries.get(str(ctx["unit_id"]), ""),
+            "ai_note": ai_note,
+            "ai_note_blocks": _parse_ai_note_blocks(ai_note),
         })
 
     notes_html = render_to_string(
