@@ -1,0 +1,108 @@
+{% comment %}
+Leasing fragment — rendered into PortfolioLeasingNote.notes_html.
+Per-unit sections: address heading, rent/DOM stats, activity metrics with
+week-over-week deltas, AI-generated note.
+NO greeting, header, footer, or CTA — those belong to the owner-grain envelope (Layer 2).
+{% endcomment %}
+
+{% for u in units %}
+{% if not forloop.first %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto;"><tr><td style="padding:16px 0;"></td></tr></table>
+{% endif %}
+
+<!-- Unit: {{ u.address }} -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto;">
+  <tr>
+    <td>
+      <h2 style="margin:0 0 12px; font-family:Helvetica,Arial,sans-serif; font-size:18px; font-weight:700; color:#1E3D58; border-bottom:2px solid #1E3D58; padding-bottom:8px;">
+        {{ u.address }}
+      </h2>
+    </td>
+  </tr>
+</table>
+
+<!-- Rent & Days on Market -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto 8px;">
+  <tr>
+    <td width="48%" style="text-align:center; padding:14px 4px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:24px; font-weight:700; color:#1E3D58;">
+        {% if u.advertised_rent is not None %}${{ u.advertised_rent }}{% else %}&mdash;{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Advertised Rent</p>
+    </td>
+    <td width="4%"></td>
+    <td width="48%" style="text-align:center; padding:14px 4px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:24px; font-weight:700; color:{% if u.dom_urgent %}#D67011{% else %}#1E3D58{% endif %};">
+        {% if u.days_on_market is not None %}{{ u.days_on_market }}{% if u.days_on_market_delta is not None and u.days_on_market_delta > 0 %}<span style="font-size:13px; color:#888888;"> +{{ u.days_on_market_delta }}</span>{% endif %}{% else %}&mdash;{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Days on Market</p>
+    </td>
+  </tr>
+</table>
+
+<!-- Activity Metrics — Row 1: Leads / Showings / Applications -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto 4px;">
+  <tr>
+    <td width="32%" style="text-align:center; padding:10px 2px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:22px; font-weight:700; color:#1E3D58;">
+        {{ u.new_leads }}{% if u.new_leads_delta is not None and u.new_leads_delta > 0 %}<span style="font-size:12px; color:#39B54A;"> &#9650;{{ u.new_leads_delta }}</span>{% elif u.new_leads_delta is not None and u.new_leads_delta < 0 %}<span style="font-size:12px; color:#D67011;"> &#9660;{{ u.new_leads_delta|cut:"-" }}</span>{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:10px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.3px;">New Leads</p>
+    </td>
+    <td width="2%"></td>
+    <td width="32%" style="text-align:center; padding:10px 2px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:22px; font-weight:700; color:#6EA5CD;">
+        {{ u.showings_completed }}{% if u.showings_completed_delta is not None and u.showings_completed_delta > 0 %}<span style="font-size:12px; color:#39B54A;"> &#9650;{{ u.showings_completed_delta }}</span>{% elif u.showings_completed_delta is not None and u.showings_completed_delta < 0 %}<span style="font-size:12px; color:#D67011;"> &#9660;{{ u.showings_completed_delta|cut:"-" }}</span>{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:10px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.3px;">Tours Done</p>
+    </td>
+    <td width="2%"></td>
+    <td width="32%" style="text-align:center; padding:10px 2px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:22px; font-weight:700; color:#39B54A;">
+        {{ u.applications_received }}{% if u.applications_received_delta is not None and u.applications_received_delta > 0 %}<span style="font-size:12px; color:#39B54A;"> &#9650;{{ u.applications_received_delta }}</span>{% elif u.applications_received_delta is not None and u.applications_received_delta < 0 %}<span style="font-size:12px; color:#D67011;"> &#9660;{{ u.applications_received_delta|cut:"-" }}</span>{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:10px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.3px;">Applications</p>
+    </td>
+  </tr>
+</table>
+
+<!-- Activity Metrics — Row 2: Scheduled / Canceled / Missed -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto 4px;">
+  <tr>
+    <td width="32%" style="text-align:center; padding:10px 2px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:22px; font-weight:700; color:#6EA5CD;">
+        {{ u.showings_scheduled }}{% if u.showings_scheduled_delta is not None and u.showings_scheduled_delta > 0 %}<span style="font-size:12px; color:#39B54A;"> &#9650;{{ u.showings_scheduled_delta }}</span>{% elif u.showings_scheduled_delta is not None and u.showings_scheduled_delta < 0 %}<span style="font-size:12px; color:#D67011;"> &#9660;{{ u.showings_scheduled_delta|cut:"-" }}</span>{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:10px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.3px;">Scheduled</p>
+    </td>
+    <td width="2%"></td>
+    <td width="32%" style="text-align:center; padding:10px 2px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:22px; font-weight:700; color:#D67011;">
+        {{ u.showings_canceled }}{% if u.showings_canceled_delta is not None and u.showings_canceled_delta > 0 %}<span style="font-size:12px; color:#D67011;"> &#9650;{{ u.showings_canceled_delta }}</span>{% elif u.showings_canceled_delta is not None and u.showings_canceled_delta < 0 %}<span style="font-size:12px; color:#39B54A;"> &#9660;{{ u.showings_canceled_delta|cut:"-" }}</span>{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:10px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.3px;">Canceled</p>
+    </td>
+    <td width="2%"></td>
+    <td width="32%" style="text-align:center; padding:10px 2px; background-color:#EFF5F9; border-radius:6px;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:22px; font-weight:700; color:#D67011;">
+        {{ u.showings_missed }}{% if u.showings_missed_delta is not None and u.showings_missed_delta > 0 %}<span style="font-size:12px; color:#D67011;"> &#9650;{{ u.showings_missed_delta }}</span>{% elif u.showings_missed_delta is not None and u.showings_missed_delta < 0 %}<span style="font-size:12px; color:#39B54A;"> &#9660;{{ u.showings_missed_delta|cut:"-" }}</span>{% endif %}
+      </p>
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:10px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.3px;">Missed</p>
+    </td>
+  </tr>
+</table>
+
+<!-- AI Note -->
+{% if u.ai_note %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:8px auto 0;">
+  <tr>
+    <td>
+      <p style="margin:0; font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222;">
+        {{ u.ai_note }}
+      </p>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+{% endfor %}

@@ -1,3 +1,4 @@
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 
@@ -195,3 +196,91 @@ class UnitLeasingSnapshot(models.Model):
 
     def __str__(self):
         return f"Unit {self.unit_id} | {self.period_start} \u2013 {self.period_end}"
+
+
+class PortfolioLeasingNote(models.Model):
+    """
+    Layer 1 — portfolio-grain authored content for weekly leasing notes.
+
+    One note per portfolio per period, authored and reviewed ONCE.
+    A portfolio shared by several owners is written once here.
+    Owner-grain leasing emails are ASSEMBLED from these rows at send time.
+    """
+
+    PERIOD_TYPE_CHOICES = [
+        ("weekly", "Weekly"),
+        ("monthly", "Monthly"),
+    ]
+
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("approved", "Approved"),
+    ]
+
+    portfolio = models.ForeignKey(
+        "core.Portfolio",
+        on_delete=models.CASCADE,
+        related_name="leasing_notes",
+    )
+    period_type = models.CharField(
+        max_length=10,
+        choices=PERIOD_TYPE_CHOICES,
+        default="weekly",
+        db_index=True,
+    )
+    period_start = models.DateField()
+    period_end = models.DateField()
+
+    notes_html = models.TextField(
+        blank=True,
+        default="",
+        help_text="Rendered HTML fragment for the leasing section (inline-styled for SendGrid).",
+    )
+    generated_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="AI-generated plain-text note (the raw output, before human review).",
+    )
+    approved_generated_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Human-reviewed/edited version of generated_note. Blank = not yet reviewed.",
+    )
+    unit_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Frozen per-unit context including prior-week values, captured at "
+            "generation. Source for rebuilding notes_html on edit."
+        ),
+    )
+
+    status = models.CharField(
+        max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
+    )
+    is_edited = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "True once a human has edited this note's snapshot. Protects it "
+            "from being overwritten on regeneration. Set False on fresh generation."
+        ),
+    )
+
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["portfolio", "period_type", "period_start"],
+                name="unique_leasing_note_per_period",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["period_type", "period_start", "status"]),
+        ]
+
+    def __str__(self):
+        return f"PortfolioLeasingNote: {self.portfolio} ({self.period_start})"
