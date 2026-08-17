@@ -1,3 +1,4 @@
+{% load humanize %}
 {% comment %}
 Leasing fragment — rendered into PortfolioLeasingNote.notes_html.
 Per-unit sections: address heading, rent/DOM stats, activity metrics with
@@ -26,7 +27,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   <tr>
     <td width="48%" style="text-align:center; padding:14px 4px; background-color:#EFF5F9; border-radius:6px;">
       <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:24px; font-weight:700; color:#1E3D58;">
-        {% if u.advertised_rent is not None %}${{ u.advertised_rent }}{% else %}&mdash;{% endif %}
+        {% if u.advertised_rent is not None %}${{ u.advertised_rent|floatformat:0|intcomma }}{% else %}&mdash;{% endif %}
       </p>
       <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Advertised Rent</p>
     </td>
