@@ -2,7 +2,8 @@
 Sync rentengine_id onto existing core.Unit rows.
 
 Dry-run by default. Pass --apply to write.
-The ONLY database write is setting Unit.rentengine_id on matched rows.
+Database writes: sets Unit.rentengine_id on newly matched rows and updates
+Unit.rentengine_status on all matched rows (both new and already-linked).
 """
 
 import logging
@@ -47,6 +48,7 @@ class Command(BaseCommand):
         re_client = RentEngineClient()
         raw_units = re_client.get_all("units")
         re_units = [map_unit(u) for u in raw_units]
+        re_id_to_status = {u["rentengine_id"]: u.get("status", "") for u in re_units}
         logger.info("rentengine_units_fetched", extra={"count": len(re_units)})
 
         # --- Fetch RentVine listings ---
@@ -134,8 +136,8 @@ class Command(BaseCommand):
             return
 
         # --- Classify each match ---
-        will_set = []     # (unit, rentengine_id, address)
-        already_set = []  # (unit, rentengine_id, address)
+        will_set = []     # (unit, rentengine_id, address, status)
+        already_set = []  # (unit, rentengine_id, address, status)
         conflicts = []    # (unit, existing_re_id, incoming_re_id, address)
 
         for m in resolution.matched:
@@ -144,11 +146,12 @@ class Command(BaseCommand):
                 continue
             incoming = m["rentengine_id"]
             addr = m["address"]
+            status = re_id_to_status.get(incoming, "")
 
             if unit.rentengine_id is None:
-                will_set.append((unit, incoming, addr))
+                will_set.append((unit, incoming, addr, status))
             elif unit.rentengine_id == incoming:
-                already_set.append((unit, incoming, addr))
+                already_set.append((unit, incoming, addr, status))
             else:
                 conflicts.append((unit, unit.rentengine_id, incoming, addr))
 
@@ -194,17 +197,25 @@ class Command(BaseCommand):
         if will_set:
             self.stdout.write("WILL SET:")
             self.stdout.write(
-                f"  {'Unit #':>8}  {'RE ID':>10}  Address"
+                f"  {'Unit #':>8}  {'RE ID':>10}  {'Status':<16}  Address"
             )
             self.stdout.write(
-                f"  {'------':>8}  {'-----':>10}  -------"
+                f"  {'------':>8}  {'-----':>10}  {'------':<16}  -------"
             )
-            for unit, re_id, addr in will_set:
-                self.stdout.write(f"  {unit.id:>8}  {re_id:>10}  {addr}")
+            for unit, re_id, addr, status in will_set:
+                self.stdout.write(f"  {unit.id:>8}  {re_id:>10}  {status:<16}  {addr}")
             self.stdout.write("")
 
         if already_set:
-            self.stdout.write(f"ALREADY SET (no-op): {len(already_set)}")
+            self.stdout.write(f"ALREADY LINKED (status update only): {len(already_set)}")
+            self.stdout.write(
+                f"  {'Unit #':>8}  {'RE ID':>10}  {'Status':<16}  Address"
+            )
+            self.stdout.write(
+                f"  {'------':>8}  {'-----':>10}  {'------':<16}  -------"
+            )
+            for unit, re_id, addr, status in already_set:
+                self.stdout.write(f"  {unit.id:>8}  {re_id:>10}  {status:<16}  {addr}")
             self.stdout.write("")
 
         # --- Unmatched ---
@@ -218,25 +229,47 @@ class Command(BaseCommand):
             )
         self.stdout.write("")
 
+        # --- Status breakdown ---
+        all_statuses = (
+            [s for _, _, _, s in will_set]
+            + [s for _, _, _, s in already_set]
+        )
+        if all_statuses:
+            status_counts = defaultdict(int)
+            for s in all_statuses:
+                status_counts[s or "(blank)"] += 1
+            self.stdout.write("STATUS BREAKDOWN (matched units):")
+            for status_val, count in sorted(
+                status_counts.items(), key=lambda x: -x[1]
+            ):
+                self.stdout.write(f"  {status_val:<20} {count}")
+            self.stdout.write("")
+
         # --- Apply ---
-        if apply and will_set:
+        if apply and (will_set or already_set):
             self.stdout.write("Writing...")
             with transaction.atomic():
-                for unit, re_id, addr in will_set:
+                for unit, re_id, addr, status in will_set:
                     unit.rentengine_id = re_id
-                    unit.save(update_fields=["rentengine_id"])
+                    unit.rentengine_status = status
+                    unit.save(update_fields=["rentengine_id", "rentengine_status"])
                     logger.info(
                         "rentengine_id_set",
                         extra={
                             "unit_id": unit.id,
                             "rentengine_id": re_id,
+                            "rentengine_status": status,
                         },
                     )
+                for unit, re_id, addr, status in already_set:
+                    unit.rentengine_status = status
+                    unit.save(update_fields=["rentengine_status"])
             self.stdout.write(self.style.SUCCESS(
-                f"Done. Set rentengine_id on {len(will_set)} unit(s)."
+                f"Done. Set rentengine_id on {len(will_set)} unit(s), "
+                f"updated status on {len(already_set)} existing unit(s)."
             ))
-        elif apply and not will_set:
-            self.stdout.write("Nothing to write — all matched units already set.")
+        elif apply:
+            self.stdout.write("Nothing to write — no matched units.")
         else:
             self.stdout.write(
                 "Dry run complete. Pass --apply to write."

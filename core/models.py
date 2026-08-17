@@ -178,6 +178,18 @@ class Unit(models.Model):
         unique=True, null=True, blank=True, db_index=True
     )
 
+    rentengine_status = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text=(
+            "Raw listing status from RentEngine's /units endpoint. Free text, "
+            "not a choices enum — RentEngine's vocabulary is larger than what "
+            "appears in our data and can change. Current state only; not historical."
+        ),
+    )
+
     property = models.ForeignKey(
         Property, on_delete=models.CASCADE, related_name="units"
     )
