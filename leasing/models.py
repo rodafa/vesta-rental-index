@@ -146,3 +146,52 @@ class RentEngineWebhookDelivery(models.Model):
 
     def __str__(self):
         return f"{self.target_entity}/{self.operation} @ {self.received_at}"
+
+
+class UnitLeasingSnapshot(models.Model):
+    """
+    Weekly leasing performance snapshot for a unit.
+
+    Fields split into two groups:
+    - Computed from our own LeasingEvent / Prospect rows (new_leads through
+      applications_received). These are always populated and default to 0.
+    - Fetched from RentEngine's reporting endpoint (touchpoints_calls through
+      reporting_raw). These are nullable because a failed fetch must not
+      fabricate a zero — null means unknown, zero means none.
+    """
+
+    unit = models.ForeignKey(
+        "core.Unit",
+        on_delete=models.CASCADE,
+        related_name="leasing_snapshots",
+    )
+    period_start = models.DateField(db_index=True)
+    period_end = models.DateField(db_index=True)
+
+    # --- Computed from our own LeasingEvent / Prospect rows ---
+    new_leads = models.IntegerField(default=0)
+    showings_scheduled = models.IntegerField(default=0)
+    showings_completed = models.IntegerField(default=0)
+    showings_canceled = models.IntegerField(default=0)
+    showings_missed = models.IntegerField(default=0)
+    applications_received = models.IntegerField(default=0)
+
+    # --- Fetched from RentEngine's reporting endpoint ---
+    touchpoints_calls = models.IntegerField(null=True, blank=True)
+    touchpoints_texts = models.IntegerField(null=True, blank=True)
+    upcoming_showings = models.IntegerField(null=True, blank=True)
+    days_on_market = models.IntegerField(null=True, blank=True)
+    property_health = models.CharField(max_length=50, blank=True, default="")
+    reporting_fetch_ok = models.BooleanField(default=False)
+    reporting_error = models.TextField(blank=True, default="")
+    reporting_raw = models.JSONField(default=dict, blank=True)
+
+    # --- Audit ---
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("unit", "period_start", "period_end")
+        ordering = ["-period_start", "unit_id"]
+
+    def __str__(self):
+        return f"Unit {self.unit_id} | {self.period_start} \u2013 {self.period_end}"

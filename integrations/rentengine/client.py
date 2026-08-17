@@ -269,3 +269,19 @@ class RentEngineClient:
             extra={"path": path, "total_records": len(all_records)},
         )
         return all_records
+
+    def get_unit_leasing_performance(self, unit_id, start_date, end_date):
+        """
+        GET /reporting/leasing-performance/units/{unit_id}
+
+        start_date and end_date are date objects. The endpoint requires
+        ISO 8601 date-time values — date-only returns HTTP 400.
+        """
+        params = {
+            "start": f"{start_date.isoformat()}T00:00:00Z",
+            "end": f"{end_date.isoformat()}T23:59:59Z",
+        }
+        return self.get(
+            f"reporting/leasing-performance/units/{unit_id}",
+            params=params,
+        )

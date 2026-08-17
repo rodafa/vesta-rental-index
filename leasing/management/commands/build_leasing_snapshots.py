@@ -1,0 +1,209 @@
+"""
+Build weekly UnitLeasingSnapshot rows for all active units.
+
+Usage:
+    python manage.py build_leasing_snapshots --start 2026-08-04 --end 2026-08-10
+    python manage.py build_leasing_snapshots --start 2026-08-04 --end 2026-08-10 --unit-id 42
+    python manage.py build_leasing_snapshots --start 2026-08-04 --end 2026-08-10 --dry-run
+"""
+
+import logging
+import time
+from datetime import date
+
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connection
+
+from core.models import Unit
+from integrations.rentengine.client import RentEngineClient
+from leasing.selectors import compute_leasing_metrics_bulk
+from leasing.snapshots import build_unit_snapshot
+
+logger = logging.getLogger(__name__)
+
+
+class Command(BaseCommand):
+    help = "Build weekly UnitLeasingSnapshot rows for units with a rentengine_id."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--start",
+            required=True,
+            help="Period start date (YYYY-MM-DD), inclusive.",
+        )
+        parser.add_argument(
+            "--end",
+            required=True,
+            help="Period end date (YYYY-MM-DD), inclusive.",
+        )
+        parser.add_argument(
+            "--unit-id",
+            type=int,
+            default=None,
+            help="Process a single core.Unit by ID.",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Compute and print metrics without writing to the database.",
+        )
+
+    def handle(self, *args, **options):
+        try:
+            start = date.fromisoformat(options["start"])
+            end = date.fromisoformat(options["end"])
+        except ValueError as exc:
+            raise CommandError(f"Invalid date: {exc}") from exc
+
+        if start > end:
+            raise CommandError(
+                f"--start ({start}) must not be after --end ({end})"
+            )
+
+        dry_run = options["dry_run"]
+        single_unit_id = options["unit_id"]
+
+        # --- Load units ---
+        qs = Unit.objects.filter(rentengine_id__isnull=False).select_related(
+            "property"
+        )
+        if single_unit_id is not None:
+            qs = qs.filter(id=single_unit_id)
+
+        units = list(qs.order_by("id"))
+        if not units:
+            raise CommandError("No units matched the filters.")
+
+        self.stdout.write(
+            f"Period: {start} to {end}  |  Units: {len(units)}  |  "
+            f"Dry run: {dry_run}"
+        )
+        self.stdout.write("")
+
+        # --- Pre-compute all local metrics in bulk (three DB queries) ---
+        all_metrics = compute_leasing_metrics_bulk(units, start, end)
+
+        # --- Close DB connection before API loop ---
+        # Railway's Postgres drops idle connections during long API work.
+        connection.close()
+
+        client = RentEngineClient()
+
+        # --- Per-unit loop ---
+        created_count = 0
+        updated_count = 0
+        fetch_failures = 0
+        errors = []
+        rows = []
+
+        t0 = time.monotonic()
+
+        for unit in units:
+            m = all_metrics[unit.id]
+            addr = unit.display_address or f"(unit {unit.id})"
+
+            try:
+                if dry_run:
+                    # Still call reporting endpoint to show what we'd get
+                    reporting_ok = False
+                    calls = None
+                    texts = None
+                    upcoming = None
+                    dom = None
+
+                    if unit.rentengine_id is not None:
+                        try:
+                            rpt = client.get_unit_leasing_performance(
+                                unit.rentengine_id, start, end,
+                            )
+                            if isinstance(rpt, dict) and "unit_id" in rpt:
+                                reporting_ok = True
+                                calls = rpt.get("total_calls")
+                                texts = rpt.get("outbound_texts")
+                                upcoming = rpt.get("upcoming_showings")
+                                dom = rpt.get("days_on_market")
+                        except Exception:
+                            pass
+
+                    rows.append((
+                        unit.id, addr,
+                        m["new_leads"], m["showings_scheduled"],
+                        m["showings_completed"], m["showings_canceled"],
+                        m["showings_missed"], m["applications_received"],
+                        calls, texts, upcoming, dom, reporting_ok,
+                    ))
+                else:
+                    snapshot, was_created = build_unit_snapshot(
+                        unit, start, end, client=client,
+                    )
+                    if was_created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
+
+                    if not snapshot.reporting_fetch_ok:
+                        fetch_failures += 1
+
+                    rows.append((
+                        unit.id, addr,
+                        snapshot.new_leads, snapshot.showings_scheduled,
+                        snapshot.showings_completed, snapshot.showings_canceled,
+                        snapshot.showings_missed, snapshot.applications_received,
+                        snapshot.touchpoints_calls, snapshot.touchpoints_texts,
+                        snapshot.upcoming_showings, snapshot.days_on_market,
+                        snapshot.reporting_fetch_ok,
+                    ))
+
+            except Exception as exc:
+                errors.append((unit.id, addr, str(exc)))
+                logger.warning(
+                    "snapshot_unit_error",
+                    extra={"unit_id": unit.id, "error": str(exc)},
+                )
+
+        elapsed = round(time.monotonic() - t0, 1)
+
+        # --- Table output ---
+        header = (
+            f"{'ID':>5}  {'Address':<30}  {'Leads':>5}  {'Sched':>5}  "
+            f"{'Compl':>5}  {'Cxl':>5}  {'Miss':>5}  {'Apps':>5}  "
+            f"{'Calls':>5}  {'Texts':>5}  {'UpShw':>5}  {'DOM':>5}  "
+            f"{'Rpt':>3}"
+        )
+        self.stdout.write(header)
+        self.stdout.write("-" * len(header))
+
+        for r in rows:
+            uid, addr = r[0], r[1][:30]
+            vals = r[2:]
+
+            def fmt(v):
+                if v is None:
+                    return "    -"
+                if isinstance(v, bool):
+                    return "  ok" if v else " ERR"
+                return f"{v:>5}"
+
+            line = f"{uid:>5}  {addr:<30}  " + "  ".join(fmt(v) for v in vals)
+            self.stdout.write(line)
+
+        # --- Summary ---
+        self.stdout.write("")
+        self.stdout.write("=" * 60)
+        if dry_run:
+            self.stdout.write("DRY RUN — nothing written to the database.")
+        else:
+            self.stdout.write(f"  Snapshots created   : {created_count}")
+            self.stdout.write(f"  Snapshots updated   : {updated_count}")
+            self.stdout.write(f"  Reporting failures  : {fetch_failures}")
+        self.stdout.write(f"  Units processed     : {len(rows)}")
+        self.stdout.write(f"  Errors              : {len(errors)}")
+        self.stdout.write(f"  Elapsed             : {elapsed}s")
+
+        if errors:
+            self.stdout.write("")
+            self.stdout.write("ERRORS:")
+            for uid, addr, err in errors:
+                self.stdout.write(f"  Unit {uid} ({addr}): {err}")
+
+        self.stdout.write("=" * 60)
