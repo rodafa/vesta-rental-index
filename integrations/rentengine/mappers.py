@@ -3,7 +3,7 @@ Pure mapping functions for RentEngine API responses.
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 # Matches a trailing integer after the last slash
@@ -140,3 +140,33 @@ def map_leasing_event(raw):
         "unit_of_interest": _safe_int(raw.get("unit_of_interest")),
         "prospect_id": _safe_int(raw.get("prospect_id")),
     }
+
+
+def build_unit_marked_available_dates(rows):
+    """
+    Map /reporting/units rows to {unit_id: date_marked_available_date}.
+
+    Parses the date portion only (first 10 characters) — no timezone
+    conversion, so DOM arithmetic stays correct.
+
+    Skips rows with a null or unparseable date_marked_available.
+    """
+    result = {}
+    for row in rows:
+        uid = row.get("unit_id")
+        if uid is None:
+            continue
+        try:
+            uid = int(uid)
+        except (ValueError, TypeError):
+            continue
+
+        raw = row.get("date_marked_available")
+        if not raw:
+            continue
+        try:
+            result[uid] = date.fromisoformat(str(raw)[:10])
+        except (ValueError, TypeError):
+            continue
+
+    return result

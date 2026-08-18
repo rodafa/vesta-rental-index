@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 def build_unit_snapshot(
-    unit, period_start, period_end, client=None, rv_advertised_dates=None,
+    unit, period_start, period_end, client=None,
+    rv_advertised_dates=None, re_marked_available_dates=None,
 ):
     """
     Build or update a UnitLeasingSnapshot for a single unit and period.
@@ -30,6 +31,9 @@ def build_unit_snapshot(
         rv_advertised_dates: optional dict mapping rentvine unit ID -> date,
             from build_unit_advertised_dates(). Looked up once by the caller,
             not once per unit.
+        re_marked_available_dates: optional dict mapping rentengine unit ID
+            -> date, from build_unit_marked_available_dates(). Looked up
+            once by the caller, not once per unit.
 
     Returns:
         (snapshot, created) — the UnitLeasingSnapshot and whether it was
@@ -107,6 +111,9 @@ def build_unit_snapshot(
             "days_on_market": days_on_market,
             "advertised_date": (
                 (rv_advertised_dates or {}).get(unit.rentvine_id)
+            ),
+            "date_marked_available": (
+                (re_marked_available_dates or {}).get(unit.rentengine_id)
             ),
             "property_health": property_health,
             "reporting_fetch_ok": reporting_fetch_ok,

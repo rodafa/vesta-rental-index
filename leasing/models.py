@@ -192,9 +192,16 @@ class UnitLeasingSnapshot(models.Model):
     advertised_date = models.DateField(
         null=True, blank=True,
         help_text=(
-            "Start date of the current RentVine listing (listing.advertisedDate). "
-            "Null means no active listing was found. Used to compute days on market "
-            "as (period_end - advertised_date).days."
+            "RentVine listing.advertisedDate. Retained for comparison with "
+            "date_marked_available but no longer used in user-facing output."
+        ),
+    )
+    date_marked_available = models.DateField(
+        null=True, blank=True,
+        help_text=(
+            "RentEngine's date_marked_available for the current listing. "
+            "Days on market is computed as (period_end - this).days - 1, "
+            "matching RentEngine's UI which counts complete days elapsed."
         ),
     )
     property_health = models.CharField(max_length=50, blank=True, default="")

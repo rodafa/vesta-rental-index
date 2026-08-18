@@ -141,6 +141,7 @@ RENTENGINE = {
     "BASE_URL": os.environ.get(
         "RENTENGINE_API_URL", "https://app.rentengine.io/api/public/v1"
     ),
+    "ACCOUNT_ID": os.environ.get("RENTENGINE_ACCOUNT_ID", ""),
 }
 
 PROPERTY_MELD = {

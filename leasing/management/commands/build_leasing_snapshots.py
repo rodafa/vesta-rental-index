@@ -16,6 +16,7 @@ from django.db import connection
 
 from core.models import Unit
 from integrations.rentengine.client import RentEngineClient
+from integrations.rentengine.mappers import build_unit_marked_available_dates
 from integrations.rentvine.client import RentvineClient
 from integrations.rentvine.listing_dates import build_unit_advertised_dates
 from leasing.selectors import compute_leasing_metrics_bulk
@@ -121,6 +122,53 @@ class Command(BaseCommand):
                 "missing from most emails. Investigate before sending."
             ))
 
+        # --- Fetch RentEngine /reporting/units once for all units ---
+        re_marked_available_dates = {}
+        span_days = (end - start).days
+        if span_days > 32:
+            self.stdout.write(self.style.WARNING(
+                f"Period span is {span_days} days (max 32). Skipping "
+                f"/reporting/units — date_marked_available will be null "
+                f"and days on market will be omitted from emails."
+            ))
+        else:
+            try:
+                re_rows = client.get_reporting_units(start, end)
+                re_marked_available_dates = (
+                    build_unit_marked_available_dates(re_rows)
+                )
+                self.stdout.write(
+                    f"RentEngine /reporting/units: {len(re_rows)} rows, "
+                    f"{len(re_marked_available_dates)} with "
+                    f"date_marked_available"
+                )
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(
+                    f"RentEngine /reporting/units fetch failed: {exc}"
+                ))
+
+            # Sanity check: how many units matched a date_marked_available?
+            re_unit_ids = {
+                u.rentengine_id for u in units
+                if u.rentengine_id is not None
+            }
+            re_matched = len(
+                re_unit_ids & set(re_marked_available_dates.keys())
+            )
+            re_unmatched = len(re_unit_ids) - re_matched
+            self.stdout.write(
+                f"date_marked_available match: {re_matched}/"
+                f"{len(re_unit_ids)} units matched, "
+                f"{re_unmatched} without"
+            )
+            if len(re_unit_ids) > 0 and re_unmatched > len(re_unit_ids) / 2:
+                self.stdout.write(self.style.ERROR(
+                    "WARNING: More than half of units have no "
+                    "date_marked_available. The unit_id join may be "
+                    "broken — days on market will be missing from most "
+                    "emails. Investigate before sending."
+                ))
+
         # --- Per-unit loop ---
         created_count = 0
         updated_count = 0
@@ -168,6 +216,7 @@ class Command(BaseCommand):
                     snapshot, was_created = build_unit_snapshot(
                         unit, start, end, client=client,
                         rv_advertised_dates=rv_advertised_dates,
+                        re_marked_available_dates=re_marked_available_dates,
                     )
                     if was_created:
                         created_count += 1

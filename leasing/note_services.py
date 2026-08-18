@@ -162,10 +162,12 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
     address = unit.display_address
     advertised_rent = unit.rentengine_advertised_rent
     rentengine_status = unit.rentengine_status or ""
-    # Compute days on market from RentVine's advertised_date, not RentEngine's
-    # lifetime figure. None when no active listing exists.
-    if snapshot.advertised_date is not None:
-        days_on_market = (period_end - snapshot.advertised_date).days
+    # Compute days on market from RentEngine's date_marked_available.
+    # Formula: (period_end - dma).days - 1, floored at 0, matching
+    # RentEngine's UI which counts complete days elapsed.
+    # None when no active listing exists.
+    if snapshot.date_marked_available is not None:
+        days_on_market = max((period_end - snapshot.date_marked_available).days - 1, 0)
     else:
         days_on_market = None
 

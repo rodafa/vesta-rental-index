@@ -270,6 +270,42 @@ class RentEngineClient:
         )
         return all_records
 
+    def get_reporting_units(self, start_date, end_date, account_ids=None):
+        """
+        GET /reporting/units — row-level data for currently-available units.
+
+        Returns all rows across all pages.  Each row includes unit_id,
+        address, date_marked_available, status, and other listing fields.
+
+        start_date and end_date are date objects.  The span between them
+        must not exceed 32 days (API constraint).
+
+        Note: although start and end are required by the API, the returned
+        rows reflect CURRENT state — the currently available units and
+        their current date_marked_available.  The window does not scope
+        the result.  A historical backfill will get today's listing set,
+        not the set as it stood during that period.
+
+        account_ids: comma-separated UUID string.  If None, reads from
+        settings.RENTENGINE["ACCOUNT_ID"].
+        """
+        if account_ids is None:
+            config = getattr(settings, "RENTENGINE", {})
+            account_ids = config.get("ACCOUNT_ID", "")
+        if not account_ids:
+            raise RentEngineAPIError(
+                "account_ids is required for /reporting/units. "
+                "Set RENTENGINE_ACCOUNT_ID environment variable."
+            )
+        params = {
+            "account_ids": account_ids,
+            "start": f"{start_date.isoformat()}T00:00:00Z",
+            "end": f"{end_date.isoformat()}T23:59:59Z",
+        }
+        return self.get_all_enveloped(
+            "reporting/units", params=params, page_size=2000,
+        )
+
     def get_unit_leasing_performance(self, unit_id, start_date, end_date):
         """
         GET /reporting/leasing-performance/units/{unit_id}
