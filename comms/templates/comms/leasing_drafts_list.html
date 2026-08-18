@@ -1,0 +1,217 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leasing Email Drafts — Vesta</title>
+<style>
+  :root {
+    --navy:#1E3D58; --navy-700:#18324a;
+    --sky:#6EA5CD; --sky-soft:#e3eef6;
+    --green:#39B54A; --green-soft:#e4f5e7;
+    --grey-bg:#EFF5F9; --orange:#D67011; --orange-soft:#fbeadb;
+    --red:#C0392B; --red-soft:#f9e4e1;
+    --ink:#1E3D58; --ink-soft:#5b7185; --ink-faint:#93a4b3;
+    --line:#d6e1ea; --white:#fff;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --r:8px; --r-sm:6px;
+    --shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+  .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:20px;}
+  .topbar h1{font-size:16px;font-weight:700;letter-spacing:.02em;}
+  .spacer{margin-left:auto;}
+  .topbar a.nav-link{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
+  .topbar a.nav-link:hover{opacity:1;}
+  .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
+
+  .container{max-width:1100px;margin:0 auto;padding:24px 22px;}
+  .back{display:inline-block;margin-bottom:16px;font-size:13px;color:var(--sky);text-decoration:none;font-weight:600;}
+  .back:hover{text-decoration:underline;}
+
+  .msg{padding:10px 16px;border-radius:var(--r-sm);font-size:13px;font-weight:600;margin-bottom:16px;}
+  .msg-error{background:var(--orange-soft);color:var(--orange);border:1px solid var(--orange);}
+  .msg-success{background:var(--green-soft);color:var(--green);border:1px solid var(--green);}
+
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  .badge-draft{background:var(--sky-soft);color:var(--ink-soft);}
+  .badge-sent{background:var(--green-soft);color:var(--green);}
+  .badge-stale{background:var(--red-soft);color:var(--red);}
+
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-test{background:var(--sky-soft);color:var(--navy);border-color:var(--sky);}
+  .btn-test:hover:not(:disabled){background:var(--sky);color:#fff;}
+  .btn-sm{padding:5px 11px;font-size:12px;}
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:#2f9d3e;}
+
+  /* Drafts table */
+  .drafts-table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);margin-bottom:32px;}
+  .drafts-table th{text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--line);background:var(--grey-bg);}
+  .drafts-table td{padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px;}
+  .drafts-table tr:last-child td{border-bottom:none;}
+  .drafts-table tr:hover td{background:var(--sky-soft);}
+  .drafts-table tr.row-stale td{background:var(--red-soft);}
+
+  .stale-warning{padding:12px 16px;background:var(--red-soft);border:1px solid var(--red);border-radius:var(--r-sm);color:var(--red);font-size:13px;font-weight:600;margin-bottom:16px;}
+
+  /* Send section — visually distinct */
+  .send-section{background:var(--white);border:2px solid var(--orange);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;}
+  .send-head{padding:14px 18px;background:var(--orange-soft);border-bottom:2px solid var(--orange);font-size:15px;font-weight:700;color:var(--orange);}
+  .send-body{padding:18px;}
+  .send-body p{font-size:13px;color:var(--ink-soft);margin-bottom:12px;}
+
+  .recipient-checklist{list-style:none;margin:0 0 16px;padding:0;max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--r-sm);}
+  .recipient-checklist li{padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px;display:flex;align-items:center;gap:10px;}
+  .recipient-checklist li:last-child{border-bottom:none;}
+  .recipient-checklist label{cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;}
+  .recipient-checklist input[type="checkbox"]{width:16px;height:16px;accent-color:var(--orange);}
+
+  .confirm-row{display:flex;align-items:center;gap:12px;margin-top:16px;}
+  .confirm-input{font:inherit;font-size:14px;padding:8px 12px;border:2px solid var(--orange);border-radius:var(--r-sm);width:140px;color:var(--ink);text-align:center;letter-spacing:.1em;font-weight:700;}
+  .confirm-input:focus{outline:none;box-shadow:0 0 0 3px var(--orange-soft);}
+  .confirm-input::placeholder{font-weight:400;letter-spacing:0;color:var(--ink-faint);}
+
+  .btn-send{background:var(--orange);color:#fff;font-size:14px;padding:10px 24px;font-weight:700;}
+  .btn-send:hover:not(:disabled){background:#b5600e;}
+
+  .select-controls{margin-bottom:8px;font-size:12px;}
+  .select-controls a{color:var(--sky);cursor:pointer;text-decoration:none;font-weight:600;margin-right:12px;}
+  .select-controls a:hover{text-decoration:underline;}
+
+  .empty{text-align:center;padding:60px 20px;color:var(--ink-faint);font-size:15px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Leasing Email Drafts</h1>
+  <div class="spacer"></div>
+  <a class="nav-link" href="{% url 'leasing-notes-list' %}{% if period_start %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}{% endif %}">Notes</a>
+  <div class="topbar-divider"></div>
+  <a class="nav-link" href="{% url 'logout' %}">Log out</a>
+</div>
+
+<div class="container">
+
+  <a class="back" href="{% url 'leasing-notes-list' %}{% if period_start %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}{% endif %}">&larr; Back to notes</a>
+
+  {% if error_message %}
+  <div class="msg msg-error">{{ error_message }}</div>
+  {% endif %}
+  {% if success_message %}
+  <div class="msg msg-success">{{ success_message }}</div>
+  {% endif %}
+
+  {% if has_stale %}
+  <div class="stale-warning">
+    One or more drafts are stale — notes were edited after assembly.
+    Reassemble before sending.
+    <form method="post" action="{% url 'leasing-notes-assemble' %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}" style="display:inline-block;margin-left:12px;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-primary">Reassemble</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if draft_rows %}
+  <table class="drafts-table">
+    <thead>
+      <tr>
+        <th>Recipient</th>
+        <th>Owner</th>
+        <th>Portfolios</th>
+        <th>Units</th>
+        <th>Status</th>
+        <th>Sent</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in draft_rows %}
+      <tr{% if row.is_stale %} class="row-stale"{% endif %}>
+        <td>{{ row.draft.recipient_email }}</td>
+        <td>{{ row.draft.owner.name }}</td>
+        <td>{{ row.portfolio_count }}</td>
+        <td>{{ row.unit_count }}</td>
+        <td>
+          {% if row.is_stale %}
+            <span class="badge badge-stale">Stale</span>
+          {% elif row.draft.status == "sent" %}
+            <span class="badge badge-sent">Sent</span>
+          {% else %}
+            <span class="badge badge-draft">Draft</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.draft.sent_at %}
+            {{ row.draft.sent_at|date:"M d, g:ia" }}
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
+        <td>
+          {% if row.draft.status != "sent" and not row.is_stale %}
+          <form method="post" action="{% url 'leasing-draft-test-send' draft_id=row.draft.pk %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-test btn-sm">Test Send</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Live Send Section -->
+  {% if unsent_rows %}
+  <div class="send-section">
+    <div class="send-head">Send Leasing Emails</div>
+    <div class="send-body">
+      <p>Select recipients and type SEND to confirm. This sends real emails to real owners.</p>
+
+      <form method="post" action="{% url 'leasing-drafts-send' %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}">
+        {% csrf_token %}
+
+        <div class="select-controls">
+          <a href="#" onclick="document.querySelectorAll('.send-check').forEach(function(c){c.checked=true});return false;">Select all</a>
+          <a href="#" onclick="document.querySelectorAll('.send-check').forEach(function(c){c.checked=false});return false;">Select none</a>
+        </div>
+
+        <ul class="recipient-checklist">
+          {% for row in unsent_rows %}
+          <li>
+            <label>
+              <input type="checkbox" class="send-check" name="draft_{{ row.draft.pk }}" value="1" checked>
+              <strong>{{ row.draft.recipient_email }}</strong>
+              <span style="color:var(--ink-faint);">&mdash; {{ row.draft.owner.name }}</span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+
+        <p style="font-weight:700;color:var(--ink);">{{ unsent_rows|length }} recipient{{ unsent_rows|length|pluralize }} selected.</p>
+
+        <div class="confirm-row">
+          <input type="text" name="confirm" class="confirm-input" autocomplete="off" spellcheck="false" placeholder="SEND">
+          <button type="submit" class="btn btn-send">Send All Selected</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty">
+    No email drafts found for this period. Assemble drafts from the notes list first.
+  </div>
+  {% endif %}
+
+</div>
+
+</body>
+</html>

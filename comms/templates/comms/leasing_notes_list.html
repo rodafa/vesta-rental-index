@@ -20,7 +20,6 @@
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
 
-  /* ---------- Top bar ---------- */
   .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:20px;}
   .topbar h1{font-size:16px;font-weight:700;letter-spacing:.02em;}
   .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
@@ -29,24 +28,34 @@
   .period-input:focus{outline:none;border-color:var(--sky);}
   .period-sep{color:var(--sky);font-size:14px;padding:0 2px;}
   .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
   .btn-onnavy{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.28);}
   .btn-onnavy:hover{background:rgba(255,255,255,.16);}
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:#2f9d3e;}
+  .btn-quiet{background:var(--white);color:var(--ink);border-color:var(--line);}
+  .btn-quiet:hover{background:var(--grey-bg);border-color:var(--sky);}
   .spacer{margin-left:auto;}
-  .topbar a{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
-  .topbar a:hover{opacity:1;}
+  .topbar a.nav-link{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
+  .topbar a.nav-link:hover{opacity:1;}
 
-  /* ---------- Content ---------- */
   .container{max-width:1100px;margin:0 auto;padding:24px 22px;}
 
-  /* ---------- Summary chips ---------- */
-  .chips{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
+  /* Messages */
+  .msg{padding:10px 16px;border-radius:var(--r-sm);font-size:13px;font-weight:600;margin-bottom:16px;}
+  .msg-error{background:var(--orange-soft);color:var(--orange);border:1px solid var(--orange);}
+  .msg-success{background:var(--green-soft);color:var(--green);border:1px solid var(--green);}
+
+  /* Action bar */
+  .action-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+
+  .chips{display:flex;gap:10px;flex-wrap:wrap;}
   .chip{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:8px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:var(--shadow);}
   .chip .num{font-size:18px;font-weight:700;}
   .chip.draft .num{color:var(--ink-soft);}
   .chip.approved .num{color:var(--green);}
   .chip.edited .num{color:var(--orange);}
 
-  /* ---------- Table ---------- */
   .notes-table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);}
   .notes-table th{text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--line);background:var(--grey-bg);}
   .notes-table td{padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px;}
@@ -55,13 +64,11 @@
   .notes-table a{color:var(--navy);text-decoration:none;font-weight:600;}
   .notes-table a:hover{text-decoration:underline;}
 
-  /* ---------- Badges ---------- */
   .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
   .badge-draft{background:var(--sky-soft);color:var(--ink-soft);}
   .badge-approved{background:var(--green-soft);color:var(--green);}
   .badge-edited{background:var(--orange-soft);color:var(--orange);}
 
-  /* ---------- Empty state ---------- */
   .empty{text-align:center;padding:60px 20px;color:var(--ink-faint);font-size:15px;}
 </style>
 </head>
@@ -77,17 +84,37 @@
     <button type="submit" class="btn btn-onnavy">Filter</button>
   </form>
   <div class="spacer"></div>
-  <a href="{% url 'logout' %}">Log out</a>
+  {% if draft_count %}
+  <a class="nav-link" href="{% url 'leasing-drafts-list' %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}">Drafts ({{ draft_count }})</a>
+  <div class="topbar-divider"></div>
+  {% endif %}
+  <a class="nav-link" href="{% url 'logout' %}">Log out</a>
 </div>
 
 <div class="container">
 
+  {% if error_message %}
+  <div class="msg msg-error">{{ error_message }}</div>
+  {% endif %}
+  {% if success_message %}
+  <div class="msg msg-success">{{ success_message }}</div>
+  {% endif %}
+
   {% if notes %}
-  <div class="chips">
-    <div class="chip"><span class="num">{{ total }}</span> Total</div>
-    <div class="chip draft"><span class="num">{{ drafts }}</span> Draft</div>
-    <div class="chip approved"><span class="num">{{ approved }}</span> Approved</div>
-    <div class="chip edited"><span class="num">{{ edited }}</span> Edited</div>
+  <div class="action-bar">
+    <div class="chips">
+      <div class="chip"><span class="num">{{ total }}</span> Total</div>
+      <div class="chip draft"><span class="num">{{ drafts }}</span> Draft</div>
+      <div class="chip approved"><span class="num">{{ approved }}</span> Approved</div>
+      <div class="chip edited"><span class="num">{{ edited }}</span> Edited</div>
+    </div>
+    <div class="spacer"></div>
+    <form method="post" action="{% url 'leasing-notes-assemble' %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-primary" {% if not all_approved %}disabled title="All notes must be approved first"{% endif %}>
+        Assemble Drafts
+      </button>
+    </form>
   </div>
 
   <table class="notes-table">

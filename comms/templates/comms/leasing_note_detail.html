@@ -20,52 +20,48 @@
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
 
-  /* ---------- Top bar ---------- */
   .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:20px;}
   .topbar h1{font-size:16px;font-weight:700;letter-spacing:.02em;}
   .spacer{margin-left:auto;}
   .topbar a{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
   .topbar a:hover{opacity:1;}
 
-  /* ---------- Content ---------- */
   .container{max-width:900px;margin:0 auto;padding:24px 22px;}
   .back{display:inline-block;margin-bottom:16px;font-size:13px;color:var(--sky);text-decoration:none;font-weight:600;}
   .back:hover{text-decoration:underline;}
 
-  /* ---------- Header ---------- */
   .note-header{margin-bottom:24px;}
   .note-header h2{font-size:20px;font-weight:700;margin-bottom:4px;}
   .note-meta{font-size:13px;color:var(--ink-soft);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 
-  /* ---------- Badges ---------- */
   .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
   .badge-draft{background:var(--sky-soft);color:var(--ink-soft);}
   .badge-approved{background:var(--green-soft);color:var(--green);}
   .badge-edited{background:var(--orange-soft);color:var(--orange);}
 
-  /* ---------- Cards ---------- */
   .card{background:var(--white);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden;}
   .card-head{padding:12px 18px;border-bottom:1px solid var(--line);font-size:14px;font-weight:700;background:var(--grey-bg);}
   .card-body{padding:18px;}
 
-  /* ---------- Email preview ---------- */
   .email-preview{border:1px solid var(--line);border-radius:var(--r-sm);padding:20px;background:#fafbfc;}
 
-  /* ---------- Edit form ---------- */
   .unit-field{margin-bottom:18px;}
   .unit-field:last-child{margin-bottom:0;}
   .unit-label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
   .unit-textarea{width:100%;min-height:120px;font-family:var(--sans);font-size:13px;line-height:1.5;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);color:var(--ink);resize:vertical;}
   .unit-textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px var(--sky-soft);}
 
-  /* ---------- Buttons ---------- */
   .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
   .btn-primary{background:var(--green);color:#fff;}
   .btn-primary:hover{background:#2f9d3e;}
-  .form-actions{padding:14px 18px;border-top:1px solid var(--line);background:var(--grey-bg);display:flex;justify-content:flex-end;}
+  .btn-quiet{background:var(--white);color:var(--ink);border-color:var(--line);}
+  .btn-quiet:hover{background:var(--grey-bg);border-color:var(--sky);}
+  .form-actions{padding:14px 18px;border-top:1px solid var(--line);background:var(--grey-bg);display:flex;justify-content:flex-end;gap:10px;}
 
-  /* ---------- Empty state ---------- */
   .empty{text-align:center;padding:40px 20px;color:var(--ink-faint);font-size:14px;}
+
+  .approve-card{display:flex;align-items:center;gap:14px;padding:14px 18px;}
+  .approve-card .approve-label{font-size:13px;color:var(--ink-soft);}
 </style>
 </head>
 <body>
@@ -86,6 +82,27 @@
       <span>{{ period_label }}</span>
       <span class="badge {% if note.status == 'approved' %}badge-approved{% else %}badge-draft{% endif %}">{{ note.status }}</span>
       {% if note.is_edited %}<span class="badge badge-edited">Edited</span>{% endif %}
+    </div>
+  </div>
+
+  <!-- Approve / Unapprove -->
+  <div class="card">
+    <div class="approve-card">
+      {% if note.status == "draft" %}
+      <form method="post" action="{% url 'leasing-notes-approve' note_id=note.pk %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="approve">
+        <button type="submit" class="btn btn-primary">Approve</button>
+      </form>
+      <span class="approve-label">Mark this note as ready for assembly.</span>
+      {% else %}
+      <form method="post" action="{% url 'leasing-notes-approve' note_id=note.pk %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="unapprove">
+        <button type="submit" class="btn btn-quiet">Return to Draft</button>
+      </form>
+      <span class="approve-label">Remove approval and return to draft.</span>
+      {% endif %}
     </div>
   </div>
 
