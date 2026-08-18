@@ -181,7 +181,22 @@ class UnitLeasingSnapshot(models.Model):
     touchpoints_calls = models.IntegerField(null=True, blank=True)
     touchpoints_texts = models.IntegerField(null=True, blank=True)
     upcoming_showings = models.IntegerField(null=True, blank=True)
-    days_on_market = models.IntegerField(null=True, blank=True)
+    days_on_market = models.IntegerField(
+        null=True, blank=True,
+        help_text=(
+            "Lifetime days-on-market from RentEngine. Retained in reporting_raw "
+            "for comparison but no longer used in user-facing output — replaced "
+            "by advertised_date from RentVine."
+        ),
+    )
+    advertised_date = models.DateField(
+        null=True, blank=True,
+        help_text=(
+            "Start date of the current RentVine listing (listing.advertisedDate). "
+            "Null means no active listing was found. Used to compute days on market "
+            "as (period_end - advertised_date).days."
+        ),
+    )
     property_health = models.CharField(max_length=50, blank=True, default="")
     reporting_fetch_ok = models.BooleanField(default=False)
     reporting_error = models.TextField(blank=True, default="")

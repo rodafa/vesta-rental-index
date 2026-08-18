@@ -16,6 +16,8 @@ from django.db import connection
 
 from core.models import Unit
 from integrations.rentengine.client import RentEngineClient
+from integrations.rentvine.client import RentvineClient
+from integrations.rentvine.listing_dates import build_unit_advertised_dates
 from leasing.selectors import compute_leasing_metrics_bulk
 from leasing.snapshots import build_unit_snapshot
 
@@ -89,6 +91,36 @@ class Command(BaseCommand):
 
         client = RentEngineClient()
 
+        # --- Fetch RentVine listing dates once for all units ---
+        rv_advertised_dates = {}
+        try:
+            rv_client = RentvineClient()
+            rv_listings = rv_client.get_all("properties/listings/search")
+            rv_advertised_dates = build_unit_advertised_dates(rv_listings)
+            self.stdout.write(
+                f"RentVine listings: {len(rv_listings)} fetched, "
+                f"{len(rv_advertised_dates)} active with advertisedDate"
+            )
+        except Exception as exc:
+            self.stdout.write(
+                self.style.WARNING(f"RentVine listing fetch failed: {exc}")
+            )
+
+        # --- Sanity check: how many units matched an advertised date? ---
+        rv_unit_ids = {u.rentvine_id for u in units if u.rentvine_id is not None}
+        matched_count = len(rv_unit_ids & set(rv_advertised_dates.keys()))
+        unmatched_count = len(rv_unit_ids) - matched_count
+        self.stdout.write(
+            f"Advertised date match: {matched_count}/{len(rv_unit_ids)} units "
+            f"matched, {unmatched_count} without"
+        )
+        if len(rv_unit_ids) > 0 and unmatched_count > len(rv_unit_ids) / 2:
+            self.stdout.write(self.style.ERROR(
+                "WARNING: More than half of units have no advertised date. "
+                "The unitID join may be broken — days on market will be "
+                "missing from most emails. Investigate before sending."
+            ))
+
         # --- Per-unit loop ---
         created_count = 0
         updated_count = 0
@@ -135,6 +167,7 @@ class Command(BaseCommand):
                 else:
                     snapshot, was_created = build_unit_snapshot(
                         unit, start, end, client=client,
+                        rv_advertised_dates=rv_advertised_dates,
                     )
                     if was_created:
                         created_count += 1

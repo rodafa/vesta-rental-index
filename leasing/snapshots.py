@@ -16,7 +16,9 @@ from .selectors import compute_leasing_metrics_bulk
 logger = logging.getLogger(__name__)
 
 
-def build_unit_snapshot(unit, period_start, period_end, client=None):
+def build_unit_snapshot(
+    unit, period_start, period_end, client=None, rv_advertised_dates=None,
+):
     """
     Build or update a UnitLeasingSnapshot for a single unit and period.
 
@@ -25,6 +27,9 @@ def build_unit_snapshot(unit, period_start, period_end, client=None):
         period_start: date object, inclusive start.
         period_end: date object, inclusive end.
         client: optional RentEngineClient instance (created if not provided).
+        rv_advertised_dates: optional dict mapping rentvine unit ID -> date,
+            from build_unit_advertised_dates(). Looked up once by the caller,
+            not once per unit.
 
     Returns:
         (snapshot, created) — the UnitLeasingSnapshot and whether it was
@@ -100,6 +105,9 @@ def build_unit_snapshot(unit, period_start, period_end, client=None):
             "touchpoints_texts": touchpoints_texts,
             "upcoming_showings": upcoming_showings,
             "days_on_market": days_on_market,
+            "advertised_date": (
+                (rv_advertised_dates or {}).get(unit.rentvine_id)
+            ),
             "property_health": property_health,
             "reporting_fetch_ok": reporting_fetch_ok,
             "reporting_error": reporting_error,

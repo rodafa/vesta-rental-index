@@ -25,19 +25,21 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <!-- Rent & Days on Market -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:0 auto 8px;">
   <tr>
-    <td width="48%" style="text-align:center; padding:14px 4px; background-color:#EFF5F9; border-radius:6px;">
+    <td width="{% if u.days_on_market is not None %}48{% else %}100{% endif %}%" style="text-align:center; padding:14px 4px; background-color:#EFF5F9; border-radius:6px;">
       <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:24px; font-weight:700; color:#1E3D58;">
         {% if u.advertised_rent is not None %}${{ u.advertised_rent|floatformat:0|intcomma }}{% else %}&mdash;{% endif %}
       </p>
       <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Advertised Rent</p>
     </td>
+    {% if u.days_on_market is not None %}
     <td width="4%"></td>
     <td width="48%" style="text-align:center; padding:14px 4px; background-color:#EFF5F9; border-radius:6px;">
       <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:24px; font-weight:700; color:{% if u.dom_urgent %}#D67011{% else %}#1E3D58{% endif %};">
-        {% if u.days_on_market is not None %}{{ u.days_on_market }}{% if u.days_on_market_delta is not None and u.days_on_market_delta > 0 %}<span style="font-size:13px; color:#888888;"> +{{ u.days_on_market_delta }}</span>{% endif %}{% else %}&mdash;{% endif %}
+        {{ u.days_on_market }}{% if u.days_on_market_delta is not None and u.days_on_market_delta > 0 %}<span style="font-size:13px; color:#888888;"> +{{ u.days_on_market_delta }}</span>{% endif %}
       </p>
       <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Days on Market</p>
     </td>
+    {% endif %}
   </tr>
 </table>
 

@@ -162,7 +162,12 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
     address = unit.display_address
     advertised_rent = unit.rentengine_advertised_rent
     rentengine_status = unit.rentengine_status or ""
-    days_on_market = snapshot.days_on_market  # nullable
+    # Compute days on market from RentVine's advertised_date, not RentEngine's
+    # lifetime figure. None when no active listing exists.
+    if snapshot.advertised_date is not None:
+        days_on_market = (period_end - snapshot.advertised_date).days
+    else:
+        days_on_market = None
 
     # --- Six event metrics (always populated, default 0) ---
     metrics = {
@@ -308,14 +313,15 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
         rent = ctx["advertised_rent"]
         lines.append(f"  Advertised rent: {'$' + rent if rent is not None else 'unknown'}")
 
-        # Days on market with urgency flag
+        # Days on market — omit entirely when no active listing (advertised_date is None)
         dom = ctx["days_on_market"]
-        dom_str = str(dom) if dom is not None else "unknown"
-        if ctx["dom_urgent"]:
-            dom_str += " (35+ — recommend action, do not counsel patience)"
-        if ctx["days_on_market_delta"] is not None and ctx["days_on_market_delta"] != 0:
-            dom_str += f" ({ctx['days_on_market_delta']:+d} vs prior week)"
-        lines.append(f"  Days on market: {dom_str}")
+        if dom is not None:
+            dom_str = str(dom)
+            if ctx["dom_urgent"]:
+                dom_str += " (35+ — recommend action, do not counsel patience)"
+            if ctx["days_on_market_delta"] is not None and ctx["days_on_market_delta"] != 0:
+                dom_str += f" ({ctx['days_on_market_delta']:+d} vs prior week)"
+            lines.append(f"  Days on market: {dom_str}")
 
         # Leads per day with price review flag
         lpd = ctx["leads_per_day"]
