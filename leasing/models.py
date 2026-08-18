@@ -244,7 +244,10 @@ class PortfolioLeasingNote(models.Model):
     approved_generated_note = models.TextField(
         blank=True,
         default="",
-        help_text="Human-reviewed/edited version of generated_note. Blank = not yet reviewed.",
+        help_text=(
+            "Human-reviewed/edited version of generated_note. Blank = not yet reviewed. "
+            "NOT used by the dashboard edit path (preserved for future use)."
+        ),
     )
     unit_snapshot = models.JSONField(
         default=dict,
@@ -253,6 +256,15 @@ class PortfolioLeasingNote(models.Model):
         help_text=(
             "Frozen per-unit context including prior-week values, captured at "
             "generation. Source for rebuilding notes_html on edit."
+        ),
+    )
+    edited_notes = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Per-unit edited AI note text, keyed by str(unit_id). "
+            "Overrides ai_result.unit_summaries when re-rendering notes_html."
         ),
     )
 

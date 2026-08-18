@@ -42,6 +42,8 @@ urlpatterns = [
     path("dashboard/distributions/", distribution_page, name="distributions"),
     # Automations — onboarding webhook
     path("api/onboard/", include("automations.urls")),
+    # Leasing dashboard — list & edit notes
+    path("dashboard/leasing-notes/", include("leasing.dashboard_urls")),
     # Leasing — RentEngine webhook receiver
     path("api/webhooks/", include("leasing.urls")),
 ]

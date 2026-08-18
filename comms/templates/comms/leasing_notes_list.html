@@ -1,0 +1,140 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Leasing Notes — Vesta</title>
+<style>
+  :root {
+    --navy:#1E3D58; --navy-700:#18324a;
+    --sky:#6EA5CD; --sky-soft:#e3eef6;
+    --green:#39B54A; --green-soft:#e4f5e7;
+    --grey-bg:#EFF5F9; --orange:#D67011; --orange-soft:#fbeadb;
+    --ink:#1E3D58; --ink-soft:#5b7185; --ink-faint:#93a4b3;
+    --line:#d6e1ea; --white:#fff;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --r:8px; --r-sm:6px;
+    --shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:20px;}
+  .topbar h1{font-size:16px;font-weight:700;letter-spacing:.02em;}
+  .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
+  .period-form{display:flex;align-items:center;gap:8px;}
+  .period-input{font:inherit;font-size:13px;padding:4px 8px;border:1px solid rgba(255,255,255,.28);border-radius:var(--r-sm);background:rgba(255,255,255,.08);color:#fff;color-scheme:dark;}
+  .period-input:focus{outline:none;border-color:var(--sky);}
+  .period-sep{color:var(--sky);font-size:14px;padding:0 2px;}
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+  .btn-onnavy{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.28);}
+  .btn-onnavy:hover{background:rgba(255,255,255,.16);}
+  .spacer{margin-left:auto;}
+  .topbar a{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
+  .topbar a:hover{opacity:1;}
+
+  /* ---------- Content ---------- */
+  .container{max-width:1100px;margin:0 auto;padding:24px 22px;}
+
+  /* ---------- Summary chips ---------- */
+  .chips{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
+  .chip{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:8px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:var(--shadow);}
+  .chip .num{font-size:18px;font-weight:700;}
+  .chip.draft .num{color:var(--ink-soft);}
+  .chip.approved .num{color:var(--green);}
+  .chip.edited .num{color:var(--orange);}
+
+  /* ---------- Table ---------- */
+  .notes-table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);}
+  .notes-table th{text-align:left;padding:10px 14px;font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--line);background:var(--grey-bg);}
+  .notes-table td{padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px;}
+  .notes-table tr:last-child td{border-bottom:none;}
+  .notes-table tr:hover td{background:var(--sky-soft);}
+  .notes-table a{color:var(--navy);text-decoration:none;font-weight:600;}
+  .notes-table a:hover{text-decoration:underline;}
+
+  /* ---------- Badges ---------- */
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  .badge-draft{background:var(--sky-soft);color:var(--ink-soft);}
+  .badge-approved{background:var(--green-soft);color:var(--green);}
+  .badge-edited{background:var(--orange-soft);color:var(--orange);}
+
+  /* ---------- Empty state ---------- */
+  .empty{text-align:center;padding:60px 20px;color:var(--ink-faint);font-size:15px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Weekly Leasing Notes</h1>
+  <div class="topbar-divider"></div>
+  <form class="period-form" method="get" action="">
+    <input type="date" name="start" class="period-input" value="{{ period_start|date:'Y-m-d' }}">
+    <span class="period-sep">&ndash;</span>
+    <input type="date" name="end" class="period-input" value="{{ period_end|date:'Y-m-d' }}">
+    <button type="submit" class="btn btn-onnavy">Filter</button>
+  </form>
+  <div class="spacer"></div>
+  <a href="{% url 'logout' %}">Log out</a>
+</div>
+
+<div class="container">
+
+  {% if notes %}
+  <div class="chips">
+    <div class="chip"><span class="num">{{ total }}</span> Total</div>
+    <div class="chip draft"><span class="num">{{ drafts }}</span> Draft</div>
+    <div class="chip approved"><span class="num">{{ approved }}</span> Approved</div>
+    <div class="chip edited"><span class="num">{{ edited }}</span> Edited</div>
+  </div>
+
+  <table class="notes-table">
+    <thead>
+      <tr>
+        <th>Portfolio</th>
+        <th>Units</th>
+        <th>Status</th>
+        <th>Edited</th>
+        <th>Generated</th>
+        <th>Recipients</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in notes %}
+      <tr>
+        <td>
+          <a href="{% url 'leasing-notes-detail' note_id=row.note.pk %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}">
+            {{ row.note.portfolio.name }}
+          </a>
+        </td>
+        <td>{{ row.unit_count }}</td>
+        <td>
+          <span class="badge {% if row.note.status == 'approved' %}badge-approved{% else %}badge-draft{% endif %}">
+            {{ row.note.status }}
+          </span>
+        </td>
+        <td>
+          {% if row.note.is_edited %}
+            <span class="badge badge-edited">Yes</span>
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
+        <td>{{ row.note.generated_at|date:"M d, Y g:ia" }}</td>
+        <td>{{ row.recipient_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    No leasing notes found{% if period_start %} for {{ period_start|date:"M d" }} &ndash; {{ period_end|date:"M d, Y" }}{% endif %}.
+  </div>
+  {% endif %}
+
+</div>
+
+</body>
+</html>

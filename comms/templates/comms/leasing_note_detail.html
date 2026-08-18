@@ -1,0 +1,132 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ note.portfolio.name }} — Leasing Note</title>
+<style>
+  :root {
+    --navy:#1E3D58; --navy-700:#18324a;
+    --sky:#6EA5CD; --sky-soft:#e3eef6;
+    --green:#39B54A; --green-soft:#e4f5e7;
+    --grey-bg:#EFF5F9; --orange:#D67011; --orange-soft:#fbeadb;
+    --ink:#1E3D58; --ink-soft:#5b7185; --ink-faint:#93a4b3;
+    --line:#d6e1ea; --white:#fff;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --r:8px; --r-sm:6px;
+    --shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:20px;}
+  .topbar h1{font-size:16px;font-weight:700;letter-spacing:.02em;}
+  .spacer{margin-left:auto;}
+  .topbar a{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
+  .topbar a:hover{opacity:1;}
+
+  /* ---------- Content ---------- */
+  .container{max-width:900px;margin:0 auto;padding:24px 22px;}
+  .back{display:inline-block;margin-bottom:16px;font-size:13px;color:var(--sky);text-decoration:none;font-weight:600;}
+  .back:hover{text-decoration:underline;}
+
+  /* ---------- Header ---------- */
+  .note-header{margin-bottom:24px;}
+  .note-header h2{font-size:20px;font-weight:700;margin-bottom:4px;}
+  .note-meta{font-size:13px;color:var(--ink-soft);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+
+  /* ---------- Badges ---------- */
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;}
+  .badge-draft{background:var(--sky-soft);color:var(--ink-soft);}
+  .badge-approved{background:var(--green-soft);color:var(--green);}
+  .badge-edited{background:var(--orange-soft);color:var(--orange);}
+
+  /* ---------- Cards ---------- */
+  .card{background:var(--white);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden;}
+  .card-head{padding:12px 18px;border-bottom:1px solid var(--line);font-size:14px;font-weight:700;background:var(--grey-bg);}
+  .card-body{padding:18px;}
+
+  /* ---------- Email preview ---------- */
+  .email-preview{border:1px solid var(--line);border-radius:var(--r-sm);padding:20px;background:#fafbfc;}
+
+  /* ---------- Edit form ---------- */
+  .unit-field{margin-bottom:18px;}
+  .unit-field:last-child{margin-bottom:0;}
+  .unit-label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+  .unit-textarea{width:100%;min-height:120px;font-family:var(--sans);font-size:13px;line-height:1.5;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);color:var(--ink);resize:vertical;}
+  .unit-textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px var(--sky-soft);}
+
+  /* ---------- Buttons ---------- */
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:hover{background:#2f9d3e;}
+  .form-actions{padding:14px 18px;border-top:1px solid var(--line);background:var(--grey-bg);display:flex;justify-content:flex-end;}
+
+  /* ---------- Empty state ---------- */
+  .empty{text-align:center;padding:40px 20px;color:var(--ink-faint);font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Leasing Note Detail</h1>
+  <div class="spacer"></div>
+  <a href="{% url 'logout' %}">Log out</a>
+</div>
+
+<div class="container">
+
+  <a class="back" href="{% url 'leasing-notes-list' %}{% if period_start %}?start={{ period_start|date:'Y-m-d' }}&end={{ period_end|date:'Y-m-d' }}{% endif %}">&larr; Back to list</a>
+
+  <div class="note-header">
+    <h2>{{ note.portfolio.name }}</h2>
+    <div class="note-meta">
+      <span>{{ period_label }}</span>
+      <span class="badge {% if note.status == 'approved' %}badge-approved{% else %}badge-draft{% endif %}">{{ note.status }}</span>
+      {% if note.is_edited %}<span class="badge badge-edited">Edited</span>{% endif %}
+    </div>
+  </div>
+
+  <!-- Email Preview -->
+  <div class="card">
+    <div class="card-head">Email Preview</div>
+    <div class="card-body">
+      {% if notes_html %}
+      <div class="email-preview">{{ notes_html|safe }}</div>
+      {% else %}
+      <div class="empty">No rendered content yet.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Edit Notes -->
+  <div class="card">
+    <div class="card-head">Edit Notes</div>
+    {% if has_snapshot %}
+    <form method="post" action="{% url 'leasing-notes-detail' note_id=note.pk %}">
+      {% csrf_token %}
+      <div class="card-body">
+        {% for u in units %}
+        <div class="unit-field">
+          <label class="unit-label" for="unit_{{ u.uid }}">{{ u.address }}</label>
+          <textarea class="unit-textarea" id="unit_{{ u.uid }}" name="unit_{{ u.uid }}">{{ u.current_text }}</textarea>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+    {% else %}
+    <div class="card-body">
+      <div class="empty">No snapshot data available for this note.</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+</body>
+</html>
