@@ -153,7 +153,29 @@ def _upsert_leasing_event(delivery, record, rentengine_id):
         try:
             prospect = Prospect.objects.get(rentengine_id=prospect_re_id)
         except Prospect.DoesNotExist:
-            pass
+            logger.warning(
+                "leasing_event_prospect_missing",
+                extra={
+                    "prospect_rentengine_id": prospect_re_id,
+                    "event_rentengine_id": rentengine_id,
+                },
+            )
+
+    # Webhook payloads carry no unit_of_interest. When the event itself
+    # has no unit, inherit from the prospect's unit_of_interest. The
+    # event's own value still wins when present, because a person can
+    # be a prospect on multiple units.
+    if unit is None and prospect is not None:
+        if prospect.unit_id is not None:
+            unit = prospect.unit
+        else:
+            logger.info(
+                "leasing_event_prospect_has_no_unit",
+                extra={
+                    "prospect_rentengine_id": prospect_re_id,
+                    "event_rentengine_id": rentengine_id,
+                },
+            )
 
     # event_timestamp and event_date are required on LeasingEvent (non-nullable)
     if mapped.get("event_timestamp") is None:

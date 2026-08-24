@@ -138,7 +138,12 @@ def map_leasing_event(raw):
         "context": raw.get("context") if isinstance(raw.get("context"), dict) else {},
         "raw_data": raw,
         "unit_of_interest": _safe_int(raw.get("unit_of_interest")),
-        "prospect_id": _safe_int(raw.get("prospect_id")),
+        # API response uses "prospect_id"; webhook payload uses "prospect".
+        # Try the canonical name first, fall back to the webhook variant.
+        "prospect_id": _safe_int(
+            raw.get("prospect_id") if raw.get("prospect_id") is not None
+            else raw.get("prospect")
+        ),
     }
 
 
