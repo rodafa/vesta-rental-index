@@ -100,38 +100,9 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:2px auto 0;">
   <tr>
     <td style="text-align:center; padding:2px 0 0;">
-      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD;">&#9650;&#9660; compared with last week</p>
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD;"><span style="color:#39B54A;">&#9650;</span><span style="color:#D67011;">&#9660;</span> compared with last week</p>
     </td>
   </tr>
-</table>
-{% endif %}
-
-<!-- Market context -->
-{% if u.segment_benchmark %}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:4px auto 0;">
-  <tr>
-    <td style="padding:2px 0;">
-      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">
-        This {{ u.segment_benchmark.bedrooms }}-bedroom is averaging {{ u.segment_benchmark.unit_leads_per_week|floatformat:1 }} leads/week (comparable listings: {{ u.segment_benchmark.benchmark_leads_per_week|floatformat:1 }})
-      </p>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:0;">
-      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">
-        Showings averaging {{ u.segment_benchmark.unit_showings_per_week|floatformat:1 }}/week (comparable listings: {{ u.segment_benchmark.benchmark_showings_per_week|floatformat:1 }})
-      </p>
-    </td>
-  </tr>
-  {% if u.days_on_market is not None and u.segment_benchmark.benchmark_avg_dom is not None %}
-  <tr>
-    <td style="padding:0;">
-      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">
-        Listed {{ u.days_on_market }} days (comparable listings average {{ u.segment_benchmark.benchmark_avg_dom|floatformat:0 }})
-      </p>
-    </td>
-  </tr>
-  {% endif %}
 </table>
 {% endif %}
 
@@ -221,6 +192,22 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
     </td>
   </tr>
   {% endfor %}
+</table>
+{% endif %}
+
+<!-- Comparable Listings (market context) -->
+{% if u.segment_benchmark %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:12px auto 0;">
+  <tr>
+    <td>
+      <p style="margin:0 0 6px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:700; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Comparable Listings</p>
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">Across {{ u.segment_benchmark.unit_count }} similar {{ u.segment_benchmark.bedrooms }}-bedroom listings, the average is {{ u.segment_benchmark.benchmark_leads_per_week }} leads and {{ u.segment_benchmark.benchmark_showings_per_week }} tours per week.</p>
+      {% if u.segment_benchmark.benchmark_avg_dom is not None %}
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">Average days on market: {{ u.segment_benchmark.benchmark_avg_dom }}.</p>
+      {% endif %}
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">This unit: {{ u.segment_benchmark.unit_leads_per_week|floatformat:0 }} leads, {{ u.segment_benchmark.unit_showings_per_week|floatformat:0 }} tours this week.</p>
+    </td>
+  </tr>
 </table>
 {% endif %}
 
