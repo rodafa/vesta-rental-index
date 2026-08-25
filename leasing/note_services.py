@@ -386,12 +386,17 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
     return "\n".join(lines)
 
 
-def render_leasing_notes_html_from_snapshot(unit_snapshot, edited_notes=None):
+def render_leasing_notes_html_from_snapshot(
+    unit_snapshot, edited_notes=None, recommended_actions=None,
+):
     """
     Render the leasing fragment HTML from a frozen unit_snapshot.
 
     If edited_notes is provided, its per-unit text (keyed by str(unit_id))
     overrides the AI-generated summaries.
+
+    If recommended_actions is provided, its per-unit text (keyed by
+    str(unit_id)) renders as an action block above the AI note.
 
     Returns "" when unit_snapshot is empty/falsy.
     """
@@ -402,15 +407,20 @@ def render_leasing_notes_html_from_snapshot(unit_snapshot, edited_notes=None):
     unit_summaries = (unit_snapshot.get("ai_result") or {}).get("unit_summaries", {})
     if edited_notes is None:
         edited_notes = {}
+    if recommended_actions is None:
+        recommended_actions = {}
 
     template_units = []
     for ctx in unit_contexts:
         uid = str(ctx["unit_id"])
         ai_note = edited_notes.get(uid) or unit_summaries.get(uid, "")
+        action = recommended_actions.get(uid, "")
         template_units.append({
             **ctx,
             "ai_note": ai_note,
             "ai_note_blocks": _parse_ai_note_blocks(ai_note),
+            "recommended_action": action,
+            "recommended_action_blocks": _parse_ai_note_blocks(action),
         })
 
     return render_to_string(
@@ -543,8 +553,16 @@ def generate_portfolio_leasing_note(
         "ai_result": ai_result,
     }
 
+    # Preserve recommended_actions from an existing note so regeneration
+    # does not silently wipe the action block out of notes_html.
+    prior_actions = {}
+    if existing is not None:
+        prior_actions = existing.recommended_actions or {}
+
     # Render HTML fragment via shared function
-    notes_html = render_leasing_notes_html_from_snapshot(frozen)
+    notes_html = render_leasing_notes_html_from_snapshot(
+        frozen, recommended_actions=prior_actions,
+    )
 
     # Upsert
     note, _ = PortfolioLeasingNote.objects.update_or_create(

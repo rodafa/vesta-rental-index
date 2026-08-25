@@ -289,6 +289,16 @@ class PortfolioLeasingNote(models.Model):
             "Overrides ai_result.unit_summaries when re-rendering notes_html."
         ),
     )
+    recommended_actions = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Per-unit recommended action text, keyed by str(unit_id). "
+            "Human-written in the dashboard, never AI-generated. "
+            "Empty or missing means no action block renders for that unit."
+        ),
+    )
 
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True

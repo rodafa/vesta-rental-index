@@ -176,15 +176,18 @@ def _leasing_note_detail(request, note_id):
     unit_contexts = snapshot.get("unit_contexts", [])
     unit_summaries = (snapshot.get("ai_result") or {}).get("unit_summaries", {})
     edited_notes = note.edited_notes or {}
+    recommended_actions = note.recommended_actions or {}
 
     units = []
     for ctx in unit_contexts:
         uid = str(ctx["unit_id"])
         current_text = edited_notes.get(uid) or unit_summaries.get(uid, "")
+        current_action = recommended_actions.get(uid, "")
         units.append({
             "uid": uid,
             "address": ctx.get("address", f"Unit {uid}"),
             "current_text": current_text,
+            "current_action": current_action,
         })
 
     period_label = ""
@@ -211,26 +214,41 @@ def _leasing_note_edit(request, note_id):
     valid_uids = {str(ctx["unit_id"]) for ctx in unit_contexts}
 
     edited_notes = {}
+    recommended_actions = {}
     for key, value in request.POST.items():
-        if not key.startswith("unit_"):
-            continue
-        uid = key[5:]
-        if uid not in valid_uids:
-            logger.warning(
-                "leasing_note_edit_invalid_uid",
-                extra={"note_id": note_id, "uid": uid},
-            )
-            continue
-        text = value.strip()
-        if text:
-            edited_notes[uid] = text
+        if key.startswith("unit_"):
+            uid = key[5:]
+            if uid not in valid_uids:
+                logger.warning(
+                    "leasing_note_edit_invalid_uid",
+                    extra={"note_id": note_id, "uid": uid},
+                )
+                continue
+            text = value.strip()
+            if text:
+                edited_notes[uid] = text
+        elif key.startswith("action_"):
+            uid = key[7:]
+            if uid not in valid_uids:
+                logger.warning(
+                    "leasing_note_edit_invalid_action_uid",
+                    extra={"note_id": note_id, "uid": uid},
+                )
+                continue
+            text = value.strip()
+            if text:
+                recommended_actions[uid] = text
 
     note.edited_notes = edited_notes
+    note.recommended_actions = recommended_actions
     note.notes_html = render_leasing_notes_html_from_snapshot(
-        note.unit_snapshot, note.edited_notes,
+        note.unit_snapshot, note.edited_notes, note.recommended_actions,
     )
     note.is_edited = True
-    note.save(update_fields=["edited_notes", "notes_html", "is_edited", "updated_at"])
+    note.save(update_fields=[
+        "edited_notes", "recommended_actions", "notes_html",
+        "is_edited", "updated_at",
+    ])
 
     return redirect("leasing-notes-detail", note_id=note.pk)
 

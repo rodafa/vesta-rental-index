@@ -127,7 +127,12 @@
       <div class="card-body">
         {% for u in units %}
         <div class="unit-field">
-          <label class="unit-label" for="unit_{{ u.uid }}">{{ u.address }}</label>
+          <label class="unit-label" for="action_{{ u.uid }}">{{ u.address }} — Recommended Action</label>
+          <p style="margin:0 0 4px; font-size:12px; color:var(--ink-faint);">Leave blank when there is no ask for the owner this week.</p>
+          <textarea class="unit-textarea" id="action_{{ u.uid }}" name="action_{{ u.uid }}" style="min-height:60px;">{{ u.current_action }}</textarea>
+        </div>
+        <div class="unit-field">
+          <label class="unit-label" for="unit_{{ u.uid }}">{{ u.address }} — Leasing Note</label>
           <textarea class="unit-textarea" id="unit_{{ u.uid }}" name="unit_{{ u.uid }}">{{ u.current_text }}</textarea>
         </div>
         {% endfor %}
