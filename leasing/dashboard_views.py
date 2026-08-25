@@ -171,7 +171,7 @@ def leasing_note_detail_or_edit(request, note_id):
 
 def _leasing_note_detail(request, note_id):
     """Render detail page with email preview and per-unit edit form."""
-    from leasing.models import UnitLeasingSnapshot
+    from leasing.models import UnitLeasingSnapshot, UnitPriceChange
 
     note = get_object_or_404(PortfolioLeasingNote, pk=note_id)
     snapshot = note.unit_snapshot or {}
@@ -191,6 +191,14 @@ def _leasing_note_detail(request, note_id):
         ):
             raw_app_map[snap.unit_id] = snap.applications or []
 
+    # Load full price change history per unit (all time, not just period)
+    price_history_map = {}
+    if unit_ids:
+        for pc in UnitPriceChange.objects.filter(
+            unit_id__in=unit_ids,
+        ).order_by("detected_at"):
+            price_history_map.setdefault(pc.unit_id, []).append(pc)
+
     units = []
     for ctx in unit_contexts:
         uid = str(ctx["unit_id"])
@@ -202,6 +210,7 @@ def _leasing_note_detail(request, note_id):
             "current_text": current_text,
             "current_action": current_action,
             "applications": raw_app_map.get(ctx["unit_id"], []),
+            "price_history": price_history_map.get(ctx["unit_id"], []),
         })
 
     period_label = ""

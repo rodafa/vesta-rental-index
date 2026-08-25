@@ -149,6 +149,46 @@ class RentEngineWebhookDelivery(models.Model):
         return f"{self.target_entity}/{self.operation} @ {self.received_at}"
 
 
+class UnitPriceChange(models.Model):
+    """
+    Records a change in RentEngine advertised rent observed by
+    sync_rentengine_units.
+
+    detected_date is when WE observed the change, not necessarily when it
+    was made in RentEngine — precision is bounded by sync frequency.
+    History begins the day this ships; nothing is retroactive.
+    """
+
+    unit = models.ForeignKey(
+        "core.Unit",
+        on_delete=models.CASCADE,
+        related_name="price_changes",
+    )
+    old_rent = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+    )
+    new_rent = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+    )
+    detected_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    detected_date = models.DateField(db_index=True)
+
+    class Meta:
+        ordering = ["-detected_at"]
+        indexes = [
+            models.Index(
+                fields=["unit", "detected_date"],
+                name="ix_pricechange_unit_date",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Unit {self.unit_id} | "
+            f"${self.old_rent} \u2192 ${self.new_rent} on {self.detected_date}"
+        )
+
+
 class UnitLeasingSnapshot(models.Model):
     """
     Weekly leasing performance snapshot for a unit.
@@ -218,6 +258,17 @@ class UnitLeasingSnapshot(models.Model):
             "Application dicts for this unit and period. Each dict: "
             "group_id, status, submitted_at, num_applicants, workflow_step. "
             "workflow_step is DASHBOARD-ONLY — must never render in an owner email."
+        ),
+    )
+
+    # --- Price change history (from UnitPriceChange rows) ---
+    price_changes = models.JSONField(
+        default=list,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Price changes observed during this period. Each dict: "
+            "old_rent, new_rent, detected_date. Empty when none."
         ),
     )
 

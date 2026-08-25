@@ -10,7 +10,7 @@ import logging
 
 from integrations.rentengine.client import RentEngineClient
 
-from .models import UnitLeasingSnapshot
+from .models import UnitLeasingSnapshot, UnitPriceChange
 from .selectors import compute_leasing_metrics_bulk
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,22 @@ def build_unit_snapshot(
     else:
         reporting_error = "Unit has no rentengine_id"
 
+    # --- Price changes from UnitPriceChange rows (local DB, not API) ---
+    price_change_rows = list(
+        UnitPriceChange.objects.filter(
+            unit=unit,
+            detected_date__range=(period_start, period_end),
+        ).order_by("detected_at")
+    )
+    price_changes_json = [
+        {
+            "old_rent": str(pc.old_rent),
+            "new_rent": str(pc.new_rent),
+            "detected_date": pc.detected_date.isoformat(),
+        }
+        for pc in price_change_rows
+    ]
+
     logger.info(
         "leasing_snapshot_built",
         extra={
@@ -123,6 +139,7 @@ def build_unit_snapshot(
             "reporting_error": reporting_error,
             "reporting_raw": reporting_data,
             "applications": applications if applications is not None else [],
+            "price_changes": price_changes_json,
         },
     )
 

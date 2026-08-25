@@ -174,6 +174,46 @@ def _format_applications(apps):
     return formatted
 
 
+def _format_price_changes(changes):
+    """
+    Pre-format price change dicts for template rendering.
+
+    Converts detected_date from ISO string to display format ("Aug 21")
+    and old_rent/new_rent to Decimal for template filters.
+    """
+    from datetime import date as date_cls
+    from decimal import Decimal, InvalidOperation
+
+    formatted = []
+    for pc in changes:
+        date_display = ""
+        raw = pc.get("detected_date")
+        if raw:
+            try:
+                d = date_cls.fromisoformat(str(raw)[:10])
+                date_display = f"{d.strftime('%b')} {d.day}"
+            except (ValueError, TypeError):
+                pass
+
+        old_rent = None
+        new_rent = None
+        try:
+            old_rent = Decimal(str(pc["old_rent"]))
+        except (InvalidOperation, ValueError, TypeError, KeyError):
+            pass
+        try:
+            new_rent = Decimal(str(pc["new_rent"]))
+        except (InvalidOperation, ValueError, TypeError, KeyError):
+            pass
+
+        formatted.append({
+            "old_rent": old_rent,
+            "new_rent": new_rent,
+            "date_display": date_display,
+        })
+    return formatted
+
+
 def build_unit_context(unit, snapshot, prior_snapshot, period_end):
     """
     Build structured facts for one unit's leasing note.
@@ -324,6 +364,7 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
         "feedback": feedback,
         "upcoming_tours": upcoming_tours,
         "applications": _format_applications(snapshot.applications or []),
+        "price_changes": _format_price_changes(snapshot.price_changes or []),
     }
 
 

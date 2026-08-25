@@ -9,6 +9,8 @@ Unit.rentengine_status and Unit.rentengine_advertised_rent on all matched rows
 
 import logging
 from collections import defaultdict
+from datetime import date
+from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -183,6 +185,16 @@ class Command(BaseCommand):
             })
             return
 
+        # --- Detect price changes (already_set only — will_set is first observation) ---
+        TWO_DP = Decimal("0.01")
+        price_changes = []  # (unit, addr, old_rent, new_rent)
+        for unit, re_id, addr, status, rent in already_set:
+            stored = unit.rentengine_advertised_rent
+            stored = stored.quantize(TWO_DP) if stored is not None else None
+            incoming = rent.quantize(TWO_DP) if rent is not None else None
+            if stored is not None and incoming is not None and stored != incoming:
+                price_changes.append((unit, addr, stored, incoming))
+
         # --- Summary ---
         self.stdout.write("")
         self.stdout.write("=" * 72)
@@ -195,6 +207,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  ALREADY SET (no-op)  : {len(already_set)}")
         self.stdout.write(f"  CONFLICT             : {len(conflicts)}")
         self.stdout.write(f"  Unmatched (skipped)  : {len(all_unmatched)}")
+        self.stdout.write(f"  Price changes        : {len(price_changes)}")
         self.stdout.write("")
 
         if will_set:
@@ -250,6 +263,25 @@ class Command(BaseCommand):
                 self.stdout.write(f"  {status_val:<20} {count}")
             self.stdout.write("")
 
+        # --- Price changes ---
+        if price_changes:
+            verb = "WILL RECORD" if apply else "WOULD RECORD"
+            self.stdout.write(f"PRICE CHANGES ({verb}):")
+            self.stdout.write(
+                f"  {'Unit #':>8}  {'Old Rent':>10}  {'New Rent':>10}  Address"
+            )
+            self.stdout.write(
+                f"  {'------':>8}  {'--------':>10}  {'--------':>10}  -------"
+            )
+            for unit, addr, old_rent, new_rent in price_changes:
+                self.stdout.write(
+                    f"  {unit.id:>8}  "
+                    f"${int(old_rent):>9}  "
+                    f"${int(new_rent):>9}  "
+                    f"{addr}"
+                )
+            self.stdout.write("")
+
         # --- Apply ---
         if apply and (will_set or already_set):
             self.stdout.write("Writing...")
@@ -277,9 +309,31 @@ class Command(BaseCommand):
                     unit.save(update_fields=[
                         "rentengine_status", "rentengine_advertised_rent",
                     ])
+
+                # Record price changes (inside the same transaction)
+                from leasing.models import UnitPriceChange
+
+                today = date.today()
+                for unit, addr, old_rent, new_rent in price_changes:
+                    UnitPriceChange.objects.create(
+                        unit=unit,
+                        old_rent=old_rent,
+                        new_rent=new_rent,
+                        detected_date=today,
+                    )
+                    logger.info(
+                        "price_change_recorded",
+                        extra={
+                            "unit_id": unit.id,
+                            "old_rent": str(old_rent),
+                            "new_rent": str(new_rent),
+                        },
+                    )
+
             self.stdout.write(self.style.SUCCESS(
                 f"Done. Set rentengine_id on {len(will_set)} unit(s), "
-                f"updated status + advertised rent on {len(already_set)} existing unit(s)."
+                f"updated status + advertised rent on {len(already_set)} existing unit(s), "
+                f"recorded {len(price_changes)} price change(s)."
             ))
         elif apply:
             self.stdout.write("Nothing to write — no matched units.")
@@ -297,4 +351,5 @@ class Command(BaseCommand):
             "already_set": len(already_set),
             "conflicts": len(conflicts),
             "unmatched": len(all_unmatched),
+            "price_changes": len(price_changes),
         })

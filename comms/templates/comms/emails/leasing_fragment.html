@@ -95,6 +95,32 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 
+<!-- Delta caption — only when at least one metric has a prior-week comparison -->
+{% if u.new_leads_delta is not None or u.showings_completed_delta is not None or u.showings_scheduled_delta is not None or u.showings_canceled_delta is not None or u.showings_missed_delta is not None or u.applications_received_delta is not None %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:2px auto 0;">
+  <tr>
+    <td style="text-align:center; padding:2px 0 0;">
+      <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#6EA5CD;">&#9650;&#9660; compared with last week</p>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<!-- Price changes -->
+{% if u.price_changes %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:4px auto 0;">
+  {% for pc in u.price_changes %}
+  <tr>
+    <td style="padding:2px 0;">
+      <p style="margin:0; font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222;">
+        Rent adjusted from {% if pc.old_rent is not None %}${{ pc.old_rent|floatformat:0|intcomma }}{% else %}&mdash;{% endif %} to {% if pc.new_rent is not None %}${{ pc.new_rent|floatformat:0|intcomma }}{% else %}&mdash;{% endif %}{% if pc.date_display %} on {{ pc.date_display }}{% endif %}
+      </p>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
 <!-- Applications -->
 {% if u.applications %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:8px auto 0;">
