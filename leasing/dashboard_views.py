@@ -1,10 +1,11 @@
 """Server-rendered dashboard views for weekly leasing notes."""
 
 import logging
+import zoneinfo
 from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
-from django.db.models import Max
+from django.db.models import Count, Max, Min
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -138,6 +139,81 @@ def leasing_notes_list(request):
             period_end=period_end,
         ).count()
 
+    # --- Send status for the period on screen (Query 1) ---
+    send_status_text = ""
+    send_status_color = "#6EA5CD"
+    if period_start and period_end:
+        agg = EmailDraft.objects.filter(
+            product="leasing",
+            period_start=period_start,
+            period_end=period_end,
+            status="sent",
+        ).aggregate(earliest=Min("sent_at"), n=Count("id"))
+
+        sent_count = agg["n"] or 0
+        if sent_count > 0:
+            send_status_color = "#39B54A"
+            if agg["earliest"] is not None:
+                eastern = zoneinfo.ZoneInfo("America/New_York")
+                dt = agg["earliest"].astimezone(eastern)
+                send_status_text = (
+                    f"Sent to {sent_count} recipient{'' if sent_count == 1 else 's'}"
+                    f" on {dt.strftime('%b')} {dt.day}, {dt.strftime('%Y')}"
+                    f" at {dt.strftime('%I:%M %p').lstrip('0')} ET"
+                )
+            else:
+                send_status_text = (
+                    f"Sent to {sent_count} recipient{'' if sent_count == 1 else 's'}"
+                )
+        elif draft_count > 0:
+            send_status_color = "#D67011"
+            send_status_text = (
+                f"Assembled, not yet sent \u2014 {draft_count}"
+                f" draft{'' if draft_count == 1 else 's'} ready"
+            )
+        else:
+            send_status_text = "Not yet assembled"
+
+    # --- Most recent leasing send, any period (Query 2) ---
+    last_send_text = ""
+    if period_start and period_end:
+        last_sent = (
+            EmailDraft.objects.filter(product="leasing", status="sent")
+            .order_by("-sent_at")
+            .values("sent_at", "period_start", "period_end")
+            .first()
+        )
+        if last_sent:
+            same_period = (
+                last_sent["period_start"] == period_start
+                and last_sent["period_end"] == period_end
+            )
+            if not same_period:
+                # Query 3 (conditional): count recipients for that period
+                ls_count = EmailDraft.objects.filter(
+                    product="leasing",
+                    status="sent",
+                    period_start=last_sent["period_start"],
+                    period_end=last_sent["period_end"],
+                ).count()
+                ls = last_sent["period_start"]
+                le = last_sent["period_end"]
+                ls_label = f"{ls.strftime('%b')} {ls.day}"
+                le_label = f"{le.strftime('%b')} {le.day}"
+                if last_sent["sent_at"] is not None:
+                    eastern = zoneinfo.ZoneInfo("America/New_York")
+                    dt = last_sent["sent_at"].astimezone(eastern)
+                    last_send_text = (
+                        f"Last leasing send: {ls_label}\u2013{le_label},"
+                        f" {ls_count} recipient{'' if ls_count == 1 else 's'},"
+                        f" {dt.strftime('%b')} {dt.day}"
+                    )
+                else:
+                    last_send_text = (
+                        f"Last leasing send: {ls_label}\u2013{le_label},"
+                        f" {ls_count} recipient{'' if ls_count == 1 else 's'}"
+                    )
+
     return render(request, "comms/leasing_notes_list.html", {
         "notes": notes,
         "period_start": period_start,
@@ -148,6 +224,9 @@ def leasing_notes_list(request):
         "edited": edited,
         "all_approved": total > 0 and drafts == 0,
         "draft_count": draft_count,
+        "send_status_text": send_status_text,
+        "send_status_color": send_status_color,
+        "last_send_text": last_send_text,
         "error_message": request.GET.get("error", ""),
         "success_message": request.GET.get("success", ""),
     })

@@ -117,6 +117,10 @@
     </form>
   </div>
 
+  {% if send_status_text %}
+  <p style="font-family:var(--sans); font-size:13px; color:{{ send_status_color }}; margin:0 0 12px;">{{ send_status_text }}{% if last_send_text %} &middot; {{ last_send_text }}{% endif %}</p>
+  {% endif %}
+
   <table class="notes-table">
     <thead>
       <tr>
