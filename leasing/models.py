@@ -272,6 +272,19 @@ class UnitLeasingSnapshot(models.Model):
         ),
     )
 
+    # --- Segment benchmark (from compute_segment_benchmarks) ---
+    segment_benchmark = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Benchmark for this unit's bedroom segment, frozen at generation. "
+            "Keys: bedrooms, unit_count, leads_per_week, showings_per_week, "
+            "avg_days_on_market. Empty dict when segment too small or "
+            "bedrooms unknown."
+        ),
+    )
+
     # --- Audit ---
     generated_at = models.DateTimeField(auto_now_add=True)
 

@@ -214,6 +214,32 @@ def _format_price_changes(changes):
     return formatted
 
 
+def _format_benchmark(benchmark, bedrooms, snapshot):
+    """
+    Pre-format benchmark dict for template rendering.
+
+    Returns a dict with display-ready values, or {} if no benchmark exists.
+    Adds the unit's own leads_per_week and showings_per_week for comparison.
+    Each snapshot covers one week, so the unit's weekly rate equals the count.
+    """
+    if not benchmark or bedrooms is None:
+        return {}
+
+    return {
+        "bedrooms": bedrooms,
+        "unit_leads_per_week": float(snapshot.new_leads or 0),
+        "unit_showings_per_week": float(snapshot.showings_completed or 0),
+        "benchmark_leads_per_week": round(benchmark["leads_per_week"], 1),
+        "benchmark_showings_per_week": round(benchmark["showings_per_week"], 1),
+        "benchmark_avg_dom": (
+            round(benchmark["avg_days_on_market"])
+            if benchmark.get("avg_days_on_market") is not None
+            else None
+        ),
+        "unit_count": benchmark["unit_count"],
+    }
+
+
 def build_unit_context(unit, snapshot, prior_snapshot, period_end):
     """
     Build structured facts for one unit's leasing note.
@@ -365,6 +391,11 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
         "upcoming_tours": upcoming_tours,
         "applications": _format_applications(snapshot.applications or []),
         "price_changes": _format_price_changes(snapshot.price_changes or []),
+        "segment_benchmark": _format_benchmark(
+            snapshot.segment_benchmark or {},
+            unit.bedrooms,
+            snapshot,
+        ),
     }
 
 

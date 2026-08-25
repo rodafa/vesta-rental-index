@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def build_unit_snapshot(
     unit, period_start, period_end, client=None,
     rv_advertised_dates=None, re_marked_available_dates=None,
-    applications=None,
+    applications=None, segment_benchmark=None,
 ):
     """
     Build or update a UnitLeasingSnapshot for a single unit and period.
@@ -37,6 +37,8 @@ def build_unit_snapshot(
             once by the caller, not once per unit.
         applications: optional list of application dicts for this unit,
             from build_unit_applications(). Defaults to [] when None.
+        segment_benchmark: optional dict from compute_segment_benchmarks()
+            for this unit's bedroom segment. Defaults to {} when None.
 
     Returns:
         (snapshot, created) — the UnitLeasingSnapshot and whether it was
@@ -140,6 +142,7 @@ def build_unit_snapshot(
             "reporting_raw": reporting_data,
             "applications": applications if applications is not None else [],
             "price_changes": price_changes_json,
+            "segment_benchmark": segment_benchmark if segment_benchmark is not None else {},
         },
     )
 

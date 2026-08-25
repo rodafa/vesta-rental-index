@@ -22,7 +22,7 @@ from integrations.rentengine.mappers import (
 )
 from integrations.rentvine.client import RentvineClient
 from integrations.rentvine.listing_dates import build_unit_advertised_dates
-from leasing.selectors import compute_leasing_metrics_bulk
+from leasing.selectors import compute_leasing_metrics_bulk, compute_segment_benchmarks
 from leasing.snapshots import build_unit_snapshot
 
 logger = logging.getLogger(__name__)
@@ -207,6 +207,26 @@ class Command(BaseCommand):
                 f"Investigate before sending."
             ))
 
+        # --- Compute segment benchmarks once for all units ---
+        benchmarks = compute_segment_benchmarks(end)
+
+        # Build a map of ALL bedroom segments (qualified + suppressed) for reporting.
+        # We need to know which segments exist even if suppressed, so re-check
+        # what the function saw vs what it returned.
+        all_br_counts = {}
+        for u in units:
+            if u.bedrooms is not None:
+                all_br_counts.setdefault(u.bedrooms, set()).add(u.id)
+
+        benchmark_parts = []
+        for br in sorted(all_br_counts.keys()):
+            count = len(all_br_counts[br])
+            if br in benchmarks:
+                benchmark_parts.append(f"{br}BR={count} units (qualified)")
+            else:
+                benchmark_parts.append(f"{br}BR={count} units (suppressed <5)")
+        self.stdout.write(f"Benchmarks: {', '.join(benchmark_parts) or 'none'}")
+
         # --- Per-unit loop ---
         created_count = 0
         updated_count = 0
@@ -258,6 +278,9 @@ class Command(BaseCommand):
                         applications=unit_applications.get(
                             unit.rentengine_id, [],
                         ),
+                        segment_benchmark=benchmarks.get(
+                            unit.bedrooms, {},
+                        ) if unit.bedrooms is not None else {},
                     )
                     if was_created:
                         created_count += 1
