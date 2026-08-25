@@ -171,12 +171,25 @@ def leasing_note_detail_or_edit(request, note_id):
 
 def _leasing_note_detail(request, note_id):
     """Render detail page with email preview and per-unit edit form."""
+    from leasing.models import UnitLeasingSnapshot
+
     note = get_object_or_404(PortfolioLeasingNote, pk=note_id)
     snapshot = note.unit_snapshot or {}
     unit_contexts = snapshot.get("unit_contexts", [])
     unit_summaries = (snapshot.get("ai_result") or {}).get("unit_summaries", {})
     edited_notes = note.edited_notes or {}
     recommended_actions = note.recommended_actions or {}
+
+    # Load raw snapshot rows for dashboard-only application data (with workflow_step)
+    unit_ids = [ctx["unit_id"] for ctx in unit_contexts]
+    raw_app_map = {}
+    if unit_ids and note.period_start and note.period_end:
+        for snap in UnitLeasingSnapshot.objects.filter(
+            unit_id__in=unit_ids,
+            period_start=note.period_start,
+            period_end=note.period_end,
+        ):
+            raw_app_map[snap.unit_id] = snap.applications or []
 
     units = []
     for ctx in unit_contexts:
@@ -188,6 +201,7 @@ def _leasing_note_detail(request, note_id):
             "address": ctx.get("address", f"Unit {uid}"),
             "current_text": current_text,
             "current_action": current_action,
+            "applications": raw_app_map.get(ctx["unit_id"], []),
         })
 
     period_label = ""

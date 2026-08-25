@@ -209,6 +209,18 @@ class UnitLeasingSnapshot(models.Model):
     reporting_error = models.TextField(blank=True, default="")
     reporting_raw = models.JSONField(default=dict, blank=True)
 
+    # --- Application status (from /reporting/applications + /rental_application_groups) ---
+    applications = models.JSONField(
+        default=list,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Application dicts for this unit and period. Each dict: "
+            "group_id, status, submitted_at, num_applicants, workflow_step. "
+            "workflow_step is DASHBOARD-ONLY — must never render in an owner email."
+        ),
+    )
+
     # --- Audit ---
     generated_at = models.DateTimeField(auto_now_add=True)
 

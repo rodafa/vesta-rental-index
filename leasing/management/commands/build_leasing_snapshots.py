@@ -16,7 +16,10 @@ from django.db import connection
 
 from core.models import Unit
 from integrations.rentengine.client import RentEngineClient
-from integrations.rentengine.mappers import build_unit_marked_available_dates
+from integrations.rentengine.mappers import (
+    build_unit_applications,
+    build_unit_marked_available_dates,
+)
 from integrations.rentvine.client import RentvineClient
 from integrations.rentvine.listing_dates import build_unit_advertised_dates
 from leasing.selectors import compute_leasing_metrics_bulk
@@ -169,6 +172,41 @@ class Command(BaseCommand):
                     "emails. Investigate before sending."
                 ))
 
+        # --- Fetch application data once for all units ---
+        unit_applications = {}
+        try:
+            app_rows = client.get_reporting_applications(start, end)
+            group_rows = client.get_rental_application_groups()
+            unit_applications = build_unit_applications(
+                app_rows, group_rows, start, end,
+            )
+            total_entries = sum(len(v) for v in unit_applications.values())
+            self.stdout.write(
+                f"Applications: {len(app_rows)} reporting rows, "
+                f"{len(group_rows)} groups, "
+                f"{total_entries} entries across "
+                f"{len(unit_applications)} units"
+            )
+
+            # Sanity check: how many of our units got application data?
+            re_unit_ids = {
+                u.rentengine_id for u in units
+                if u.rentengine_id is not None
+            }
+            app_matched = len(
+                re_unit_ids & set(unit_applications.keys())
+            )
+            self.stdout.write(
+                f"Application match: {app_matched}/{len(re_unit_ids)} "
+                f"units have applications"
+            )
+        except Exception as exc:
+            self.stdout.write(self.style.ERROR(
+                f"WARNING: Application data fetch failed: {exc}  "
+                f"Applications will be MISSING from every email this run. "
+                f"Investigate before sending."
+            ))
+
         # --- Per-unit loop ---
         created_count = 0
         updated_count = 0
@@ -217,6 +255,9 @@ class Command(BaseCommand):
                         unit, start, end, client=client,
                         rv_advertised_dates=rv_advertised_dates,
                         re_marked_available_dates=re_marked_available_dates,
+                        applications=unit_applications.get(
+                            unit.rentengine_id, [],
+                        ),
                     )
                     if was_created:
                         created_count += 1

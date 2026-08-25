@@ -143,6 +143,37 @@ def _format_val(val, delta=None):
     return s
 
 
+def _format_applications(apps):
+    """
+    Pre-format application dicts for template rendering.
+
+    Converts submitted_at from ISO date string to display format ("Aug 21").
+    Strips workflow_step — it must never reach the email template.
+    """
+    from datetime import date as date_cls
+
+    formatted = []
+    for app in apps:
+        submitted_display = "N/A"
+        raw = app.get("submitted_at")
+        if raw:
+            try:
+                d = date_cls.fromisoformat(str(raw)[:10])
+                # %e is POSIX (space-padded day), %-d is GNU (no padding).
+                # Neither works on Windows. Use %d and lstrip("0") instead.
+                submitted_display = f"{d.strftime('%b')} {d.day}"
+            except (ValueError, TypeError):
+                pass
+
+        formatted.append({
+            "status": app.get("status", ""),
+            "submitted_display": submitted_display,
+            "num_applicants": app.get("num_applicants"),
+            # workflow_step deliberately excluded — dashboard-only
+        })
+    return formatted
+
+
 def build_unit_context(unit, snapshot, prior_snapshot, period_end):
     """
     Build structured facts for one unit's leasing note.
@@ -292,6 +323,7 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
         "dom_urgent": dom_urgent,
         "feedback": feedback,
         "upcoming_tours": upcoming_tours,
+        "applications": _format_applications(snapshot.applications or []),
     }
 
 

@@ -306,6 +306,54 @@ class RentEngineClient:
             "reporting/units", params=params, page_size=2000,
         )
 
+    def get_reporting_applications(self, start_date, end_date, account_ids=None):
+        """
+        GET /reporting/applications — application-level data for a period.
+
+        Returns all rows across all pages.  Each row includes
+        application_group_id, lead_applicant, address, status, submitted_at,
+        started_at, processed_at, processing_time_hours, num_applicants,
+        income_details, current_workflow_step, current_workflow_owner,
+        agent_name, subteam_name, refunded_amount.
+
+        start_date and end_date are date objects.  The span between them
+        must not exceed 32 days (API constraint).
+
+        account_ids: comma-separated UUID string.  If None, reads from
+        settings.RENTENGINE["ACCOUNT_ID"].
+        """
+        if account_ids is None:
+            config = getattr(settings, "RENTENGINE", {})
+            account_ids = config.get("ACCOUNT_ID", "")
+        if not account_ids:
+            raise RentEngineAPIError(
+                "account_ids is required for /reporting/applications. "
+                "Set RENTENGINE_ACCOUNT_ID environment variable."
+            )
+        params = {
+            "account_ids": account_ids,
+            "start": f"{start_date.isoformat()}T00:00:00Z",
+            "end": f"{end_date.isoformat()}T23:59:59Z",
+        }
+        return self.get_all_enveloped(
+            "reporting/applications", params=params, page_size=2000,
+        )
+
+    def get_rental_application_groups(self):
+        """
+        GET /rental_application_groups — all application groups.
+
+        Takes no parameters.  Returns all groups regardless of age.
+        Response is enveloped: {"data": [...], "page": {...}}.
+        Each group carries unit_id (int), status, move_in_date,
+        submitted_at, applicants[], primary_application_id.
+        """
+        # This endpoint caps limit at 100 (unlike /reporting/units which
+        # allows 2000).  Passing a higher value returns HTTP 400.
+        return self.get_all_enveloped(
+            "rental_application_groups", page_size=100,
+        )
+
     def get_unit_leasing_performance(self, unit_id, start_date, end_date):
         """
         GET /reporting/leasing-performance/units/{unit_id}

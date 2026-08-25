@@ -95,6 +95,25 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 
+<!-- Applications -->
+{% if u.applications %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:8px auto 0;">
+  <tr>
+    <td style="background-color:#EFF5F9; border-left:4px solid #1E3D58; padding:14px 16px; border-radius:0 6px 6px 0;">
+      <p style="margin:0 0 8px; font-family:Helvetica,Arial,sans-serif; font-size:12px; font-weight:700; color:#1E3D58; text-transform:uppercase; letter-spacing:0.5px;">Applications</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {% for app in u.applications %}
+        <tr>
+          <td width="20" valign="top" style="font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222; padding:0;">&#8226;</td>
+          <td style="font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222; padding:0 0 2px;">Submitted {{ app.submitted_display }} &mdash; {{ app.status }} &mdash; {{ app.num_applicants|default:"?" }} applicant{{ app.num_applicants|pluralize }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </td>
+  </tr>
+</table>
+{% endif %}
+
 <!-- Recommended Action -->
 {% if u.recommended_action_blocks %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:8px auto 0;">

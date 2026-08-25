@@ -175,3 +175,115 @@ def build_unit_marked_available_dates(rows):
             continue
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Application data
+# ---------------------------------------------------------------------------
+
+_ALLOWED_APP_KEYS = frozenset({
+    "group_id", "status", "submitted_at", "num_applicants", "workflow_step",
+})
+
+
+def build_unit_applications(reporting_rows, group_rows, period_start, period_end):
+    """
+    Build per-unit application lists from reporting + groups data.
+
+    Args:
+        reporting_rows: list of dicts from GET /reporting/applications.
+        group_rows: list of dicts from GET /rental_application_groups.
+        period_start: date object, inclusive start of reporting period.
+        period_end: date object, inclusive end of reporting period.
+
+    Returns:
+        dict mapping RentEngine unit_id (int) -> list of application dicts.
+        Each dict has exactly: group_id, status, submitted_at,
+        num_applicants, workflow_step.
+
+    Business rules:
+        - Skip status == "Incomplete" (abandoned forms).
+        - Include "Submitted" unconditionally (always present until resolved).
+        - Include resolved (status not Incomplete/Submitted) only if
+          processed_at falls within [period_start, period_end].
+
+    Privacy:
+        NEVER includes lead_applicant, income_details, or any name field.
+        A hard assertion enforces the allowed key set on every entry.
+    """
+    # Build group_id -> unit_id lookup
+    group_to_unit = {}
+    for g in group_rows:
+        gid = g.get("id")
+        uid = g.get("unit_id")
+        if gid and uid is not None:
+            try:
+                group_to_unit[gid] = int(uid)
+            except (ValueError, TypeError):
+                continue
+
+    result = {}
+
+    for row in reporting_rows:
+        status = (row.get("status") or "").strip()
+
+        # Skip abandoned forms
+        if status == "Incomplete":
+            continue
+
+        group_id = row.get("application_group_id")
+        if not group_id:
+            continue
+
+        unit_id = group_to_unit.get(group_id)
+        if unit_id is None:
+            continue
+
+        # Resolved apps: include only if processed_at is in the period
+        if status != "Submitted":
+            processed_raw = row.get("processed_at")
+            if not processed_raw:
+                continue
+            try:
+                processed_date = date.fromisoformat(str(processed_raw)[:10])
+            except (ValueError, TypeError):
+                continue
+            if not (period_start <= processed_date <= period_end):
+                continue
+
+        # Extract submitted_at as date string or None
+        submitted_raw = row.get("submitted_at")
+        submitted_str = None
+        if submitted_raw:
+            try:
+                submitted_str = str(submitted_raw)[:10]
+            except (ValueError, TypeError):
+                pass
+
+        # Extract num_applicants
+        num_applicants = _safe_int(row.get("num_applicants"))
+
+        # Extract workflow_step (dashboard-only, never in owner email)
+        workflow_step = str(row.get("current_workflow_step") or "")
+
+        entry = {
+            "group_id": group_id,
+            "status": status,
+            "submitted_at": submitted_str,
+            "num_applicants": num_applicants,
+            "workflow_step": workflow_step,
+        }
+
+        # Hard privacy guard: assert exact key set
+        if set(entry.keys()) != _ALLOWED_APP_KEYS:
+            extra = set(entry.keys()) - _ALLOWED_APP_KEYS
+            missing = _ALLOWED_APP_KEYS - set(entry.keys())
+            raise ValueError(
+                f"Application entry has disallowed keys. "
+                f"Extra: {extra or 'none'}, Missing: {missing or 'none'}. "
+                f"Entry keys: {sorted(entry.keys())}"
+            )
+
+        result.setdefault(unit_id, []).append(entry)
+
+    return result
