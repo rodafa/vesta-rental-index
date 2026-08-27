@@ -149,6 +149,32 @@ class RentEngineWebhookDelivery(models.Model):
         return f"{self.target_entity}/{self.operation} @ {self.received_at}"
 
 
+class ApplicationProcessCreation(models.Model):
+    """
+    Dedupe guard: one row per rental_application_group that has had a
+    LeadSimple process created for it.  Prevents duplicate creates on
+    webhook retry.
+    """
+
+    rentengine_group_id = models.CharField(
+        max_length=64, unique=True, db_index=True
+    )
+    rentengine_event_id = models.CharField(
+        max_length=128, blank=True, default="", db_index=True
+    )
+    leadsimple_process_id = models.CharField(
+        max_length=64, blank=True, default=""
+    )
+    process_name = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return (
+            f"AppProcess {self.rentengine_group_id} "
+            f"-> {self.leadsimple_process_id}"
+        )
+
+
 class UnitPriceChange(models.Model):
     """
     Records a change in RentEngine advertised rent observed by
