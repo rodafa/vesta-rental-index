@@ -377,7 +377,8 @@ def _handle_application_group(delivery, record, raw_id, data, payload):
                 f":rotating_light: *Application automation FAILED*\n"
                 f"Group: {group_id}\n"
                 f"Would have created: {process_name}\n"
-                f"Error: {exc}"
+                f"Error: {exc}",
+                webhook_url=settings.SLACK_LEASING_WEBHOOK_URL or None,
             )
         except Exception:
             logger.exception("application_failure_slack_send_failed")
@@ -401,7 +402,7 @@ def _handle_application_group(delivery, record, raw_id, data, payload):
         f"LeadSimple: {link or '(no link returned)'}"
     )
     try:
-        notify_slack(slack_text)
+        notify_slack(slack_text, webhook_url=settings.SLACK_LEASING_WEBHOOK_URL or None)
     except Exception:
         logger.exception(
             "application_process_slack_send_failed",

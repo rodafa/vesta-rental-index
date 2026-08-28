@@ -10,12 +10,14 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
-def notify_slack(text: str) -> None:
-    """POST a text message to the configured Slack webhook.
+def notify_slack(text: str, webhook_url: str | None = None) -> None:
+    """POST a text message to a Slack webhook.
 
-    Raises on misconfiguration or failed delivery — never silently drops.
+    When *webhook_url* is provided, posts there; otherwise falls back to
+    settings.SLACK_WEBHOOK_URL.  Raises on misconfiguration or failed
+    delivery — never silently drops.
     """
-    url = settings.SLACK_WEBHOOK_URL
+    url = webhook_url or settings.SLACK_WEBHOOK_URL
     if not url:
         logger.error("slack_webhook_not_configured")
         raise RuntimeError("SLACK_WEBHOOK_URL is not configured")
