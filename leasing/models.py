@@ -149,6 +149,25 @@ class RentEngineWebhookDelivery(models.Model):
         return f"{self.target_entity}/{self.operation} @ {self.received_at}"
 
 
+class RentvineWebhookDelivery(models.Model):
+    """
+    Append-only raw inbox for RentVine webhook deliveries.  Stores payload and
+    headers verbatim before any processing, so nothing is ever lost.
+    """
+
+    raw_payload = models.JSONField(default=dict, blank=True)
+    raw_headers = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=32, default="captured", db_index=True)
+    error_message = models.TextField(blank=True, default="")
+    received_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-received_at"]
+
+    def __str__(self):
+        return f"RentvineDelivery #{self.pk} @ {self.received_at}"
+
+
 class ApplicationProcessCreation(models.Model):
     """
     Dedupe guard: one row per rental_application_group that has had a

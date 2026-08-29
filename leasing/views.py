@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from .models import RentEngineWebhookDelivery
+from .models import RentEngineWebhookDelivery, RentvineWebhookDelivery
 from .services import process_webhook_delivery
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,63 @@ def rentengine_webhook(request):
             "entity": delivery.target_entity,
             "operation": delivery.operation,
             "status": delivery.status,
+        },
+    )
+
+    return JsonResponse({"ok": True})
+
+
+@csrf_exempt
+@require_POST
+def rentvine_webhook_capture(request, secret):
+    """POST /api/webhooks/rentvine/capture/<secret>/ — capture RentVine deliveries."""
+    # --- Auth: constant-time secret-in-URL check ---
+    expected = settings.RENTVINE_WEBHOOK_URL_SECRET
+    if not expected or not hmac.compare_digest(
+        expected.encode("utf-8"), secret.encode("utf-8")
+    ):
+        logger.warning("rentvine_capture_auth_failed")
+        return JsonResponse({"ok": False, "error": "Unauthorized"}, status=401)
+
+    # --- Capture all headers ---
+    headers = {k: v for k, v in request.headers.items()}
+
+    # --- Read body and build payload ---
+    body = request.body
+
+    if len(body) > 1_000_000:
+        status = "too_large"
+        payload = {
+            "_raw_body": body.decode("utf-8", errors="replace")[:100000],
+            "_truncated": True,
+            "_original_bytes": len(body),
+        }
+        logger.warning(
+            "rentvine_capture_body_too_large",
+            extra={"body_bytes": len(body)},
+        )
+    else:
+        try:
+            payload = json.loads(body)
+            status = "captured"
+        except (json.JSONDecodeError, ValueError):
+            payload = {"_raw_body": body.decode("utf-8", errors="replace")[:100000]}
+            status = "unparseable"
+
+    # --- Store delivery ---
+    delivery = RentvineWebhookDelivery.objects.create(
+        raw_payload=payload,
+        raw_headers=headers,
+        status=status,
+    )
+
+    logger.info(
+        "rentvine_webhook_captured",
+        extra={
+            "delivery_id": delivery.pk,
+            "status": status,
+            "header_count": len(headers),
+            "body_bytes": len(body),
         },
     )
 
