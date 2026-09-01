@@ -2,20 +2,21 @@
 Management command: generate portfolio-grain leasing notes (Layer 1).
 
 Usage:
-    python manage.py generate_leasing_notes --start 2026-08-04 --end 2026-08-10 --portfolio-id 42
-    python manage.py generate_leasing_notes --start 2026-08-04 --end 2026-08-10 --limit 5
-    python manage.py generate_leasing_notes --start 2026-08-04 --end 2026-08-10 --all
-    python manage.py generate_leasing_notes --start 2026-08-04 --end 2026-08-10 --all --dry-run
+    python manage.py generate_leasing_notes --all
+    python manage.py generate_leasing_notes --start 2026-08-25 --end 2026-08-31 --portfolio-id 42
+    python manage.py generate_leasing_notes --start 2026-08-25 --end 2026-08-31 --all
+    python manage.py generate_leasing_notes --start 2026-08-25 --end 2026-08-31 --all --dry-run
+    python manage.py generate_leasing_notes --start 2026-08-24 --end 2026-08-31 --all --force
 """
 
 import logging
-from datetime import date
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from core.models import Portfolio
 from leasing.note_services import generate_portfolio_leasing_note
+from leasing.periods import resolve_period
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +27,18 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--start",
-            type=str,
-            required=True,
-            help="Period start date (YYYY-MM-DD).",
+            default=None,
+            help="Period start date (YYYY-MM-DD). Defaults to last complete Tue–Mon week.",
         )
         parser.add_argument(
             "--end",
-            type=str,
-            required=True,
-            help="Period end date (YYYY-MM-DD).",
+            default=None,
+            help="Period end date (YYYY-MM-DD). Defaults to last complete Tue–Mon week.",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Skip period validation (length and weekday checks). For intentional backfills.",
         )
         parser.add_argument(
             "--portfolio-id",
@@ -58,8 +62,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        period_start = date.fromisoformat(options["start"])
-        period_end = date.fromisoformat(options["end"])
+        period_start, period_end = resolve_period(
+            options["start"], options["end"], options["force"],
+            stdout=self.stdout,
+        )
         dry_run = options["dry_run"]
 
         has_portfolio_id = options["portfolio_id"] is not None

@@ -2,14 +2,15 @@
 Build weekly UnitLeasingSnapshot rows for all active units.
 
 Usage:
-    python manage.py build_leasing_snapshots --start 2026-08-04 --end 2026-08-10
-    python manage.py build_leasing_snapshots --start 2026-08-04 --end 2026-08-10 --unit-id 42
-    python manage.py build_leasing_snapshots --start 2026-08-04 --end 2026-08-10 --dry-run
+    python manage.py build_leasing_snapshots
+    python manage.py build_leasing_snapshots --start 2026-08-25 --end 2026-08-31
+    python manage.py build_leasing_snapshots --start 2026-08-25 --end 2026-08-31 --unit-id 42
+    python manage.py build_leasing_snapshots --start 2026-08-25 --end 2026-08-31 --dry-run
+    python manage.py build_leasing_snapshots --start 2026-08-24 --end 2026-08-31 --force
 """
 
 import logging
 import time
-from datetime import date
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
@@ -22,6 +23,7 @@ from integrations.rentengine.mappers import (
 )
 from integrations.rentvine.client import RentvineClient
 from integrations.rentvine.listing_dates import build_unit_advertised_dates
+from leasing.periods import resolve_period
 from leasing.selectors import compute_leasing_metrics_bulk, compute_segment_benchmarks
 from leasing.snapshots import build_unit_snapshot
 
@@ -34,13 +36,18 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--start",
-            required=True,
-            help="Period start date (YYYY-MM-DD), inclusive.",
+            default=None,
+            help="Period start date (YYYY-MM-DD), inclusive. Defaults to last complete Tue–Mon week.",
         )
         parser.add_argument(
             "--end",
-            required=True,
-            help="Period end date (YYYY-MM-DD), inclusive.",
+            default=None,
+            help="Period end date (YYYY-MM-DD), inclusive. Defaults to last complete Tue–Mon week.",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Skip period validation (length and weekday checks). For intentional backfills.",
         )
         parser.add_argument(
             "--unit-id",
@@ -55,16 +62,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        try:
-            start = date.fromisoformat(options["start"])
-            end = date.fromisoformat(options["end"])
-        except ValueError as exc:
-            raise CommandError(f"Invalid date: {exc}") from exc
-
-        if start > end:
-            raise CommandError(
-                f"--start ({start}) must not be after --end ({end})"
-            )
+        start, end = resolve_period(
+            options["start"], options["end"], options["force"],
+            stdout=self.stdout,
+        )
 
         dry_run = options["dry_run"]
         single_unit_id = options["unit_id"]
