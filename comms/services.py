@@ -84,6 +84,14 @@ property has more than one unit). Order most-serious-first.
 operational changes this month." Use "units" not "properties."
 - Portfolio-level maintenance line
 
+Weekly maintenance notes: when provided under "Weekly Maintenance Notes Sent \
+This Month", draw specific details (vendors, items repaired, resolutions) to \
+make the maintenance portion concrete instead of generic. These notes are \
+already-approved content the owner has seen — treat them as factual source. \
+Do not re-list every item; synthesize into a concise monthly summary. Follow \
+all existing rules: no dollar figures, no work-order counts in prose, no \
+invented details, same voice and sentence-length discipline.
+
 Input fields per process:
 - status_line: the plain-English stage framing — this is your outcome source. \
 Render it faithfully.
@@ -511,6 +519,19 @@ def _build_monthly_prompt_portfolio(portfolio_sections, owner_name, period_start
     return "\n".join(parts)
 
 
+def _strip_notes_html(raw_html):
+    """Strip HTML tags from a maintenance/leasing notes_html fragment to plain text."""
+    import html as html_module
+    import re
+
+    from django.utils.html import strip_tags
+
+    if not raw_html:
+        return ""
+    text = re.sub(r"<br\s*/?>|</?p\s*/?>|<hr\s*/?>", " ", raw_html, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", html_module.unescape(strip_tags(text))).strip()
+
+
 def _get_portfolio_display_identifier(portfolio_name, units_list):
     """Return the street address for single-property portfolios, else the portfolio name."""
     distinct_addresses = sorted({
@@ -566,6 +587,12 @@ def _build_single_portfolio_prompt(section, period_start):
         parts.append("Maintenance: Some work orders this period.")
     else:
         parts.append("Maintenance: No activity this period.")
+
+    maint_narrative = section.get("maintenance_narrative_source", "")
+    if maint_narrative:
+        parts.append("")
+        parts.append("=== Weekly Maintenance Notes Sent This Month ===")
+        parts.append(maint_narrative)
 
     # Pipeline activity — structured facts
     pipeline = section.get("pipeline", {})
@@ -1077,6 +1104,20 @@ def build_portfolio_section(
             "is_multi_unit": sibling_count > 1,
         })
 
+    # Collect that month's weekly maintenance notes (already sent to owners)
+    weekly_maint_notes = PortfolioMaintenanceNote.objects.filter(
+        portfolio=portfolio,
+        period_type="weekly",
+        period_start__gte=period_start,
+        period_start__lte=period_end,
+    ).exclude(notes_html="").order_by("period_start")
+
+    maintenance_narrative_source = "\n\n".join(
+        f"Week of {note.period_start.strftime('%b %d')}: "
+        f"{_strip_notes_html(note.notes_html)}"
+        for note in weekly_maint_notes
+    )
+
     return {
         "portfolio_name": portfolio.name,
         "display_name": _get_portfolio_display_identifier(portfolio.name, units_list),
@@ -1084,6 +1125,7 @@ def build_portfolio_section(
         "maintenance": get_portfolio_work_order_summary(
             portfolio, period_start, period_end
         ),
+        "maintenance_narrative_source": maintenance_narrative_source,
         "pipeline": get_portfolio_pipeline_data(
             portfolio, period_start, period_end,
             prefetched_processes=prefetched_processes,
