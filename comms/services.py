@@ -511,6 +511,16 @@ def _build_monthly_prompt_portfolio(portfolio_sections, owner_name, period_start
     return "\n".join(parts)
 
 
+def _get_portfolio_display_identifier(portfolio_name, units_list):
+    """Return the street address for single-property portfolios, else the portfolio name."""
+    distinct_addresses = sorted({
+        u["address"] for u in units_list if u.get("address")
+    })
+    if len(distinct_addresses) == 1:
+        return distinct_addresses[0]
+    return portfolio_name
+
+
 def _build_single_portfolio_prompt(section, period_start):
     """
     Build an OWNER-AGNOSTIC AI prompt for a single portfolio's monthly note.
@@ -526,14 +536,8 @@ def _build_single_portfolio_prompt(section, period_start):
     unit_count = section.get("unit_count", 1)
     structure = "MULTI-UNIT" if unit_count > 1 else "SINGLE-UNIT"
 
-    # Single-property portfolios: use the street address as the identifier
-    # so the model writes "at 123 Main St" instead of an LLC name.
-    distinct_addresses = sorted({
-        u["address"] for u in section.get("units", []) if u.get("address")
-    })
-    identifier = (
-        distinct_addresses[0] if len(distinct_addresses) == 1
-        else section["portfolio_name"]
+    identifier = _get_portfolio_display_identifier(
+        section["portfolio_name"], section.get("units", [])
     )
 
     parts = [
@@ -708,6 +712,7 @@ def _build_monthly_context_portfolio(data, ai_result, period_label, summaries):
 
         template_sections.append({
             "portfolio_name": section["portfolio_name"],
+            "display_name": section.get("display_name", section["portfolio_name"]),
             "has_financials": bool(fin),
             "statement_period": stmt_period,
             "total_income": fin.get("total_income"),
@@ -786,7 +791,7 @@ def _render_financials_html(context):
 
     parts = []
     for section in sections:
-        name = escape(section["portfolio_name"])
+        name = escape(section.get("display_name", section["portfolio_name"]))
 
         parts.append(
             f'<h2 style="margin:24px 0 8px; font-family:Helvetica,Arial,sans-serif; '
@@ -872,7 +877,7 @@ def _render_notes_html(context):
 
     sections = context.get("portfolio_sections", [])
     for section in sections:
-        name = escape(section["portfolio_name"])
+        name = escape(section.get("display_name", section["portfolio_name"]))
         unit_count = section.get("unit_count", 1)
         is_multi_unit = unit_count > 1
 
@@ -1074,6 +1079,7 @@ def build_portfolio_section(
 
     return {
         "portfolio_name": portfolio.name,
+        "display_name": _get_portfolio_display_identifier(portfolio.name, units_list),
         "financials": _get_latest_statement(portfolio),
         "maintenance": get_portfolio_work_order_summary(
             portfolio, period_start, period_end
@@ -1554,6 +1560,7 @@ def _build_single_portfolio_context(section, ai_result, period_label):
 
     template_section = {
         "portfolio_name": section["portfolio_name"],
+        "display_name": section.get("display_name", section["portfolio_name"]),
         "has_financials": bool(fin),
         "statement_period": stmt_period,
         "total_income": fin.get("total_income"),
