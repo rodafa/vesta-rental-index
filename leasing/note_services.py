@@ -413,7 +413,7 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
     ]
 
     for ctx in unit_contexts:
-        lines.append(f"--- Unit {ctx['unit_id']}: {ctx['address']} ---")
+        lines.append(f"--- {ctx['address']} ---")
         lines.append(f"  Status: {ctx['rentengine_status']}")
 
         rent = ctx["advertised_rent"]
@@ -479,12 +479,21 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
         "acknowledge it is unavailable."
     )
     lines.append("")
+    # Map unit IDs to addresses so the model can key its JSON output
+    # without the ID appearing in the narrative facts above.
+    id_map_lines = ", ".join(
+        f'{ctx["unit_id"]}="{ctx["address"]}"' for ctx in unit_contexts
+    )
+    lines.append(f"Unit ID to address mapping: {id_map_lines}")
+    lines.append("")
     lines.append(
         "Write one concise leasing note per unit (opening prose, a short bullet "
         "list using '- ' prefix, and a closing action line). The intro is a 1-2 "
         "sentence portfolio-level summary of leasing activity this week. Return "
         "valid JSON only:\n"
-        '{"intro": "...", "unit_summaries": {"<unit_id>": "..."}}'
+        '{"intro": "...", "unit_summaries": {"<unit_id>": "..."}}\n'
+        "Use the numeric unit IDs above as keys in unit_summaries. "
+        "Do NOT include unit IDs in the note text — use the address only."
     )
 
     return "\n".join(lines)
