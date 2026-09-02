@@ -92,6 +92,15 @@ Do not re-list every item; synthesize into a concise monthly summary. Follow \
 all existing rules: no dollar figures, no work-order counts in prose, no \
 invented details, same voice and sentence-length discipline.
 
+Weekly leasing notes: when provided under "Weekly Leasing Notes Sent This \
+Month", draw specific details (showings, applications, pricing changes, lease \
+signings) to make the leasing portion concrete instead of generic. These notes \
+are already-approved content the owner has seen — treat them as factual source. \
+Do not re-list every unit's weekly note verbatim; synthesize into a concise \
+monthly summary. Follow all existing rules: no dollar figures unless already \
+stated in the source text as a fact being reported, no invented details, same \
+voice and sentence-length discipline.
+
 Input fields per process:
 - status_line: the plain-English stage framing — this is your outcome source. \
 Render it faithfully.
@@ -627,6 +636,12 @@ def _build_single_portfolio_prompt(section, period_start):
     else:
         parts.append("Pipeline: No processes to report.")
 
+    leasing_narrative = section.get("leasing_narrative_source", "")
+    if leasing_narrative:
+        parts.append("")
+        parts.append("=== Weekly Leasing Notes Sent This Month ===")
+        parts.append(leasing_narrative)
+
     parts.append("")
     parts.append(
         "Write:\n"
@@ -1118,6 +1133,23 @@ def build_portfolio_section(
         for note in weekly_maint_notes
     )
 
+    # Collect that month's approved weekly leasing notes (already sent to owners)
+    from leasing.models import PortfolioLeasingNote
+
+    weekly_leasing_notes = PortfolioLeasingNote.objects.filter(
+        portfolio=portfolio,
+        period_type="weekly",
+        period_start__gte=period_start,
+        period_start__lte=period_end,
+        status="approved",
+    ).exclude(notes_html="").order_by("period_start")
+
+    leasing_narrative_source = "\n\n".join(
+        f"Week of {note.period_start.strftime('%b %d')}: "
+        f"{_strip_notes_html(note.notes_html)}"
+        for note in weekly_leasing_notes
+    )
+
     return {
         "portfolio_name": portfolio.name,
         "display_name": _get_portfolio_display_identifier(portfolio.name, units_list),
@@ -1126,6 +1158,7 @@ def build_portfolio_section(
             portfolio, period_start, period_end
         ),
         "maintenance_narrative_source": maintenance_narrative_source,
+        "leasing_narrative_source": leasing_narrative_source,
         "pipeline": get_portfolio_pipeline_data(
             portfolio, period_start, period_end,
             prefetched_processes=prefetched_processes,
