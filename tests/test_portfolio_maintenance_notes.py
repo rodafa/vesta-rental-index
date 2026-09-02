@@ -660,14 +660,14 @@ class TestWorkOrderAddressGrouping:
         assert len(data["scheduled"][0]["work_orders"]) == 1
 
     def test_show_unit_false_single_unit(self, portfolio, work_orders):
-        """show_unit is False when a group has only one distinct unit."""
+        """show_unit reflects the property's active unit count, not the batch."""
         data = get_portfolio_work_order_data(portfolio, PERIOD_START, PERIOD_END)
 
         # Open: 1 WO at single-unit property → show_unit False
         assert data["open"][0]["show_unit"] is False
 
-        # Scheduled: 1 WO at multi-unit property but only 1 unit → show_unit False
-        assert data["scheduled"][0]["show_unit"] is False
+        # Scheduled: 1 WO at multi-unit property (2 active units) → show_unit True
+        assert data["scheduled"][0]["show_unit"] is True
 
     def test_show_unit_true_multi_unit(
         self, portfolio, prop_multi, unit_multi_a, unit_multi_b

@@ -474,6 +474,7 @@ def _work_order_to_dict(wo, cost=None):
 
     return {
         "id": wo.pk,
+        "property_id": wo.property_id,
         "work_order_number": wo.work_order_number,
         "title": _extract_title(wo.description),
         "description": _clean_html(wo.description),
@@ -495,19 +496,43 @@ def _group_by_address(wo_dicts):
     """Group work-order dicts by property_address, preserving insertion order.
 
     Returns [{"property_address": str, "work_orders": [dict], "show_unit": bool}].
-    show_unit is True only when the group spans more than one distinct
-    non-blank unit_label (i.e. a multi-unit property with WOs in different units).
+    show_unit is True when the property itself has more than one active unit,
+    regardless of how many units appear in the current batch of work orders.
     """
     from collections import OrderedDict
+
+    from django.db.models import Count
+
+    from core.models import Unit
 
     groups = OrderedDict()
     for wo in wo_dicts:
         groups.setdefault(wo["property_address"], []).append(wo)
+
+    # Collect distinct property IDs and batch-query active unit counts.
+    property_ids = {
+        wo["property_id"]
+        for wos in groups.values()
+        for wo in wos
+        if wo.get("property_id")
+    }
+    unit_counts = {}
+    if property_ids:
+        unit_counts = {
+            row["property_id"]: row["unit_count"]
+            for row in Unit.objects.filter(
+                property_id__in=property_ids, is_active=True,
+            ).values("property_id").annotate(unit_count=Count("id"))
+        }
+
     return [
         {
             "property_address": addr,
             "work_orders": wos,
-            "show_unit": len({w["unit_label"] for w in wos if w["unit_label"]}) > 1,
+            "show_unit": any(
+                unit_counts.get(wo.get("property_id"), 0) > 1
+                for wo in wos
+            ),
         }
         for addr, wos in groups.items()
     ]
