@@ -119,6 +119,18 @@ STAGE_FRAMING: dict[tuple[str, str], str] = {
 }
 
 
+# Stages that represent a RESOLVED/terminal outcome. A high-stakes process
+# at one of these stages should only appear in the month it was created or
+# closed — not in later months due to residual task activity.
+RESOLVED_STAGES: frozenset[tuple[str, str]] = frozenset({
+    (_LATE_RENT_UUID, "Payment Made in Full - During 5-Day Notice"),
+    (_LATE_RENT_UUID, "Payment Made in Full - After 5 Day Notice"),
+    (_MOVE_OUT_UUID, "Tenant Moved Out - Move Out 100% Done"),
+    (_MOVE_OUT_LEGACY_UUID, "Deposited Resolved Tenant 100% Closed Out"),
+    (_OFFBOARDING_UUID, "Completed"),
+})
+
+
 def get_stage_framing(process_type_uuid: str, stage_name: str) -> str | None:
     """
     Look up the plain-English framing for a process at a given stage.

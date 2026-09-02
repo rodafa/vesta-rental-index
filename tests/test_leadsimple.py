@@ -1050,6 +1050,36 @@ class TestIsReportable:
         index = self.build_tasks_index(tasks)
         assert self.is_reportable(proc, index, self.start, self.end)
 
+    def test_resolved_late_rent_excluded_by_stage(self):
+        """Resolved high-stakes stage with only task activity — NOT reportable."""
+        proc = {
+            "id": "p1",
+            "category": "late_rent",
+            "target": frozenset({"monthly"}),
+            "created_at": "2026-04-01T10:00:00Z",  # outside period
+            "closed_at": None,
+            "process_type": {"id": "75d01712-66f5-44fe-9595-f571e2449896"},
+            "stage": {"name": "Payment Made in Full - During 5-Day Notice"},
+        }
+        tasks = [_make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z")]
+        index = self.build_tasks_index(tasks)
+        assert not self.is_reportable(proc, index, self.start, self.end)
+
+    def test_ongoing_late_rent_still_reportable(self):
+        """Ongoing high-stakes stage with task activity — still reportable."""
+        proc = {
+            "id": "p1",
+            "category": "late_rent",
+            "target": frozenset({"monthly"}),
+            "created_at": "2026-04-01T10:00:00Z",  # outside period
+            "closed_at": None,
+            "process_type": {"id": "75d01712-66f5-44fe-9595-f571e2449896"},
+            "stage": {"name": "Late Rent - 5 Day Notice"},
+        }
+        tasks = [_make_task("t1", "p1", completed_at="2026-05-10T14:00:00Z")]
+        index = self.build_tasks_index(tasks)
+        assert self.is_reportable(proc, index, self.start, self.end)
+
 
 class TestFilterForMonthlyWithTasks:
     """Test the tasks_index path of filter_for_monthly."""
