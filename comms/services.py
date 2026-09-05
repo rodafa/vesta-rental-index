@@ -3220,3 +3220,79 @@ def send_distribution_email(
     )
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Generic email send — no draft, no role gate
+# ---------------------------------------------------------------------------
+
+
+def send_email(
+    *,
+    to_emails: list[str],
+    subject: str,
+    html_content: str,
+    sandbox: bool = False,
+) -> dict:
+    """
+    Send a single email to one or more recipients via SendGrid.
+
+    Unlike send_draft(), this does NOT require an EmailDraft row, an Owner,
+    or a role-gated acting_user.  It is a thin SendGrid wrapper for
+    automation products (tenant notices) that don't go through the
+    comms draft/review pipeline.
+
+    Uses is_multiple=True so each recipient gets their own Personalization
+    and cannot see the other addresses.
+
+    Returns {"message_id": str, "status_code": int}.
+    """
+    if not to_emails:
+        raise ValueError("send_email requires at least one recipient")
+
+    message = Mail(
+        from_email=settings.COMMS_FROM_EMAIL,
+        to_emails=to_emails,
+        subject=subject,
+        html_content=html_content,
+        is_multiple=True,
+    )
+
+    if sandbox:
+        message.mail_settings = MailSettings(sandbox_mode=SandBoxMode(True))
+
+    sg = sendgrid.SendGridAPIClient(settings.SENDGRID_API_KEY)
+    try:
+        response = sg.send(message)
+    except Exception:
+        logger.error(
+            "send_email_failed",
+            extra={
+                "to_emails": to_emails,
+                "subject": subject[:100],
+            },
+        )
+        raise
+
+    status_code = response.status_code
+    if status_code < 200 or status_code >= 300:
+        raise RuntimeError(
+            f"SendGrid returned {status_code} for send_email"
+        )
+
+    message_id = ""
+    if hasattr(response, "headers") and response.headers:
+        message_id = response.headers.get("X-Message-Id", "")
+
+    logger.info(
+        "send_email_ok",
+        extra={
+            "to_count": len(to_emails),
+            "subject": subject[:100],
+            "status_code": status_code,
+            "message_id": message_id,
+            "sandbox": sandbox,
+        },
+    )
+
+    return {"message_id": message_id, "status_code": status_code}

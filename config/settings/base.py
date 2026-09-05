@@ -3,6 +3,7 @@ Shared Django settings — everything secret or environment-specific from env va
 """
 
 import os
+from decimal import Decimal
 from pathlib import Path
 
 import dj_database_url
@@ -211,3 +212,23 @@ OWNER_DISTRIBUTION_ACCOUNT_ID = 10
 
 # Owner portal URL — required for live sends; blank blocks --live.
 OWNER_PORTAL_URL = os.environ.get("OWNER_PORTAL_URL", "")
+
+# --- Tenant Notice Cadence ---
+
+# Tenant-portion charge accounts: 13 = #4100 Rent Income, 25 = #4470 Pet Rent.
+# Deliberately excludes 14 (#4105 Government Assistance Rent) — voucher
+# tenants must never be billed for the housing authority's portion.
+TENANT_PORTION_ACCOUNT_IDS = {13, 25}
+
+TENANT_NOTICE_MINIMUM_BALANCE = Decimal(
+    os.environ.get("TENANT_NOTICE_MINIMUM_BALANCE", "100.00")
+)
+
+RESIDENT_PORTAL_URL = os.environ.get(
+    "RESIDENT_PORTAL_URL",
+    "https://vestapm.rentvine.com/portals/resident/",
+)
+
+# RentVine lease_status_id values that receive delinquency notices.
+# 2 = Active. Excluded: 3 (Notice Given), 4 (Vacated), 5 (Evicting).
+TENANT_NOTICE_LEASE_STATUS_IDS = {2}
