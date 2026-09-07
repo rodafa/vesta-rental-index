@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def build_unit_snapshot(
     unit, period_start, period_end, client=None,
     rv_advertised_dates=None, re_marked_available_dates=None,
-    applications=None, segment_benchmark=None,
+    applications=None, segment_benchmark=None, since_listed=None,
 ):
     """
     Build or update a UnitLeasingSnapshot for a single unit and period.
@@ -143,6 +143,7 @@ def build_unit_snapshot(
             "applications": applications if applications is not None else [],
             "price_changes": price_changes_json,
             "segment_benchmark": segment_benchmark if segment_benchmark is not None else {},
+            "since_listed": since_listed if since_listed is not None else {},
         },
     )
 

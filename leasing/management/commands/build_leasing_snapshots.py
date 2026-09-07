@@ -24,7 +24,11 @@ from integrations.rentengine.mappers import (
 from integrations.rentvine.client import RentvineClient
 from integrations.rentvine.listing_dates import build_unit_advertised_dates
 from leasing.periods import resolve_period
-from leasing.selectors import compute_leasing_metrics_bulk, compute_segment_benchmarks
+from leasing.selectors import (
+    compute_leasing_metrics_bulk,
+    compute_segment_benchmarks,
+    compute_since_listed_totals,
+)
 from leasing.snapshots import build_unit_snapshot
 
 logger = logging.getLogger(__name__)
@@ -208,6 +212,20 @@ class Command(BaseCommand):
                 f"Investigate before sending."
             ))
 
+        # --- Compute since-listed cumulative totals once for all units ---
+        dma_by_unit_id = {}
+        for u in units:
+            dma = (re_marked_available_dates or {}).get(u.rentengine_id)
+            if dma:
+                dma_by_unit_id[u.id] = dma
+        since_listed_map = compute_since_listed_totals(
+            units, end, marked_available_dates=dma_by_unit_id,
+        )
+        self.stdout.write(
+            f"Since-listed totals: {len(since_listed_map)}/"
+            f"{len(units)} units have date_marked_available"
+        )
+
         # --- Compute segment benchmarks once for all units ---
         benchmarks = compute_segment_benchmarks(end)
 
@@ -282,6 +300,7 @@ class Command(BaseCommand):
                         segment_benchmark=benchmarks.get(
                             unit.bedrooms, {},
                         ) if unit.bedrooms is not None else {},
+                        since_listed=since_listed_map.get(unit.id, {}),
                     )
                     if was_created:
                         created_count += 1

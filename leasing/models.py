@@ -317,6 +317,19 @@ class UnitLeasingSnapshot(models.Model):
         ),
     )
 
+    # --- Since-listed cumulative totals ---
+    since_listed = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Cumulative totals since date_marked_available, frozen at "
+            "generation. Keys: leads, showings_scheduled, "
+            "showings_completed, applications_received. Empty dict when "
+            "the listing start date is unknown."
+        ),
+    )
+
     # --- Segment benchmark (from compute_segment_benchmarks) ---
     segment_benchmark = models.JSONField(
         default=dict,

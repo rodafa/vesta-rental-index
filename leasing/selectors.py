@@ -155,6 +155,146 @@ def compute_leasing_metrics_bulk(units, start_date, end_date):
 
 
 # ---------------------------------------------------------------------------
+# Since-listed cumulative totals
+# ---------------------------------------------------------------------------
+
+
+def compute_since_listed_totals(units, as_of_date, marked_available_dates=None):
+    """
+    Compute cumulative leasing totals from each unit's listing start date
+    through as_of_date inclusive.
+
+    Args:
+        units: iterable of core.Unit instances.
+        as_of_date: date object, inclusive end.
+        marked_available_dates: optional dict mapping unit.id -> date
+            (date_marked_available). When provided, used directly. When
+            omitted, falls back to the most recent UnitLeasingSnapshot
+            per unit (1 extra query).
+
+    Returns:
+        dict mapping unit.id -> {
+            "leads": int,
+            "showings_scheduled": int,
+            "showings_completed": int,
+            "applications_received": int,
+        }
+        Units with no date_marked_available are OMITTED entirely.
+
+    Query count: 3 (constant regardless of unit count), plus 1 fallback
+    query if marked_available_dates is not provided. All three queries
+    fetch from min(date_marked_available) to as_of_date; per-unit date
+    filtering happens in Python.
+    """
+    from .models import LeasingEvent, UnitLeasingSnapshot
+
+    units = list(units)
+    if not units:
+        return {}
+
+    # Resolve date_marked_available per unit
+    if marked_available_dates is None:
+        # Fallback: query most recent snapshot per unit
+        marked_available_dates = {}
+        latest_snapshots = (
+            UnitLeasingSnapshot.objects
+            .filter(
+                unit__in=units,
+                date_marked_available__isnull=False,
+            )
+            .order_by("unit_id", "-period_start")
+            .distinct("unit_id")
+            .values_list("unit_id", "date_marked_available")
+        )
+        for unit_id, dma in latest_snapshots:
+            marked_available_dates[unit_id] = dma
+
+    # Filter to units that have a known start date
+    dma_map = {}  # unit_id -> date_marked_available
+    for u in units:
+        dma = marked_available_dates.get(u.id)
+        if dma is not None:
+            dma_map[u.id] = dma
+
+    if not dma_map:
+        return {}
+
+    min_dma = min(dma_map.values())
+    unit_ids_with_dma = list(dma_map.keys())
+    units_with_dma = [u for u in units if u.id in dma_map]
+
+    # Seed results
+    result = {
+        uid: {
+            "leads": 0,
+            "showings_scheduled": 0,
+            "showings_completed": 0,
+            "applications_received": 0,
+        }
+        for uid in unit_ids_with_dma
+    }
+
+    # Query 1: Prospects (leads) — raw rows, filtered per-unit in Python
+    prospect_rows = (
+        Prospect.objects.filter(
+            unit__in=units_with_dma,
+            source_created_at__date__gte=min_dma,
+            source_created_at__date__lte=as_of_date,
+        )
+        .values_list("unit_id", "source_created_at__date")
+    )
+    for unit_id, created_date in prospect_rows:
+        if created_date >= dma_map[unit_id]:
+            result[unit_id]["leads"] += 1
+
+    # Query 2: Showing Scheduled + Application Received
+    event_rows = (
+        LeasingEvent.objects.filter(
+            unit__in=units_with_dma,
+            event_type__in=[
+                EVENT_TYPE_SHOWING_SCHEDULED,
+                EVENT_TYPE_APPLICATION_RECEIVED,
+            ],
+            event_date__gte=min_dma,
+            event_date__lte=as_of_date,
+        )
+        .values_list("unit_id", "event_type", "event_date")
+    )
+    for unit_id, event_type, event_date in event_rows:
+        if event_date >= dma_map[unit_id]:
+            if event_type == EVENT_TYPE_SHOWING_SCHEDULED:
+                result[unit_id]["showings_scheduled"] += 1
+            else:
+                result[unit_id]["applications_received"] += 1
+
+    # Query 3: Showing Complete — deduplicated on (unit, prospect, event_date)
+    # Same rule as compute_leasing_metrics_bulk: null prospect counts as 1
+    # each; non-null deduplicates on the triple.
+    completion_rows = (
+        LeasingEvent.objects.filter(
+            unit__in=units_with_dma,
+            event_type=EVENT_TYPE_SHOWING_COMPLETE,
+            event_date__gte=min_dma,
+            event_date__lte=as_of_date,
+        )
+        .values_list("unit_id", "prospect_id", "event_date")
+    )
+    seen_completions = set()
+    for unit_id, prospect_id, event_date in completion_rows:
+        if event_date < dma_map[unit_id]:
+            continue
+        if prospect_id is None:
+            result[unit_id]["showings_completed"] += 1
+        else:
+            key = (unit_id, prospect_id, event_date)
+            if key not in seen_completions:
+                seen_completions.add(key)
+                result[unit_id]["showings_completed"] += 1
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Segment benchmarks
 # ---------------------------------------------------------------------------
 

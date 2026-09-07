@@ -396,6 +396,23 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
             unit.bedrooms,
             snapshot,
         ),
+        # Since-listed cumulative totals — suppressed when the listing
+        # started within the reporting period (totals would duplicate the
+        # weekly tiles directly above).
+        "since_listed": (
+            snapshot.since_listed
+            if snapshot.since_listed
+            and snapshot.date_marked_available is not None
+            and snapshot.date_marked_available < snapshot.period_start
+            else {}
+        ),
+        "since_listed_date_display": (
+            f"{snapshot.date_marked_available.strftime('%b')} "
+            f"{snapshot.date_marked_available.day}"
+            if snapshot.date_marked_available is not None
+            and snapshot.date_marked_available < snapshot.period_start
+            else None
+        ),
     }
 
 
