@@ -48,6 +48,14 @@
               <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:14px; line-height:1.6; color:#EFF5F9;">
                 Every Tuesday you'll get an update on how your listing is performing and what we're doing to get it leased. If we're negotiating with a prospect or need your input, we'll reach out right away.
               </p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:14px; line-height:1.6; color:#EFF5F9;">
+                Your listing is syndicated to Zillow, Trulia, HotPads, Realtor.com, Rent.com, Apartments.com, Redfin and Zumper, and posted on Facebook Marketplace.
+              </p>
+              {% if top_lead_sources %}
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:14px; line-height:1.6; color:#EFF5F9;">
+                {% if top_lead_sources|length == 2 %}Across all our active listings this week, the top lead sources were {{ top_lead_sources.0.source }} ({{ top_lead_sources.0.count }}) and {{ top_lead_sources.1.source }} ({{ top_lead_sources.1.count }}).{% elif top_lead_sources|length == 1 %}Across all our active listings this week, the top lead source was {{ top_lead_sources.0.source }} ({{ top_lead_sources.0.count }}).{% endif %}
+              </p>
+              {% endif %}
               <p style="margin:16px 0 0; font-family:Helvetica, Arial, sans-serif; font-size:13px;">
                 <a href="https://docs.google.com/forms/d/e/1FAIpQLSecpybuXEkJ2JiRltoz6kYbn0kEWpWGbsm6x_ZdsMoaIYlI9g/viewform" target="_blank" style="color:#6EA5CD; text-decoration:underline;">Share feedback on these reports</a>
                 &middot;

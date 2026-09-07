@@ -2570,12 +2570,34 @@ def assemble_owner_leasing_email(recipient_email, period_start, period_end, peri
     resolved_period_end = max(_note_period_ends, default=None) or period_end
     period_label = _format_period_label(period_type, period_start, resolved_period_end)
 
+    # Portfolio-wide top lead sources for this period (marketing channels only)
+    from django.db.models import Count
+
+    from leasing.models import Prospect
+
+    MARKETING_SOURCES = {
+        "Zillow", "Realtor.com", "Rent.com", "Apartments.com",
+        "FB Marketplace", "Zumper", "Nesthub", "PadMapper",
+        "Company Website", "Trulia", "HotPads", "Redfin",
+    }
+    top_lead_sources = list(
+        Prospect.objects.filter(
+            source__in=MARKETING_SOURCES,
+            source_created_at__date__gte=period_start,
+            source_created_at__date__lte=resolved_period_end,
+        )
+        .values("source")
+        .annotate(count=Count("id"))
+        .order_by("-count")[:2]
+    )
+
     body_html = render_to_string(
         "comms/emails/leasing_envelope.html",
         {
             "owner_first_name": owner_name,
             "period_label": period_label,
             "fragments_html": fragments_html,
+            "top_lead_sources": top_lead_sources,
         },
     )
 
