@@ -15,6 +15,7 @@ from django.utils.html import strip_tags
 from integrations.property_meld.mappers import EMAIL_CANCELED_BUCKET, EMAIL_CLOSED_BUCKET
 
 from .models import Meld, WorkOrder
+from .zinspector import parse_zinspector_description
 
 logger = logging.getLogger(__name__)
 
@@ -472,12 +473,30 @@ def _work_order_to_dict(wo, cost=None):
     if not unit_address:
         unit_address = property_address
 
+    title = _extract_title(wo.description)
+    description = _clean_html(wo.description)
+    is_punch_list = False
+
+    zi = parse_zinspector_description(wo.description)
+    if zi is not None and len(zi["items"]) >= 2:
+        n = len(zi["items"])
+        cat = zi["category"]
+        title = cat if cat else title
+        description = f"Inspection punch list - {n} items"
+        is_punch_list = True
+    elif zi is not None and len(zi["items"]) == 1:
+        item_text = zi["items"][0]
+        cat = zi["category"]
+        full_title = f"{cat}: {item_text}" if cat else item_text
+        title = (full_title[:77] + "...") if len(full_title) > 80 else full_title
+        description = item_text
+
     return {
         "id": wo.pk,
         "property_id": wo.property_id,
         "work_order_number": wo.work_order_number,
-        "title": _extract_title(wo.description),
-        "description": _clean_html(wo.description),
+        "title": title,
+        "description": description,
         "vendor_name": wo.vendor_name,
         "is_owner_approved": wo.is_owner_approved,
         "estimated_amount": wo.estimated_amount,
@@ -489,6 +508,7 @@ def _work_order_to_dict(wo, cost=None):
         "property_address": property_address,
         "unit_label": unit_label,
         "cost": cost,
+        "is_punch_list": is_punch_list,
     }
 
 

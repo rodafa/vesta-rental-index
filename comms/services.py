@@ -306,7 +306,7 @@ def _build_work_order_payload(address_groups, section_label):
         for wo in group["work_orders"]:
             parts = [
                 f"    - [{wo['work_order_number']}]",
-                f"Issue: {wo['description'][:200]}",
+                f"Issue: {wo['description']}" if wo.get("is_punch_list") else f"Issue: {wo['description'][:200]}",
             ]
             if wo.get("vendor_name"):
                 parts.append(f"Vendor: {wo['vendor_name']}")
@@ -2022,7 +2022,10 @@ def generate_portfolio_maintenance_notes(
                 for group in data.get(section, []):
                     for wo_dict in group["work_orders"]:
                         wo_num = wo_dict["work_order_number"]
-                        wo_dict["ai_summary"] = summaries.get(wo_num, "")
+                        if wo_dict.get("is_punch_list"):
+                            wo_dict["ai_summary"] = wo_dict["description"]
+                        else:
+                            wo_dict["ai_summary"] = summaries.get(wo_num, "")
 
             # Render fragment template
             period_label = _format_period_label(
