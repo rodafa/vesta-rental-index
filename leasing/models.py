@@ -194,6 +194,27 @@ class ApplicationProcessCreation(models.Model):
         )
 
 
+class ShowingMaintenanceNotification(models.Model):
+    """
+    Dedupe guard: one row per leasing event that has had a showing-maintenance
+    Slack notification sent for it.  Prevents duplicate posts on webhook retry.
+    Uniqueness is enforced at the database level via unique=True.
+    """
+
+    rentengine_event_id = models.CharField(
+        max_length=64, unique=True, db_index=True
+    )
+    prospect_rentengine_id = models.CharField(
+        max_length=64, blank=True, default=""
+    )
+    unit_label = models.CharField(max_length=255, blank=True, default="")
+    note_text = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f"ShowingMaintenance {self.rentengine_event_id}"
+
+
 class UnitPriceChange(models.Model):
     """
     Records a change in RentEngine advertised rent observed by

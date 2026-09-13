@@ -3,7 +3,9 @@ Webhook processing for RentEngine deliveries.
 """
 
 import logging
-from datetime import date, timedelta
+import re
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -19,9 +21,64 @@ from .models import (
     LeasingEvent,
     Prospect,
     RentEngineWebhookDelivery,
+    ShowingMaintenanceNotification,
 )
 
 logger = logging.getLogger(__name__)
+
+MAINTENANCE_NOTE_SKIP_VALUES = frozenset(
+    {"none", "n/a", "na", "no", "nothing", "no issues"}
+)
+
+_WS_RE = re.compile(r"\s+")
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def _normalize_maintenance_note(value):
+    """Normalize a maintenance note for skip-check comparison.
+
+    Strips whitespace, trailing punctuation, casefolds, and collapses
+    internal whitespace to single spaces.  Returns the normalized string.
+    """
+    text = str(value).strip().rstrip(".!")
+    text = _WS_RE.sub(" ", text)
+    return text.casefold()
+
+
+def build_showing_maintenance_message(record, unit_label, prospect_name):
+    """Return the Slack text for a showing maintenance note, or None if it
+    should be skipped.  Pure — no DB access, no sends, no logging."""
+    if record.get("event_type") != "Showing Complete":
+        return None
+
+    raw_note = (record.get("context") or {}).get("maintenance_issues")
+    if not raw_note:
+        return None
+    normalized = _normalize_maintenance_note(raw_note)
+    if not normalized or normalized in MAINTENANCE_NOTE_SKIP_VALUES:
+        return None
+
+    # Format showing time in Eastern
+    time_str = ""
+    pdt = record.get("planned_date_time")
+    if pdt:
+        try:
+            utc_dt = datetime.fromisoformat(str(pdt).replace("Z", "+00:00"))
+            eastern = utc_dt.astimezone(_EASTERN)
+            hour = eastern.strftime("%I").lstrip("0")
+            time_str = eastern.strftime(f"%a %b %d, {hour}:%M %p")
+        except Exception:
+            pass
+
+    last_line = (
+        f"{prospect_name} \u00b7 showing {time_str}" if time_str else prospect_name
+    )
+    return (
+        f":wrench: *Showing maintenance note*\n"
+        f"*{unit_label}*\n"
+        f"\"{raw_note}\"\n"
+        f"{last_line}"
+    )
 
 
 def process_webhook_delivery(delivery: RentEngineWebhookDelivery) -> None:
@@ -214,6 +271,14 @@ def _upsert_leasing_event(delivery, record, raw_id):
         defaults={**mapped, "unit": unit, "prospect": prospect},
     )
 
+    try:
+        _notify_showing_maintenance(delivery, leasing_event, record)
+    except Exception:
+        logger.exception(
+            "showing_maintenance_notify_failed",
+            extra={"rentengine_id": rentengine_id, "delivery_id": delivery.pk},
+        )
+
     delivery.status = "processed"
     delivery.resulting_event = leasing_event
     delivery.save(
@@ -221,6 +286,62 @@ def _upsert_leasing_event(delivery, record, raw_id):
             "status", "target_entity", "operation", "resulting_event",
         ]
     )
+
+
+def _notify_showing_maintenance(delivery, leasing_event, record):
+    """Post a Slack note when a Showing Complete event has maintenance_issues."""
+    # Resolve unit label
+    try:
+        unit_label = str(leasing_event.unit) if leasing_event.unit else "(unit unresolved)"
+    except Exception:
+        unit_label = "(unit unresolved)"
+
+    # Resolve prospect name
+    if leasing_event.prospect:
+        prospect_name = str(leasing_event.prospect)
+    else:
+        prospect_name = f"prospect {record.get('prospect')}"
+
+    slack_text = build_showing_maintenance_message(record, unit_label, prospect_name)
+    if slack_text is None:
+        return
+
+    event_id = str(record["id"])
+
+    # Reserve dedupe row — unique constraint is the race guarantee
+    try:
+        ShowingMaintenanceNotification.objects.create(
+            rentengine_event_id=event_id,
+            prospect_rentengine_id=str(record.get("prospect") or ""),
+            unit_label=unit_label,
+            note_text=str((record.get("context") or {}).get("maintenance_issues") or ""),
+        )
+    except IntegrityError:
+        logger.info(
+            "showing_maintenance_duplicate",
+            extra={"event_id": event_id},
+        )
+        return
+
+    # Send — on failure, delete reservation so retry can re-attempt
+    try:
+        notify_slack(
+            slack_text,
+            webhook_url=settings.SLACK_SHOWING_MAINTENANCE_WEBHOOK_URL,
+        )
+    except Exception:
+        ShowingMaintenanceNotification.objects.filter(
+            rentengine_event_id=event_id
+        ).delete()
+        logger.exception(
+            "showing_maintenance_slack_failed",
+            extra={"event_id": event_id, "delivery_id": delivery.pk},
+        )
+        delivery.error_message = (
+            (delivery.error_message + "; " if delivery.error_message else "")
+            + f"Slack showing-maintenance send failed for event {event_id}"
+        )
+        delivery.save(update_fields=["error_message"])
 
 
 def _handle_application_group(delivery, record, raw_id, data, payload):
