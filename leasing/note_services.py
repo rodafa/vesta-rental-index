@@ -416,13 +416,19 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
     }
 
 
-def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end):
+def build_leasing_prompt(
+    portfolio_name, unit_contexts, period_start, period_end, prior_context=None,
+):
     """
     Build the AI prompt for a portfolio-grain leasing note.
 
     Labeled plain-text facts per unit, then request JSON:
         {"intro": "...", "unit_summaries": {"<unit_id>": "..."}}
+
+    prior_context: optional dict keyed by str(unit_id), each value a dict with
+        "prior_note" and "prior_action" strings from last week's note.
     """
+    prior_context = prior_context or {}
     lines = [
         f'Write a weekly leasing update for the portfolio "{portfolio_name}".',
         f"Period: {period_start} to {period_end}.",
@@ -488,6 +494,18 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
         else:
             lines.append("  Showing feedback: none")
 
+        # Prior-week context for this unit (if available)
+        uid = str(ctx["unit_id"])
+        if prior_context.get(uid):
+            pc = prior_context[uid]
+            if pc.get("prior_note"):
+                lines.append("  LAST WEEK'S NOTE FOR THIS UNIT (context only, do not restate):")
+                lines.append(f"  {pc['prior_note']}")
+            if pc.get("prior_action"):
+                lines.append("  LAST WEEK'S RECOMMENDED ACTION (context only, do not repeat the ask):")
+                lines.append(f"  {pc['prior_action']}")
+            lines.append("  (Context only. Do not restate or reuse this wording.)")
+
         lines.append("")
 
     lines.append(
@@ -503,6 +521,23 @@ def build_leasing_prompt(portfolio_name, unit_contexts, period_start, period_end
     )
     lines.append(f"Unit ID to address mapping: {id_map_lines}")
     lines.append("")
+    if prior_context:
+        lines.append(
+            "CONTINUITY RULES (prior-week context was provided above):\n"
+            "- The prior note is CONTEXT ONLY. Never reuse its phrasing, sentence "
+            "structure, or wording. Write fresh prose from this week's facts.\n"
+            "- Never restate last week's numbers. Only this week's facts, supplied "
+            "above, may appear as figures.\n"
+            "- When last week said we would do something, say what happened. If a "
+            "tour was pending and completed, say so. If it did not happen, say that "
+            "plainly.\n"
+            "- When last week asked the owner a question and this week's facts do "
+            "not show it was resolved, do not ask it again in the same words. Either "
+            "note we are still waiting, or say nothing about it.\n"
+            "- Never write \"as I mentioned last week\" or \"following up on my last "
+            "email\". The continuity should be invisible."
+        )
+        lines.append("")
     lines.append(
         "Write one concise leasing note per unit (opening prose, a short bullet "
         "list using '- ' prefix, and a closing action line). The intro is a 1-2 "
@@ -635,6 +670,31 @@ def generate_portfolio_leasing_note(
         )
     }
 
+    # Prior-period note for continuity context (+1 query per portfolio)
+    prior_note_obj = PortfolioLeasingNote.objects.filter(
+        portfolio=portfolio,
+        period_type=period_type,
+        period_start=prior_start,
+    ).first()
+    prior_context = {}
+    if prior_note_obj is not None:
+        prev_edited = prior_note_obj.edited_notes or {}
+        prev_actions = prior_note_obj.recommended_actions or {}
+        prev_summaries = (
+            (prior_note_obj.unit_snapshot or {})
+            .get("ai_result", {})
+            .get("unit_summaries", {})
+        )
+        for unit in eligible_units:
+            uid = str(unit.pk)
+            note_text = prev_edited.get(uid) or prev_summaries.get(uid)
+            action_text = prev_actions.get(uid)
+            if note_text or action_text:
+                prior_context[uid] = {
+                    "prior_note": note_text or "",
+                    "prior_action": action_text or "",
+                }
+
     # Build per-unit contexts
     unit_contexts = []
     for unit in eligible_units:
@@ -645,6 +705,7 @@ def generate_portfolio_leasing_note(
 
     user_prompt = build_leasing_prompt(
         portfolio.name, unit_contexts, period_start, period_end,
+        prior_context=prior_context,
     )
 
     if dry_run:
