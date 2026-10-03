@@ -14,6 +14,11 @@ Usage:
     python manage.py send_tenant_notices --sandbox
     python manage.py send_tenant_notices --live
     python manage.py send_tenant_notices --live --as-of 2026-09-05
+    python manage.py send_tenant_notices --dry-run --scheduled
+
+With --scheduled (unattended cron): only 'reminder' (day 5) may dispatch.
+Days 6 and 11 log the withheld kind and exit 0. Without --scheduled, a
+human run selects the kind from the date as before.
 """
 
 import logging
@@ -40,6 +45,11 @@ CADENCE = {
     11: "final",
 }
 
+# The ONLY kind that --scheduled (unattended) mode may dispatch.
+# Hard-coded by design: pay_or_quit and final require human approval.
+# Do not make this configurable by env var or setting.
+SCHEDULED_ALLOWED_KIND = "reminder"
+
 
 class Command(BaseCommand):
     help = (
@@ -55,6 +65,16 @@ class Command(BaseCommand):
             help=(
                 "Override today's date (YYYY-MM-DD). For testing or "
                 "backfilling a missed day."
+            ),
+        )
+        parser.add_argument(
+            "--scheduled",
+            action="store_true",
+            default=False,
+            help=(
+                "Unattended cron mode. May ONLY dispatch 'reminder' (day 5). "
+                "On cadence days 6/11, logs the withheld kind and exits 0. "
+                "Human-triggered kinds require a manual run without this flag."
             ),
         )
         mode = parser.add_mutually_exclusive_group(required=True)
@@ -86,6 +106,7 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         sandbox = options["sandbox"]
         mode_label = "dry-run" if dry_run else "sandbox" if sandbox else "live"
+        scheduled = options["scheduled"]
 
         kind = CADENCE.get(as_of.day)
         if kind is None:
@@ -94,10 +115,34 @@ class Command(BaseCommand):
             )
             return
 
+        # -- Scheduled-mode gate ----------------------------------------------
+        # Unattended runs may ONLY dispatch SCHEDULED_ALLOWED_KIND ('reminder').
+        # Any other cadence kind is withheld — a human must trigger it manually.
+        if scheduled and kind != SCHEDULED_ALLOWED_KIND:
+            logger.info(
+                "tenant_notice_scheduled_skip",
+                extra={
+                    "date": str(as_of),
+                    "day": as_of.day,
+                    "kind_withheld": kind,
+                    "mode": "scheduled",
+                    "send_mode": mode_label,
+                    "reason": (
+                        f"scheduled mode may only dispatch "
+                        f"'{SCHEDULED_ALLOWED_KIND}'"
+                    ),
+                },
+            )
+            self.stdout.write(
+                f"Scheduled mode: withheld '{kind}' on day {as_of.day}. "
+                f"Only '{SCHEDULED_ALLOWED_KIND}' is permitted unattended."
+            )
+            return
+
         period_key = as_of.strftime("%Y-%m")
         self.stdout.write(
             f"Tenant notices: kind={kind}  period={period_key}  "
-            f"as_of={as_of}  mode={mode_label}"
+            f"as_of={as_of}  mode={mode_label}  scheduled={scheduled}"
         )
 
         client = RentvineClient()
