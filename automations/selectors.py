@@ -115,7 +115,8 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
             "delinquent": [
                 {
                     "rentvine_lease_id": int,
-                    "balance": Decimal,
+                    "balance": Decimal,         # decision balance (rent + pet rent)
+                    "display_balance": Decimal,  # display balance (+ late fees)
                     "property_address": str,
                     "rentvine_property_id": int | None,
                     "rentvine_unit_id": int | None,
@@ -123,13 +124,16 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
                 },
                 ...
             ],
-            "skipped_no_lease_id": int,
-            "skipped_voided": int,
+            "skipped_no_lease_id": int,       # decision-set only
+            "skipped_voided": int,             # decision-set only
             "skipped_below_minimum": int,
             "skipped_no_address": int,
             "skipped_status_excluded": int,
             "skipped_status_unknown": int,
-            "total_charges_scanned": int,
+            "total_charges_scanned": int,      # decision-set only
+            "display_only_charges_scanned": int,
+            "display_only_skipped_voided": int,
+            "display_only_skipped_no_lease_id": int,
             "diagnostics": dict,
         }
 
@@ -147,6 +151,10 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
     tenant_account_ids = {
         str(a) for a in getattr(settings, "TENANT_PORTION_ACCOUNT_IDS", {13, 25})
     }
+    # Display accounts are a superset (adds late fees)
+    display_account_ids = {
+        str(a) for a in getattr(settings, "TENANT_NOTICE_DISPLAY_ACCOUNT_IDS", {13, 25, 27})
+    }
     minimum_balance = getattr(
         settings, "TENANT_NOTICE_MINIMUM_BALANCE", Decimal("100.00")
     )
@@ -154,14 +162,22 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
         settings, "TENANT_NOTICE_LEASE_STATUS_IDS", {2}
     )
 
-    # Accumulate balance per lease
+    # Accumulate DECISION balance (tenant_account_ids) and
+    # DISPLAY balance (display_account_ids) per lease.
     lease_balance = defaultdict(Decimal)
+    lease_display_balance = defaultdict(Decimal)
     lease_property = {}  # rentvine_lease_id -> rentvine_property_id
     lease_unit = {}      # rentvine_lease_id -> rentvine_unit_id
 
+    # Decision-set counters (accounts in TENANT_PORTION_ACCOUNT_IDS)
     skipped_no_lease_id = 0
     skipped_voided = 0
     total_charges_scanned = 0
+
+    # Display-only counters (charges in display set but NOT in decision set)
+    display_only_charges_scanned = 0
+    display_only_skipped_voided = 0
+    display_only_skipped_no_lease_id = 0
 
     for record in transactions:
         tx = (
@@ -174,21 +190,33 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
         if str(tx.get("transactionTypeID")) != "1":
             continue
 
-        # Only tenant-portion accounts
-        if str(tx.get("chargeAccountID") or "") not in tenant_account_ids:
+        charge_acct = str(tx.get("chargeAccountID") or "")
+        is_decision_acct = charge_acct in tenant_account_ids
+        is_display_acct = charge_acct in display_account_ids
+
+        if not is_decision_acct and not is_display_acct:
             continue
 
-        total_charges_scanned += 1
+        if is_decision_acct:
+            total_charges_scanned += 1
+        else:
+            display_only_charges_scanned += 1
 
         # Skip voided
         if _is_voided(tx):
-            skipped_voided += 1
+            if is_decision_acct:
+                skipped_voided += 1
+            else:
+                display_only_skipped_voided += 1
             continue
 
         # Must have a leaseID
         lease_id = tx.get("leaseID")
         if lease_id is None or str(lease_id) == "":
-            skipped_no_lease_id += 1
+            if is_decision_acct:
+                skipped_no_lease_id += 1
+            else:
+                display_only_skipped_no_lease_id += 1
             continue
 
         lease_id_int = int(lease_id)
@@ -196,7 +224,10 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
         amount_paid = _safe_decimal(tx.get("amountPaid"))
         outstanding = amount - amount_paid
 
-        lease_balance[lease_id_int] += outstanding
+        if is_decision_acct:
+            lease_balance[lease_id_int] += outstanding
+        if is_display_acct:
+            lease_display_balance[lease_id_int] += outstanding
 
         # Track property/unit for address resolution
         prop_id = tx.get("propertyID")
@@ -273,9 +304,12 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
             )
             continue
 
+        display_bal = lease_display_balance.get(rv_lease_id, balance)
+
         delinquent.append({
             "rentvine_lease_id": rv_lease_id,
             "balance": balance,
+            "display_balance": display_bal,
             "property_address": address,
             "rentvine_property_id": rv_prop_id,
             "rentvine_unit_id": rv_unit_id,
@@ -291,6 +325,10 @@ def get_delinquent_leases(as_of_date, client, *, dry_run=False):
         "skipped_status_excluded": skipped_status_excluded,
         "skipped_status_unknown": skipped_status_unknown,
         "total_charges_scanned": total_charges_scanned,
+        # Display-only counters (late-fee charges not in decision set)
+        "display_only_charges_scanned": display_only_charges_scanned,
+        "display_only_skipped_voided": display_only_skipped_voided,
+        "display_only_skipped_no_lease_id": display_only_skipped_no_lease_id,
         "diagnostics": fetch_diagnostics,
     }
 

@@ -233,3 +233,12 @@ RESIDENT_PORTAL_URL = os.environ.get(
 # RentVine lease_status_id values that receive delinquency notices.
 # 2 = Active. Excluded: 3 (Notice Given), 4 (Vacated), 5 (Evicting).
 TENANT_NOTICE_LEASE_STATUS_IDS = {2}
+
+# Accounts included in the balance PRINTED in tenant notices.
+# 13 = #4100 Rent Income, 25 = #4470 Pet Rent, 27 = #4500 Late Fee.
+# Late fees post on the 6th, so on the 5th this equals the decision balance.
+# Excludes 14 (#4105 Housing Assistance Rent): voucher tenants must never be
+# shown the housing authority's portion as money they owe.
+# Excludes 23 (#4410 NSF Fee): an NSF fee can persist after the related rent is
+# settled, and these notices are about unpaid rent.
+TENANT_NOTICE_DISPLAY_ACCOUNT_IDS = {13, 25, 27}

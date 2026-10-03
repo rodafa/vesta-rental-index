@@ -119,6 +119,13 @@ class Command(BaseCommand):
             f"status_unknown={result['skipped_status_unknown']}  "
             f"charges_scanned={result['total_charges_scanned']}"
         )
+        if dry_run:
+            self.stdout.write(
+                f"Display-only charges: "
+                f"scanned={result['display_only_charges_scanned']}  "
+                f"voided={result['display_only_skipped_voided']}  "
+                f"no_lease_id={result['display_only_skipped_no_lease_id']}"
+            )
 
         if dry_run and result.get("diagnostics", {}).get("voided_value_forms"):
             self.stdout.write(
@@ -140,6 +147,7 @@ class Command(BaseCommand):
         skipped_dedupe = 0
         skipped_no_email = 0
         skipped_hold = 0
+        skipped_no_prior_notice = 0
         failed = 0
 
         resident_portal_url = getattr(_settings, "RESIDENT_PORTAL_URL", "")
@@ -153,6 +161,7 @@ class Command(BaseCommand):
         for entry in delinquent:
             rv_lease_id = entry["rentvine_lease_id"]
             balance = entry["balance"]
+            display_bal = entry["display_balance"]
             address = entry["property_address"]
 
             # R8: Hold check in the command, not the selector
@@ -164,7 +173,8 @@ class Command(BaseCommand):
                         f"  Lease {rv_lease_id}: HELD - "
                         f"reason={hold['reason']!r}  "
                         f"hold_period={hold['period_key']!r}  "
-                        f"balance=${balance:,.2f}  address={address}"
+                        f"balance=${balance:,.2f}  "
+                        f"display=${display_bal:,.2f}  address={address}"
                     )
                 else:
                     logger.info(
@@ -176,6 +186,37 @@ class Command(BaseCommand):
                         },
                     )
                 continue
+
+            # Part B: day-11 requires a prior day-6 with delivery_status="sent"
+            if kind == "final":
+                prior_exists = TenantNotice.objects.filter(
+                    rentvine_lease_id=rv_lease_id,
+                    period_key=period_key,
+                    kind="pay_or_quit",
+                    delivery_status="sent",
+                ).exists()
+                if not prior_exists:
+                    skipped_no_prior_notice += 1
+                    logger.warning(
+                        "tenant_notice_no_prior_pay_or_quit",
+                        extra={
+                            "rentvine_lease_id": rv_lease_id,
+                            "period_key": period_key,
+                        },
+                    )
+                    if dry_run:
+                        self.stdout.write(
+                            f"  Lease {rv_lease_id}: SKIPPED - no prior "
+                            f"pay_or_quit sent for {period_key}  "
+                            f"balance=${balance:,.2f}  "
+                            f"display=${display_bal:,.2f}  address={address}"
+                        )
+                    else:
+                        self.stdout.write(
+                            f"  Lease {rv_lease_id}: no prior pay_or_quit "
+                            f"for {period_key} - skipped"
+                        )
+                    continue
 
             # Resolve tenant emails (R7: API first)
             tenant_info = resolve_lease_tenant_emails(rv_lease_id, client)
@@ -203,7 +244,7 @@ class Command(BaseCommand):
             template_name = f"automations/notices/{kind}.html"
             context = {
                 "property_address": address,
-                "balance_owed": f"{balance:,.2f}",
+                "display_balance": f"{display_bal:,.2f}",
                 "period_key": period_key,
                 "resident_portal_url": resident_portal_url,
                 "recipient_emails": emails,
@@ -228,7 +269,9 @@ class Command(BaseCommand):
                 preview_file = preview_dir / f"lease_{rv_lease_id}.html"
                 preview_file.write_text(body_html, encoding="utf-8")
                 self.stdout.write(
-                    f"  Lease {rv_lease_id}: ${balance:,.2f}  "
+                    f"  Lease {rv_lease_id}: "
+                    f"decision=${balance:,.2f}  "
+                    f"display=${display_bal:,.2f}  "
                     f"to={emails}  missing={missing}  "
                     f"address={address}  "
                     f"status_id={entry.get('lease_status_id')}  "
@@ -253,6 +296,7 @@ class Command(BaseCommand):
                     missing_recipients=missing,
                     property_address=address,
                     balance_owed=balance,
+                    display_balance=display_bal,
                     delivery_status="pending",
                 )
             except IntegrityError:
@@ -322,6 +366,7 @@ class Command(BaseCommand):
                 self.style.SUCCESS(
                     f"Done ({mode_label}): previewed={previewed}  "
                     f"hold={skipped_hold}  no_email={skipped_no_email}  "
+                    f"no_prior_notice={skipped_no_prior_notice}  "
                     f"failed={failed}"
                 )
             )
@@ -330,7 +375,9 @@ class Command(BaseCommand):
                 self.style.SUCCESS(
                     f"Done ({mode_label}): sent={sent}  "
                     f"dedupe={skipped_dedupe}  hold={skipped_hold}  "
-                    f"no_email={skipped_no_email}  failed={failed}"
+                    f"no_email={skipped_no_email}  "
+                    f"no_prior_notice={skipped_no_prior_notice}  "
+                    f"failed={failed}"
                 )
             )
 

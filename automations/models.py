@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 
@@ -70,6 +72,15 @@ class TenantNotice(models.Model):
         max_digits=12,
         decimal_places=2,
         help_text="Total outstanding balance at the time the notice was generated.",
+    )
+    display_balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0"),
+        help_text=(
+            "Balance printed in the notice: rent, pet rent and late fees. "
+            "May exceed balance_owed, which governs whether a notice is sent."
+        ),
     )
 
     # Delivery
