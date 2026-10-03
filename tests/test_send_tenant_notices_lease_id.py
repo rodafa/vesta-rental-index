@@ -31,6 +31,11 @@ RENDER_PATH = (
     ".render_to_string"
 )
 
+LOAD_HOLDS_PATH = (
+    "automations.management.commands.send_tenant_notices"
+    ".Command._load_holds"
+)
+
 
 def _selector_result(delinquent=None):
     """Build a minimal selector return value."""
@@ -65,10 +70,11 @@ def _delinquent_entry(rv_lease_id, address="123 Main St"):
 # ---------------------------------------------------------------------------
 
 
+@patch(LOAD_HOLDS_PATH, return_value={})
 @patch(RENDER_PATH, return_value="<html>preview</html>")
 @patch(RESOLVE_EMAILS_PATH, return_value={"emails": ["t@example.com"], "missing_recipients": []})
 @patch(SELECTOR_PATH)
-def test_lease_id_in_set_only_processes_target(mock_selector, _mock_emails, _mock_render):
+def test_lease_id_in_set_only_processes_target(mock_selector, _mock_emails, _mock_render, _mock_holds):
     """When --lease-id names a lease in the set, only that lease is processed."""
     mock_selector.return_value = _selector_result(
         delinquent=[
