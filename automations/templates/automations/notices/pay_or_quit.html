@@ -1,80 +1,150 @@
 <!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;color:#222222;background:#f5f5f5;">
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#EFF5F9; font-family:Georgia, serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden;">
 
-<div style="background:#1E3D58;color:#ffffff;padding:20px;text-align:center;font-size:22px;font-weight:bold;">
-  Vesta Property Management
-</div>
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1E3D58; padding:32px 32px; text-align:center;">
+              <h1 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:22px; font-weight:700; color:#ffffff;">
+                Vesta Property Management
+              </h1>
+            </td>
+          </tr>
 
-<div style="max-width:600px;margin:20px auto;background:#ffffff;padding:32px;border-radius:4px;">
+          <!-- English -->
+          <tr>
+            <td style="padding:32px 32px 0;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Dear Resident,</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">***En Espa&ntilde;ol al final</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">This is an official 5-Day Notice to Pay or Quit regarding your lease agreement for the property located at {{ property_address }}.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Our records indicate that your rent payment in the amount of ${{ display_balance }} for this month has not been received. According to the terms of your lease agreement, rent is due on the 1st of the month, and as of today, your balance remains unpaid.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">This amount includes late fees applied to your account. Log in to your resident portal to see a full breakdown of charges.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">****If part of your rent is covered by housing assistance, then you can disregard this email. We will clear out any late fees associated with housing assistance.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">****If on housing assistance, MAKE SURE TO PAY YOUR PORTION. Late fees will not be waived if they are due to your portion of rent not being paid on time.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">You are hereby notified that you have five (5) days from the date of this notice to remit full payment or vacate the premises. Failure to pay the outstanding balance in full by the 11th of this month may result in legal action, including eviction proceedings.</p>
+            </td>
+          </tr>
 
-<p>Dear Resident,</p>
+          <!-- Payment Instructions -->
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9; border-radius:6px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58;">Payment Instructions:</p>
+                    <p style="margin:8px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Amount Due: ${{ display_balance }}</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Due Date: 11th of the Month.</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Payment Methods Accepted: Certified Funds OR Resident Portal</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">(If paid online, payment must clear by the 11th, so it must be paid by the 9th)</p>
+                    {% if resident_portal_url %}
+                    <p style="margin:10px 0 4px; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Payment Link (if applicable):</p>
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ resident_portal_url }}" style="height:44px;v-text-anchor:middle;width:200px;" arcsize="14%" fillcolor="#1E3D58" stroke="f">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;">Pay Now</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!--><a href="{{ resident_portal_url }}" target="_blank" style="display:inline-block; padding:10px 24px; background-color:#1E3D58; color:#ffffff; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; text-decoration:none; border-radius:6px; mso-hide:all;">Pay Now</a><!--<![endif]-->
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-<p>***En Espa&ntilde;ol al final</p>
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">If you believe this notice has been sent in error or if you have already made your payment, please provide proof of payment immediately. Please respond to this notice ASAP if you need to discuss your outstanding balance.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">We strongly encourage you to resolve this matter promptly to avoid further action.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">PS: Thank you if you have already spoken with someone on our team. Regardless of the repayment plan, this notice is accurate until rent is paid.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">DISCLAIMER: If you have a written agreement with VestaPM regarding an outstanding balance, please disregard this notice.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Vesta Property Management</p>
+            </td>
+          </tr>
 
-<p>This is an official 5-Day Notice to Pay or Quit regarding your lease agreement for the property located at {{ property_address }}.</p>
+          <!-- Language Divider -->
+          <tr>
+            <td style="padding:24px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background-color:#1E3D58; padding:10px; text-align:center; border-radius:4px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; color:#6EA5CD;">En Espa&ntilde;ol</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-<p>Our records indicate that your rent payment in the amount of ${{ display_balance }} for this month has not been received. According to the terms of your lease agreement, rent is due on the 1st of the month, and as of today, your balance remains unpaid.</p>
+          <!-- Spanish -->
+          <tr>
+            <td style="padding:24px 32px 0;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Estimado/a Residente,</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Este es un Aviso Oficial de 5 D&iacute;as para Pagar o Desocupar en relaci&oacute;n con su contrato de arrendamiento de la propiedad ubicada en {{ property_address }}.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Nuestros registros indican que no hemos recibido su pago de renta por la cantidad de ${{ display_balance }} correspondiente a este mes. De acuerdo con los t&eacute;rminos de su contrato de arrendamiento, la renta vence el 1.&ordm; del mes, y hasta el d&iacute;a de hoy, su saldo permanece sin pagar.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Este monto incluye los cargos por mora aplicados a su cuenta. Inicie sesi&oacute;n en su portal del residente para ver un desglose completo de los cargos.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">****Si parte de su renta est&aacute; cubierta por asistencia de vivienda, puede ignorar este correo. Eliminaremos cualquier cargo por mora asociado con la asistencia de vivienda.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">****Si recibe asistencia de vivienda, ASEG&Uacute;RESE DE PAGAR SU PORCI&Oacute;N. No se eliminar&aacute;n los cargos por mora si se deben a la falta de pago de su porci&oacute;n de la renta a tiempo.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Por medio de la presente se le notifica que tiene cinco (5) d&iacute;as a partir de la fecha de este aviso para realizar el pago completo o desocupar la propiedad. Si no paga el saldo pendiente en su totalidad antes del d&iacute;a 11 de este mes, se podr&iacute;an iniciar acciones legales, incluyendo un proceso de desalojo.</p>
+            </td>
+          </tr>
 
-<p>This amount includes late fees applied to your account. Log in to your resident portal to see a full breakdown of charges.</p>
+          <!-- Instrucciones de Pago -->
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9; border-radius:6px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58;">Instrucciones de Pago:</p>
+                    <p style="margin:8px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Monto Adeudado: ${{ display_balance }}</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Fecha L&iacute;mite: 11 del mes</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">M&eacute;todos de Pago Aceptados: Fondos Certificados O Portal del Residente</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">(Si paga en l&iacute;nea, el pago debe ser procesado antes del d&iacute;a 11, por lo que debe realizarse antes del d&iacute;a 9)</p>
+                    {% if resident_portal_url %}
+                    <p style="margin:10px 0 4px; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Enlace de Pago (si aplica):</p>
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ resident_portal_url }}" style="height:44px;v-text-anchor:middle;width:200px;" arcsize="14%" fillcolor="#1E3D58" stroke="f">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;">Pagar Ahora</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!--><a href="{{ resident_portal_url }}" target="_blank" style="display:inline-block; padding:10px 24px; background-color:#1E3D58; color:#ffffff; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; text-decoration:none; border-radius:6px; mso-hide:all;">Pagar Ahora</a><!--<![endif]-->
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-<p>****If part of your rent is covered by housing assistance, then you can disregard this email. We will clear out any late fees associated with housing assistance.</p>
+          <tr>
+            <td style="padding:16px 32px 24px;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Si cree que este aviso fue enviado por error o si ya realiz&oacute; su pago, por favor proporcione un comprobante de pago de inmediato. Responda a este aviso lo antes posible si necesita hablar sobre su saldo pendiente.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Le recomendamos encarecidamente resolver este asunto de manera oportuna para evitar acciones adicionales.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">PD: Gracias si ya ha hablado con alguien de nuestro equipo. Independientemente del plan de pago acordado, este aviso es v&aacute;lido hasta que la renta sea pagada.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">AVISO LEGAL: Si usted tiene un acuerdo por escrito con VestaPM respecto a un saldo pendiente, por favor ignore este aviso.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Vesta Property Management</p>
+            </td>
+          </tr>
 
-<p>****If on housing assistance, MAKE SURE TO PAY YOUR PORTION. Late fees will not be waived if they are due to your portion of rent not being paid on time.</p>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:32px 32px; background-color:#1E3D58;">
+              <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#4a7a9e; text-align:center;">
+                Vesta Property Management &bull; Asheville, NC
+              </p>
+            </td>
+          </tr>
 
-<p>You are hereby notified that you have five (5) days from the date of this notice to remit full payment or vacate the premises. Failure to pay the outstanding balance in full by the 11th of this month may result in legal action, including eviction proceedings.</p>
-
-<p><strong>Payment Instructions:</strong><br>
-Amount Due: ${{ display_balance }}<br>
-Due Date: 11th of the Month.<br>
-Payment Methods Accepted: Certified Funds OR Resident Portal<br>
-(If paid online, payment must clear by the 11th, so it must be paid by the 9th)<br>
-{% if resident_portal_url %}Payment Link (if applicable): <a href="{{ resident_portal_url }}" style="background:#1E3D58;color:#ffffff;padding:8px 20px;text-decoration:none;border-radius:4px;display:inline-block;margin-top:6px;">Pay Now</a>{% endif %}</p>
-
-<p>If you believe this notice has been sent in error or if you have already made your payment, please provide proof of payment immediately. Please respond to this notice ASAP if you need to discuss your outstanding balance.</p>
-
-<p>We strongly encourage you to resolve this matter promptly to avoid further action.</p>
-
-<p>PS: Thank you if you have already spoken with someone on our team. Regardless of the repayment plan, this notice is accurate until rent is paid.</p>
-
-<p>DISCLAIMER: If you have a written agreement with VestaPM regarding an outstanding balance, please disregard this notice.</p>
-
-<p>Vesta Property Management</p>
-
-<hr style="border:none;border-top:2px solid #1E3D58;margin:32px 0;">
-
-<p>Estimado/a Residente,</p>
-
-<p>Este es un Aviso Oficial de 5 D&iacute;as para Pagar o Desocupar en relaci&oacute;n con su contrato de arrendamiento de la propiedad ubicada en {{ property_address }}.</p>
-
-<p>Nuestros registros indican que no hemos recibido su pago de renta por la cantidad de ${{ display_balance }} correspondiente a este mes. De acuerdo con los t&eacute;rminos de su contrato de arrendamiento, la renta vence el 1.&ordm; del mes, y hasta el d&iacute;a de hoy, su saldo permanece sin pagar.</p>
-
-<p>Este monto incluye los cargos por mora aplicados a su cuenta. Inicie sesi&oacute;n en su portal del residente para ver un desglose completo de los cargos.</p>
-
-<p>****Si parte de su renta est&aacute; cubierta por asistencia de vivienda, puede ignorar este correo. Eliminaremos cualquier cargo por mora asociado con la asistencia de vivienda.</p>
-
-<p>****Si recibe asistencia de vivienda, ASEG&Uacute;RESE DE PAGAR SU PORCI&Oacute;N. No se eliminar&aacute;n los cargos por mora si se deben a la falta de pago de su porci&oacute;n de la renta a tiempo.</p>
-
-<p>Por medio de la presente se le notifica que tiene cinco (5) d&iacute;as a partir de la fecha de este aviso para realizar el pago completo o desocupar la propiedad. Si no paga el saldo pendiente en su totalidad antes del d&iacute;a 11 de este mes, se podr&iacute;an iniciar acciones legales, incluyendo un proceso de desalojo.</p>
-
-<p><strong>Instrucciones de Pago:</strong><br>
-Monto Adeudado: ${{ display_balance }}<br>
-Fecha L&iacute;mite: 11 del mes<br>
-M&eacute;todos de Pago Aceptados: Fondos Certificados O Portal del Residente<br>
-(Si paga en l&iacute;nea, el pago debe ser procesado antes del d&iacute;a 11, por lo que debe realizarse antes del d&iacute;a 9)<br>
-{% if resident_portal_url %}Enlace de Pago (si aplica): <a href="{{ resident_portal_url }}" style="background:#1E3D58;color:#ffffff;padding:8px 20px;text-decoration:none;border-radius:4px;display:inline-block;margin-top:6px;">Pagar Ahora</a>{% endif %}</p>
-
-<p>Si cree que este aviso fue enviado por error o si ya realiz&oacute; su pago, por favor proporcione un comprobante de pago de inmediato. Responda a este aviso lo antes posible si necesita hablar sobre su saldo pendiente.</p>
-
-<p>Le recomendamos encarecidamente resolver este asunto de manera oportuna para evitar acciones adicionales.</p>
-
-<p>PD: Gracias si ya ha hablado con alguien de nuestro equipo. Independientemente del plan de pago acordado, este aviso es v&aacute;lido hasta que la renta sea pagada.</p>
-
-<p>AVISO LEGAL: Si usted tiene un acuerdo por escrito con VestaPM respecto a un saldo pendiente, por favor ignore este aviso.</p>
-
-<p>Vesta Property Management</p>
-
-</div>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>

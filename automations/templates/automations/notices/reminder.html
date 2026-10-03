@@ -1,52 +1,134 @@
 <!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;color:#222222;background:#f5f5f5;">
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#EFF5F9; font-family:Georgia, serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px; width:100%; background-color:#ffffff; border-radius:8px; overflow:hidden;">
 
-<div style="background:#1E3D58;color:#ffffff;padding:20px;text-align:center;font-size:22px;font-weight:bold;">
-  Vesta Property Management
-</div>
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1E3D58; padding:32px 32px; text-align:center;">
+              <h1 style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:22px; font-weight:700; color:#ffffff;">
+                Vesta Property Management
+              </h1>
+            </td>
+          </tr>
 
-<div style="max-width:600px;margin:20px auto;background:#ffffff;padding:32px;border-radius:4px;">
+          <!-- English -->
+          <tr>
+            <td style="padding:32px 32px 0;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Dear Resident,</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">***En Espa&ntilde;ol al final</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">This is a friendly reminder that your rent for the property at {{ property_address }} has not yet been paid in full. Your current balance is ${{ display_balance }}.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Today is the last day to pay before late fees are applied to your account.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">****If part of your rent is covered by housing assistance, the balance above reflects your portion only. Please make sure your portion is paid on time. Late fees will not be waived if they are due to your portion of rent not being paid on time.</p>
+            </td>
+          </tr>
 
-<p>Dear Resident,</p>
+          <!-- Payment Instructions -->
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9; border-radius:6px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58;">Payment Instructions:</p>
+                    <p style="margin:8px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Amount Due: ${{ display_balance }}</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Payment Methods Accepted: Certified Funds OR Resident Portal</p>
+                    {% if resident_portal_url %}
+                    <p style="margin:10px 0 4px; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Payment Link:</p>
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ resident_portal_url }}" style="height:44px;v-text-anchor:middle;width:200px;" arcsize="14%" fillcolor="#1E3D58" stroke="f">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;">Pay Now</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!--><a href="{{ resident_portal_url }}" target="_blank" style="display:inline-block; padding:10px 24px; background-color:#1E3D58; color:#ffffff; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; text-decoration:none; border-radius:6px; mso-hide:all;">Pay Now</a><!--<![endif]-->
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-<p>***En Espa&ntilde;ol al final</p>
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">If you have already made this payment, please disregard this notice. If you are unable to pay in full today, please contact us as soon as possible. Good communication solves most issues.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Vesta Property Management</p>
+            </td>
+          </tr>
 
-<p>This is a friendly reminder that your rent for the property at {{ property_address }} has not yet been paid in full. Your current balance is ${{ display_balance }}.</p>
+          <!-- Language Divider -->
+          <tr>
+            <td style="padding:24px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background-color:#1E3D58; padding:10px; text-align:center; border-radius:4px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; color:#6EA5CD;">En Espa&ntilde;ol</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-<p>Today is the last day to pay before late fees are applied to your account.</p>
+          <!-- Spanish -->
+          <tr>
+            <td style="padding:24px 32px 0;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Estimado/a Residente,</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Este es un recordatorio de que su renta para la propiedad ubicada en {{ property_address }} a&uacute;n no ha sido pagada en su totalidad. Su saldo actual es de ${{ display_balance }}.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Hoy es el &uacute;ltimo d&iacute;a para pagar antes de que se apliquen cargos por mora a su cuenta.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">****Si parte de su renta est&aacute; cubierta por asistencia de vivienda, el saldo indicado corresponde &uacute;nicamente a su porci&oacute;n. Aseg&uacute;rese de pagar su porci&oacute;n a tiempo. No se eliminar&aacute;n los cargos por mora si se deben a la falta de pago de su porci&oacute;n.</p>
+            </td>
+          </tr>
 
-<p>****If part of your rent is covered by housing assistance, the balance above reflects your portion only. Please make sure your portion is paid on time. Late fees will not be waived if they are due to your portion of rent not being paid on time.</p>
+          <!-- Instrucciones de Pago -->
+          <tr>
+            <td style="padding:16px 32px 0;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#EFF5F9; border-radius:6px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:15px; font-weight:700; color:#1E3D58;">Instrucciones de Pago:</p>
+                    <p style="margin:8px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Monto Adeudado: ${{ display_balance }}</p>
+                    <p style="margin:6px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">M&eacute;todos de Pago Aceptados: Fondos Certificados O Portal del Residente</p>
+                    {% if resident_portal_url %}
+                    <p style="margin:10px 0 4px; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Enlace de Pago:</p>
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ resident_portal_url }}" style="height:44px;v-text-anchor:middle;width:200px;" arcsize="14%" fillcolor="#1E3D58" stroke="f">
+                      <w:anchorlock/>
+                      <center style="color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;">Pagar Ahora</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!--><a href="{{ resident_portal_url }}" target="_blank" style="display:inline-block; padding:10px 24px; background-color:#1E3D58; color:#ffffff; font-family:Helvetica, Arial, sans-serif; font-size:14px; font-weight:600; text-decoration:none; border-radius:6px; mso-hide:all;">Pagar Ahora</a><!--<![endif]-->
+                    {% endif %}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-<p><strong>Payment Instructions:</strong><br>
-Amount Due: ${{ display_balance }}<br>
-Payment Methods Accepted: Certified Funds OR Resident Portal<br>
-{% if resident_portal_url %}Payment Link: <a href="{{ resident_portal_url }}" style="background:#1E3D58;color:#ffffff;padding:8px 20px;text-decoration:none;border-radius:4px;display:inline-block;margin-top:6px;">Pay Now</a>{% endif %}</p>
+          <tr>
+            <td style="padding:16px 32px 24px;">
+              <p style="margin:0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Si ya realiz&oacute; este pago, ignore este aviso. Si no puede pagar el monto completo hoy, comun&iacute;quese con nosotros lo antes posible. La buena comunicaci&oacute;n resuelve la mayor&iacute;a de los problemas.</p>
+              <p style="margin:12px 0 0; font-family:Georgia, serif; font-size:15px; line-height:1.6; color:#222222;">Vesta Property Management</p>
+            </td>
+          </tr>
 
-<p>If you have already made this payment, please disregard this notice. If you are unable to pay in full today, please contact us as soon as possible. Good communication solves most issues.</p>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:32px 32px; background-color:#1E3D58;">
+              <p style="margin:0; font-family:Helvetica, Arial, sans-serif; font-size:11px; color:#4a7a9e; text-align:center;">
+                Vesta Property Management &bull; Asheville, NC
+              </p>
+            </td>
+          </tr>
 
-<p>Vesta Property Management</p>
-
-<hr style="border:none;border-top:2px solid #1E3D58;margin:32px 0;">
-
-<p>Estimado/a Residente,</p>
-
-<p>Este es un recordatorio de que su renta para la propiedad ubicada en {{ property_address }} a&uacute;n no ha sido pagada en su totalidad. Su saldo actual es de ${{ display_balance }}.</p>
-
-<p>Hoy es el &uacute;ltimo d&iacute;a para pagar antes de que se apliquen cargos por mora a su cuenta.</p>
-
-<p>****Si parte de su renta est&aacute; cubierta por asistencia de vivienda, el saldo indicado corresponde &uacute;nicamente a su porci&oacute;n. Aseg&uacute;rese de pagar su porci&oacute;n a tiempo. No se eliminar&aacute;n los cargos por mora si se deben a la falta de pago de su porci&oacute;n.</p>
-
-<p><strong>Instrucciones de Pago:</strong><br>
-Monto Adeudado: ${{ display_balance }}<br>
-M&eacute;todos de Pago Aceptados: Fondos Certificados O Portal del Residente<br>
-{% if resident_portal_url %}Enlace de Pago: <a href="{{ resident_portal_url }}" style="background:#1E3D58;color:#ffffff;padding:8px 20px;text-decoration:none;border-radius:4px;display:inline-block;margin-top:6px;">Pagar Ahora</a>{% endif %}</p>
-
-<p>Si ya realiz&oacute; este pago, ignore este aviso. Si no puede pagar el monto completo hoy, comun&iacute;quese con nosotros lo antes posible. La buena comunicaci&oacute;n resuelve la mayor&iacute;a de los problemas.</p>
-
-<p>Vesta Property Management</p>
-
-</div>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
