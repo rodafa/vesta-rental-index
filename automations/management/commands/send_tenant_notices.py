@@ -15,6 +15,7 @@ Usage:
     python manage.py send_tenant_notices --live
     python manage.py send_tenant_notices --live --as-of 2026-09-05
     python manage.py send_tenant_notices --dry-run --scheduled
+    python manage.py send_tenant_notices --live --lease-id 161
 
 With --scheduled (unattended cron): only 'reminder' (day 5) may dispatch.
 Days 6 and 11 log the withheld kind and exit 0. Without --scheduled, a
@@ -26,7 +27,7 @@ from datetime import date
 from pathlib import Path
 
 from django.conf import settings as _settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import IntegrityError
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -77,6 +78,17 @@ class Command(BaseCommand):
                 "Human-triggered kinds require a manual run without this flag."
             ),
         )
+        parser.add_argument(
+            "--lease-id",
+            type=int,
+            default=None,
+            help=(
+                "Restrict to a single Rentvine lease ID (the numeric ID from "
+                "RentVine, not the local database PK). The lease must appear "
+                "in the delinquent set after all selector exclusions apply. "
+                "Mutually exclusive with --scheduled."
+            ),
+        )
         mode = parser.add_mutually_exclusive_group(required=True)
         mode.add_argument(
             "--dry-run",
@@ -107,6 +119,12 @@ class Command(BaseCommand):
         sandbox = options["sandbox"]
         mode_label = "dry-run" if dry_run else "sandbox" if sandbox else "live"
         scheduled = options["scheduled"]
+        target_lease_id = options["lease_id"]
+        if target_lease_id is not None and scheduled:
+            raise CommandError(
+                "--lease-id and --scheduled are mutually exclusive. "
+                "An unattended run never targets a single lease."
+            )
 
         kind = CADENCE.get(as_of.day)
         if kind is None:
@@ -142,7 +160,8 @@ class Command(BaseCommand):
         period_key = as_of.strftime("%Y-%m")
         self.stdout.write(
             f"Tenant notices: kind={kind}  period={period_key}  "
-            f"as_of={as_of}  mode={mode_label}  scheduled={scheduled}"
+            f"as_of={as_of}  mode={mode_label}  scheduled={scheduled}  "
+            f"lease_id={target_lease_id}"
         )
 
         client = RentvineClient()
@@ -176,6 +195,38 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"  isVoided value forms seen: "
                 f"{result['diagnostics']['voided_value_forms']}"
+            )
+
+        # -- Single-lease filter -----------------------------------------------
+        if target_lease_id is not None:
+            match = [
+                e for e in delinquent
+                if e["rentvine_lease_id"] == target_lease_id
+            ]
+            if not match:
+                logger.info(
+                    "tenant_notice_lease_not_in_delinquent_set",
+                    extra={
+                        "rentvine_lease_id": target_lease_id,
+                        "date": str(as_of),
+                        "kind": kind,
+                        "delinquent_count": len(delinquent),
+                        "reason": (
+                            "lease not found in delinquent set after selector "
+                            "exclusions (voided, below minimum, status "
+                            "excluded, no address, or no lease id)"
+                        ),
+                    },
+                )
+                self.stdout.write(
+                    f"Lease {target_lease_id} not in delinquent set "
+                    f"({len(delinquent)} leases qualified). Nothing to send."
+                )
+                return
+            delinquent = match
+            self.stdout.write(
+                f"Single-lease mode: targeting Rentvine lease "
+                f"{target_lease_id}"
             )
 
         if not delinquent:
