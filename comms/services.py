@@ -2726,6 +2726,7 @@ def send_draft(
     acting_user,
     recipient_override: str | None = None,
     sandbox: bool = False,
+    resend: bool = False,
 ) -> dict:
     """
     Send a single EmailDraft via SendGrid.
@@ -2740,7 +2741,7 @@ def send_draft(
         )
 
     # 2. State guards
-    if draft.status == "sent":
+    if draft.status == "sent" and not resend:
         raise ValueError(f"Draft {draft.pk} has already been sent")
     if not draft.subject or not draft.subject.strip():
         raise ValueError(f"Draft {draft.pk} has an empty subject")
@@ -2760,6 +2761,8 @@ def send_draft(
         mode = "sandbox"
     elif recipient_override:
         mode = "test"
+    elif resend:
+        mode = "resend"
     else:
         mode = "live"
 
@@ -2795,8 +2798,8 @@ def send_draft(
             "notes_html": notes_html,
         }
 
-        # CC accounting
-        if not sandbox:
+        # CC accounting (skip on resend — accounting already has the original)
+        if not sandbox and not resend:
             cc_email = getattr(settings, "COMMS_CC_EMAIL", "")
             if cc_email:
                 message.add_cc(Cc(cc_email))
@@ -2849,10 +2852,15 @@ def send_draft(
 
     # 5. Mark sent ONLY on live send (not sandbox, not test-email)
     if not sandbox and recipient_override is None:
-        draft.status = "sent"
-        draft.sent_at = timezone.now()
-        draft.sent_by = acting_user
-        draft.save(update_fields=["status", "sent_at", "sent_by"])
+        if resend:
+            draft.sent_at = timezone.now()
+            draft.sent_by = acting_user
+            draft.save(update_fields=["sent_at", "sent_by"])
+        else:
+            draft.status = "sent"
+            draft.sent_at = timezone.now()
+            draft.sent_by = acting_user
+            draft.save(update_fields=["status", "sent_at", "sent_by"])
 
     # 7. Structured log
     result = {
@@ -2867,6 +2875,46 @@ def send_draft(
     logger.info("comms_send_draft_ok", extra=result)
 
     return result
+
+
+def resend_monthly_owner_emails(period_start, sent_before, acting_user, *, limit=None, dry_run=False):
+    """
+    Re-deliver monthly owner emails whose original send used a stale template.
+
+    Selects EmailDrafts that were sent before *sent_before* and yields one
+    result dict per draft.  Uses the draft's stored body_html (no reassembly).
+    Stops on the first send failure so the operator can investigate.
+
+    A successful resend updates sent_at to now(), which moves the draft past
+    the cutoff so re-running is safe.
+
+    Yields dicts: {"draft", "action": "would_send"|"sent"|"failed", ...}
+    """
+    eligible = (
+        EmailDraft.objects.filter(
+            product="monthly_owner_notes",
+            period_type="monthly",
+            period_start=period_start,
+            status="sent",
+            sent_at__lt=sent_before,
+        )
+        .exclude(body_html="")
+        .order_by("pk")
+    )
+    if limit is not None:
+        eligible = eligible[:limit]
+
+    for draft in eligible:
+        if dry_run:
+            yield {"draft": draft, "action": "would_send"}
+            continue
+
+        try:
+            result = send_draft(draft, acting_user, resend=True)
+            yield {"draft": draft, "action": "sent", "result": result}
+        except Exception as exc:
+            yield {"draft": draft, "action": "failed", "error": str(exc)}
+            return  # stop on first failure
 
 
 # ---------------------------------------------------------------------------
