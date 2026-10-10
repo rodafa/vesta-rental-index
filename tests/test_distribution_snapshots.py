@@ -24,9 +24,13 @@ from unittest.mock import patch
 import pytest
 
 from comms.models import PortfolioDistributionSnapshot
-from comms.selectors import get_portfolio_distribution, get_rent_by_property
+from comms.selectors import (
+    _build_lease_date_index,
+    get_portfolio_distribution,
+    get_rent_by_property,
+)
 from comms.services import build_distribution_snapshot, upsert_distribution_snapshot
-from core.models import Portfolio, Property
+from core.models import Lease, Portfolio, Property, Unit
 
 pytestmark = pytest.mark.django_db
 
@@ -48,6 +52,7 @@ def _rent_tx(
     date_posted="2026-06-01",
     charge_account_id=13,
     is_voided=0,
+    lease_id=500,
 ):
     """Build a type-1 rent income transaction record."""
     return {
@@ -57,6 +62,7 @@ def _rent_tx(
             "portfolioID": str(portfolio_id),
             "propertyID": str(property_id) if property_id is not None else None,
             "unitID": "100",
+            "leaseID": str(lease_id) if lease_id is not None else None,
             "chargeAccountID": str(charge_account_id),
             "amount": str(amount),
             "amountPaid": str(amount_paid),
@@ -121,6 +127,40 @@ def prop_b(portfolio):
         portfolio=portfolio,
         address_line_1="456 Oak Ave",
         is_active=True,
+    )
+
+
+@pytest.fixture
+def unit_a(prop_a):
+    return Unit.objects.create(
+        rentvine_id=100,
+        property=prop_a,
+        name="Unit A",
+        is_active=True,
+    )
+
+
+@pytest.fixture
+def active_lease(prop_a, unit_a):
+    """Lease active during June 2026 (the test month)."""
+    return Lease.objects.create(
+        rentvine_id=500,
+        unit=unit_a,
+        property=prop_a,
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 12, 31),
+    )
+
+
+@pytest.fixture
+def closed_lease(prop_a, unit_a):
+    """Lease that ended before June 2026."""
+    return Lease.objects.create(
+        rentvine_id=501,
+        unit=unit_a,
+        property=prop_a,
+        start_date=date(2025, 7, 1),
+        end_date=date(2026, 5, 31),
     )
 
 
@@ -254,6 +294,143 @@ class TestGetRentByProperty:
 
 
 # ---------------------------------------------------------------------------
+# Lease overlap filter tests
+# ---------------------------------------------------------------------------
+
+
+class TestLeaseOverlapFilter:
+    """Lease date-overlap gate in get_rent_by_property."""
+
+    def test_active_lease_included(self, portfolio, prop_a, active_lease):
+        """Charge on a lease active during the month is included."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=500)]
+        index = {500: (date(2026, 1, 1), date(2026, 12, 31))}
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert len(result) == 1
+        assert result[0]["expected"] == Decimal("2300.00")
+        assert result[0]["collected"] == Decimal("2300.00")
+
+    def test_closed_before_month_excluded(self, portfolio, prop_a):
+        """Lease ended May 31 — excluded from June. Both expected and collected."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "0.00", lease_id=501)]
+        index = {501: (date(2025, 7, 1), date(2026, 5, 31))}
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert result == []
+
+    def test_starts_after_month_excluded(self, portfolio, prop_a):
+        """Lease starting July 1 — excluded from June."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "0.00", lease_id=502)]
+        index = {502: (date(2026, 7, 1), date(2027, 6, 30))}
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert result == []
+
+    def test_mid_month_overlap_included(self, portfolio, prop_a):
+        """Lease ending June 14 overlaps June — included with amount as-is."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "1150.00", lease_id=503)]
+        index = {503: (date(2025, 7, 1), date(2026, 6, 14))}
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert len(result) == 1
+        assert result[0]["expected"] == Decimal("2300.00")  # no proration
+        assert result[0]["collected"] == Decimal("1150.00")
+
+    def test_open_ended_lease_included(self, portfolio, prop_a):
+        """Lease with end_date=None (month-to-month) is included."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=504)]
+        index = {504: (date(2026, 1, 1), None)}
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert len(result) == 1
+        assert result[0]["expected"] == Decimal("2300.00")
+
+    def test_no_lease_id_on_tx_excluded(self, portfolio, prop_a):
+        """Charge with leaseID=None is excluded when index is provided."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=None)]
+        index = {}
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert result == []
+
+    def test_lease_not_in_db_excluded(self, portfolio, prop_a):
+        """Charge whose leaseID has no matching local Lease — excluded."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=999)]
+        index = {}  # lease 999 not in index
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs, lease_date_index=index,
+        )
+        assert result == []
+
+    def test_78_moody_replication(self, portfolio, prop_a):
+        """
+        78 Moody Avenue bug replication:
+        Lease #100 closed Sept 30. October distribution should show
+        expected=$0, not $2,300. The charge exists (RentVine posted it)
+        but the lease was not active in October.
+        """
+        oct_start = date(2026, 10, 1)
+        oct_end = date(2026, 10, 31)
+        # Lease closed Sept 30
+        index = {100: (date(2026, 1, 1), date(2026, 9, 30))}
+        txs = [
+            _rent_tx(
+                1, 82, 146, "2300.00", "0.00",
+                date_posted="2026-10-01", lease_id=100,
+            ),
+        ]
+        result = get_rent_by_property(
+            portfolio, oct_start, oct_end, txs, lease_date_index=index,
+        )
+        # Entire charge excluded — expected and collected both absent
+        assert result == []
+
+    def test_without_index_old_behavior_preserved(self, portfolio, prop_a):
+        """When lease_date_index is None (not provided), no lease filtering occurs."""
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=501)]
+        result = get_rent_by_property(
+            portfolio, MONTH_START, MONTH_END, txs,
+        )
+        assert len(result) == 1
+        assert result[0]["expected"] == Decimal("2300.00")
+
+
+# ---------------------------------------------------------------------------
+# Lease date index builder tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildLeaseDateIndex:
+    """Tests for the lease-date index builder."""
+
+    def test_builds_index_from_transactions(self, portfolio, prop_a, unit_a, active_lease):
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=500)]
+        index = _build_lease_date_index(txs)
+        assert index == {500: (date(2026, 1, 1), date(2026, 12, 31))}
+
+    def test_missing_lease_absent_from_index(self, portfolio, prop_a):
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=999)]
+        index = _build_lease_date_index(txs)
+        assert 999 not in index
+
+    def test_empty_transactions(self):
+        index = _build_lease_date_index([])
+        assert index == {}
+
+    def test_no_lease_id_on_tx(self):
+        txs = [_rent_tx(1, 82, 146, "2300.00", "2300.00", lease_id=None)]
+        index = _build_lease_date_index(txs)
+        assert index == {}
+
+
+# ---------------------------------------------------------------------------
 # Distribution selector tests
 # ---------------------------------------------------------------------------
 
@@ -304,9 +481,24 @@ class TestGetPortfolioDistribution:
 
 class TestBuildDistributionSnapshot:
     def test_assembles_payload_from_selectors(self, portfolio, prop_a, prop_b):
+        # Create units and leases so the lease-date index can resolve
+        unit_a = Unit.objects.create(
+            rentvine_id=100, property=prop_a, name="A", is_active=True,
+        )
+        unit_b = Unit.objects.create(
+            rentvine_id=101, property=prop_b, name="B", is_active=True,
+        )
+        Lease.objects.create(
+            rentvine_id=500, unit=unit_a, property=prop_a,
+            start_date=date(2026, 1, 1), end_date=date(2026, 12, 31),
+        )
+        Lease.objects.create(
+            rentvine_id=501, unit=unit_b, property=prop_b,
+            start_date=date(2026, 1, 1), end_date=date(2026, 12, 31),
+        )
         txs = [
-            _rent_tx(1, 82, 146, "2300.00", "1800.00"),
-            _rent_tx(2, 82, 12, "1450.00", "1450.00"),
+            _rent_tx(1, 82, 146, "2300.00", "1800.00", lease_id=500),
+            _rent_tx(2, 82, 12, "1450.00", "1450.00", lease_id=501),
             _dist_tx(10, 82, "3000.00", date_posted="2026-06-11"),
         ]
         payload = build_distribution_snapshot(

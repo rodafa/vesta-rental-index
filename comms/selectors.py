@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 
-from core.models import Property
+from core.models import Lease, Property
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,34 @@ def _is_voided(tx):
     return str(tx.get("isVoided", "0")) == "1"
 
 
-def get_rent_by_property(portfolio, month_start, month_end, transactions):
+def _build_lease_date_index(transactions):
+    """
+    Build {rentvine_lease_id: (start_date, end_date)} from the local Lease model
+    for every leaseID found in the given transactions.
+
+    No RentVine API calls — local DB only.
+    Returns a dict. Leases not found in the DB are absent from the dict
+    (caller treats missing = exclude).
+    """
+    lease_ids = set()
+    for record in transactions:
+        tx = record.get("transaction", record) if isinstance(record, dict) else record
+        lid = tx.get("leaseID")
+        if lid is not None and str(lid) != "":
+            lease_ids.add(int(lid))
+
+    if not lease_ids:
+        return {}
+
+    return {
+        rv_id: (start, end)
+        for rv_id, start, end in Lease.objects.filter(
+            rentvine_id__in=list(lease_ids)
+        ).values_list("rentvine_id", "start_date", "end_date")
+    }
+
+
+def get_rent_by_property(portfolio, month_start, month_end, transactions, *, lease_date_index=None):
     """
     Filter pre-fetched transactions for rent income postings on this portfolio.
 
@@ -43,8 +70,15 @@ def get_rent_by_property(portfolio, month_start, month_end, transactions):
           "expected": Decimal, "collected": Decimal}]
 
     expected = sum(amount) over non-voided type-1 records on RENT_INCOME_ACCOUNT_IDS,
-               datePosted within [month_start, month_end], for this portfolio.
+               datePosted within [month_start, month_end], for this portfolio,
+               whose lease was active during the month (date-overlap rule).
     collected = sum(amountPaid) over those SAME records.
+
+    Lease overlap rule (applied when lease_date_index is provided):
+        A charge is included only if its leaseID maps to a lease where
+        lease.start_date <= month_end AND (lease.end_date is NULL OR
+        lease.end_date >= month_start). Charges with missing/unknown
+        leaseID are excluded.
 
     Records with no propertyID are logged and skipped.
     """
@@ -69,6 +103,41 @@ def get_rent_by_property(portfolio, month_start, month_end, transactions):
             continue
         if _is_voided(tx):
             continue
+
+        # Lease overlap gate: exclude charges whose lease was not active
+        # during the distribution month. Whole-transaction exclusion —
+        # both expected and collected are skipped.
+        if lease_date_index is not None:
+            lease_id = tx.get("leaseID")
+            if lease_id is None or str(lease_id) == "":
+                logger.debug(
+                    "comms_distribution_rent_no_lease_id",
+                    extra={
+                        "transaction_id": tx.get("transactionID"),
+                        "portfolio_id": portfolio_rv_id,
+                        "amount": str(tx.get("amount")),
+                    },
+                )
+                continue
+
+            lease_id_int = int(lease_id)
+            lease_dates = lease_date_index.get(lease_id_int)
+            if lease_dates is None:
+                logger.debug(
+                    "comms_distribution_rent_lease_not_in_db",
+                    extra={
+                        "transaction_id": tx.get("transactionID"),
+                        "lease_id": lease_id_int,
+                        "amount": str(tx.get("amount")),
+                    },
+                )
+                continue
+
+            lease_start, lease_end = lease_dates
+            if lease_start is not None and lease_start > month_end:
+                continue
+            if lease_end is not None and lease_end < month_start:
+                continue
 
         date_posted = tx.get("datePosted") or ""
         if not (str(month_start) <= date_posted <= str(month_end)):

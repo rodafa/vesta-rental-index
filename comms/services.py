@@ -2940,10 +2940,16 @@ def build_distribution_snapshot(portfolio, month_start, month_end, transactions,
     """
     from datetime import date as date_type
 
-    from .selectors import get_portfolio_distribution, get_rent_by_property
+    from .selectors import (
+        _build_lease_date_index,
+        get_portfolio_distribution,
+        get_rent_by_property,
+    )
 
+    lease_date_index = _build_lease_date_index(transactions)
     rent_data = get_rent_by_property(
-        portfolio, month_start, month_end, transactions
+        portfolio, month_start, month_end, transactions,
+        lease_date_index=lease_date_index,
     )
     dist_data = get_portfolio_distribution(
         portfolio, month_start, month_end, transactions
