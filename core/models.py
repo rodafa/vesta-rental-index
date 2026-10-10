@@ -49,6 +49,15 @@ class Owner(models.Model):
     name = models.CharField(max_length=255)
     first_name = models.CharField(max_length=100, blank=True)
     last_name = models.CharField(max_length=100, blank=True)
+    contact_first_name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text=(
+            "First name of the human contact linked to this entity owner's "
+            "portfolio(s). Populated during sync for entity owners (empty or "
+            "digit-starting first_name). Used for email greetings."
+        ),
+    )
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=50, blank=True)
     is_active = models.BooleanField(default=True)
