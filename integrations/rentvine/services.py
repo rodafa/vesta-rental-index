@@ -997,21 +997,31 @@ def link_owners_from_portfolio_contacts():
 
 
 def _is_entity_owner(owner):
+    """Entity (LLC/trust/etc.) vs person, judged by the NAME.
+
+    Entity = name starts with a digit OR matches an entity word (LLC, Inc, Trust, ...).
+    Person = a real human name.
+    RentVine often leaves first_name empty even for people, so we judge by name.
     """
-    Return True if this owner is an entity (LLC, trust, etc.) rather than
-    a person.  Rule: first_name is empty or starts with a digit.
-    """
-    first = (owner.first_name or "").strip()
-    return not first or first[0].isdigit()
+    from comms.services import _ENTITY_WORD_RE
+
+    full = (owner.name or "").strip()
+    if not full:
+        return True  # no name at all -> treat as entity, can't greet
+    if full[0].isdigit():
+        return True
+    if _ENTITY_WORD_RE.search(full):
+        return True
+    return False
 
 
 def populate_owner_contact_names(*, portfolio_id=None):
     """
     For each entity Owner, find the person Owner linked to the same
-    portfolio(s) and store that person's first_name in contact_first_name.
+    portfolio(s) and store that person's first name in contact_first_name.
 
-    Entity = first_name empty or digit-starting.
-    Person = has a real first_name (non-empty, not digit-starting).
+    Entity = name starts with a digit or contains an entity word (LLC, Inc, ...).
+    Person = name is a real human name (no leading digit, no entity word).
     Tiebreak: lowest rentvine_contact_id among qualifying persons.
 
     Args:
@@ -1051,12 +1061,12 @@ def populate_owner_contact_names(*, portfolio_id=None):
             .order_by("rentvine_contact_id")
         )
 
-        # Filter to persons in Python (can't express "first char is not
-        # digit and non-empty" cleanly in ORM).
+        # Filter to persons in Python — _is_entity_owner checks the name
+        # field for entity words, which can't be expressed in the ORM.
         contact_name = ""
         for candidate in person:
             if not _is_entity_owner(candidate):
-                contact_name = candidate.first_name.strip()
+                contact_name = candidate.name.strip().split()[0] if candidate.name else ""
                 break
 
         if contact_name and contact_name != owner.contact_first_name:
