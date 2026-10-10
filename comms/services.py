@@ -2086,30 +2086,14 @@ def generate_portfolio_maintenance_notes(
                         else:
                             wo_dict["ai_summary"] = summaries.get(wo_num, "")
 
-            # Render fragment template
-            period_label = _format_period_label(
-                period_type, period_start, period_end
-            )
-            context = {
-                "ai_intro": ai_result.get("intro", ""),
-                "open_items": data["open"],
-                "scheduled": data["scheduled"],
-                "completed": data["completed"],
-                "cancelled": data["cancelled"],
-                "open_count": sum(len(g["work_orders"]) for g in data["open"]),
-                "scheduled_count": sum(len(g["work_orders"]) for g in data["scheduled"]),
-                "completed_count": sum(len(g["work_orders"]) for g in data["completed"]),
-                "cancelled_count": sum(len(g["work_orders"]) for g in data["cancelled"]),
-                "period_label": period_label,
-            }
-            notes_html = render_to_string(
-                "comms/emails/maintenance_fragment.html", context
-            )
-
             # Build plain-text note
             generated_note = _build_maintenance_generated_note(ai_result)
 
-            # Freeze structured payload for later card rebuilds
+            # Freeze structured payload for later card rebuilds.
+            # Built BEFORE rendering so that the generation path and the
+            # edit/re-render path both go through
+            # render_maintenance_notes_html_from_snapshot — one function,
+            # one source of truth for mason_path, cancelled_summary, etc.
             work_order_snapshot = {
                 "intro": ai_result.get("intro", ""),
                 "open": data["open"],
@@ -2117,6 +2101,12 @@ def generate_portfolio_maintenance_notes(
                 "completed": data["completed"],
                 "cancelled": data["cancelled"],
             }
+            if use_mason:
+                work_order_snapshot["_mason_path"] = True
+
+            notes_html = render_maintenance_notes_html_from_snapshot(
+                work_order_snapshot
+            )
 
             if dry_run:
                 logger.info(
@@ -2163,6 +2153,20 @@ def generate_portfolio_maintenance_notes(
     }
 
 
+def _build_cancelled_summary(cancelled_groups):
+    """Build a one-line summary of cancelled WOs: "Address (N), Address (N)".
+
+    Used by the Mason path to collapse the Cancelled section to a single line
+    instead of rendering per-WO cards.
+    """
+    parts = []
+    for group in cancelled_groups:
+        count = len(group.get("work_orders", []))
+        addr = group.get("property_address", "Unknown")
+        parts.append(f"{addr} ({count})" if count > 1 else addr)
+    return ", ".join(parts)
+
+
 def render_maintenance_notes_html_from_snapshot(snapshot):
     """Render the maintenance card fragment HTML from a frozen work_order_snapshot.
 
@@ -2174,6 +2178,10 @@ def render_maintenance_notes_html_from_snapshot(snapshot):
     after JSON round-tripping; the Django ``date`` template filter requires
     real date objects, so they are parsed back.  cost and estimated_amount
     pass through ``floatformat`` which handles strings natively — left as-is.
+
+    mason_path and cancelled_summary are derived from the snapshot's
+    ``_mason_path`` key — the single source of truth.  An older snapshot
+    without the key renders the Rentvine way.
 
     The input snapshot is NOT mutated (operates on a deep copy).
     """
@@ -2188,16 +2196,23 @@ def render_maintenance_notes_html_from_snapshot(snapshot):
                     if val and isinstance(val, str):
                         wo[field] = _date.fromisoformat(val)
 
+    mason_path = bool(data.get("_mason_path"))
+    cancelled_groups = data.get("cancelled", [])
+
     context = {
         "ai_intro": data.get("intro", ""),
         "open_items": data.get("open", []),
         "scheduled": data.get("scheduled", []),
         "completed": data.get("completed", []),
-        "cancelled": data.get("cancelled", []),
+        "cancelled": cancelled_groups,
         "open_count": sum(len(g["work_orders"]) for g in data.get("open", [])),
         "scheduled_count": sum(len(g["work_orders"]) for g in data.get("scheduled", [])),
         "completed_count": sum(len(g["work_orders"]) for g in data.get("completed", [])),
-        "cancelled_count": sum(len(g["work_orders"]) for g in data.get("cancelled", [])),
+        "cancelled_count": sum(len(g["work_orders"]) for g in cancelled_groups),
+        "mason_path": mason_path,
+        "cancelled_summary": (
+            _build_cancelled_summary(cancelled_groups) if mason_path else ""
+        ),
     }
 
     return render_to_string("comms/emails/maintenance_fragment.html", context)

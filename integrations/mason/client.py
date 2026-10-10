@@ -244,6 +244,17 @@ class MasonClient:
             params["after"] = after
         return self.get_paginated("work-order-activity-logs", params)
 
+    def get_estimates(self, updated_after=None):
+        """GET /estimates with optional updatedAfter filter.
+
+        updated_after: ISO 8601 timestamp with timezone offset, or None.
+        """
+        params = {}
+        if updated_after:
+            self._require_tz(updated_after, "updatedAfter")
+            params["updatedAfter"] = updated_after
+        return self.get_paginated("estimates", params)
+
     def get_contacts(self, contact_ids):
         """
         GET /contacts with ids filter, chunked to CONTACTS_CHUNK_SIZE.

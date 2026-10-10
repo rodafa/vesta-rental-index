@@ -146,7 +146,21 @@ def get_portfolio_work_order_data_mason(
         wo_dict["source_created_at"] = wo.get("createdAt")
         wo_dict["source_modified_at"] = wo.get("updatedAt")
 
+        # Tech's own description of work performed (completed cards only
+        # in the template, but carried on all WOs for snapshot consistency).
+        work_note = wo.get("_work_performed_note")
+        if work_note:
+            wo_dict["work_performed_note"] = work_note
+
         bucket = wo["_mapped_bucket"]
+
+        # Approved estimate amount from Mason — Open/Scheduled only.
+        # Completed/Cancelled leave estimated_amount from Rentvine
+        # unchanged ("Final costs on completed items stay on Rentvine").
+        if bucket in ("open", "scheduled"):
+            mason_estimate = wo.get("_approved_estimate_amount")
+            if mason_estimate is not None:
+                wo_dict["estimated_amount"] = mason_estimate
 
         # Recurring work orders: ONLY in Completed, never in Open/Scheduled.
         # Still windowed — a recurring WO that completed outside the period

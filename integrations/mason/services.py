@@ -18,6 +18,7 @@ Returns an index structure consumed by maintenance.mason_selectors.
 
 import logging
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from maintenance.models import WorkOrder
 
@@ -138,6 +139,29 @@ def _resolve_scheduled_date(wo, visits_index):
     return None
 
 
+def _find_latest_complete_visit(wo_id, visits_index):
+    """Return the visit dict with the latest logDate among Complete visits.
+
+    /visits ordering is unspecified, so we compare all visits and select by
+    logDate.  Returns None when no visit has status=Complete with a logDate.
+
+    This is the single source for both the completed_date and the
+    work_performed_note — they must come from the same visit.
+    """
+    visits = visits_index.get(wo_id, [])
+    best_visit = None
+    best_date = None
+    for visit in visits:
+        if (visit.get("status") or "").lower() == "complete":
+            log_date = visit.get("logDate")
+            if log_date:
+                date_str = log_date[:10] if len(log_date) >= 10 else log_date
+                if best_date is None or date_str > best_date:
+                    best_date = date_str
+                    best_visit = visit
+    return best_visit
+
+
 def _resolve_completed_date(wo, activity_index, visits_index):
     """
     Derive completed_date for a work order.
@@ -159,19 +183,11 @@ def _resolve_completed_date(wo, activity_index, visits_index):
     """
     wo_id = wo.get("id")
 
-    # 1. Visit completion date — take the LATEST complete visit by logDate.
-    #    /visits ordering is not guaranteed, so we must compare all of them.
-    visits = visits_index.get(wo_id, [])
-    latest_log_date = None
-    for visit in visits:
-        if (visit.get("status") or "").lower() == "complete":
-            log_date = visit.get("logDate")
-            if log_date:
-                date_str = log_date[:10] if len(log_date) >= 10 else log_date
-                if latest_log_date is None or date_str > latest_log_date:
-                    latest_log_date = date_str
-    if latest_log_date:
-        return latest_log_date
+    # 1. Visit completion date via shared helper.
+    visit = _find_latest_complete_visit(wo_id, visits_index)
+    if visit:
+        log_date = visit["logDate"]
+        return log_date[:10] if len(log_date) >= 10 else log_date
 
     # 2. vendor_work_completed event
     logs = activity_index.get(wo_id, [])
@@ -237,6 +253,62 @@ def _is_recurring(wo):
     )
 
 
+def _resolve_work_performed_note(wo_id, visits_index):
+    """Extract the technician's work description from the same visit that
+    supplied the completed_date.
+
+    Uses ``_find_latest_complete_visit`` so the note and the date are
+    guaranteed to come from the same visit record.
+    """
+    visit = _find_latest_complete_visit(wo_id, visits_index)
+    if not visit:
+        return None
+    work_notes = visit.get("workNotes") or {}
+    note = (work_notes.get("descriptionOfWorkPerformed") or "").strip()
+    return note or None
+
+
+def _resolve_approved_estimate(wo_id, estimates_index):
+    """Return the approved estimate amount as a Decimal (dollars), or None.
+
+    Predicate: status == "approved_for_work" AND approvedAmount is not None.
+
+    When multiple estimates match (a revised estimate approved after the
+    first), take the LATEST by pmApprovedAt, falling back to updatedAt
+    if pmApprovedAt ties or is absent.  /estimates ordering is not
+    guaranteed.
+
+    approvedAmount is stored as integer cents per the Mason spec:
+    "Stored approved amount in integer cents; may differ from the quote."
+    """
+    estimates = estimates_index.get(wo_id, [])
+    approved = [
+        e for e in estimates
+        if e.get("status") == "approved_for_work"
+        and e.get("approvedAmount") is not None
+    ]
+    if not approved:
+        return None
+
+    if len(approved) > 1:
+        # Tiebreak: latest pmApprovedAt, then updatedAt.
+        def _sort_key(e):
+            return (e.get("pmApprovedAt") or "", e.get("updatedAt") or "")
+        approved.sort(key=_sort_key, reverse=True)
+        logger.info(
+            "mason_multiple_approved_estimates",
+            extra={
+                "work_order_id": wo_id,
+                "count": len(approved),
+                "selected_id": approved[0].get("id"),
+                "selected_pmApprovedAt": approved[0].get("pmApprovedAt"),
+                "selected_amount_cents": approved[0].get("approvedAmount"),
+            },
+        )
+
+    return Decimal(approved[0]["approvedAmount"]) / 100
+
+
 def fetch_mason_work_order_sweep(period_start, period_end):
     """
     Execute the full Mason batch sweep.  Called ONCE before the portfolio loop.
@@ -246,6 +318,7 @@ def fetch_mason_work_order_sweep(period_start, period_end):
         "work_orders": [enriched WO dicts],
         "visits_index": {mason_wo_id: [visit_records]},
         "activity_index": {mason_wo_id: [activity_records]},
+        "estimates_index": {mason_wo_id: [estimate_records]},
         "rentvine_lookup": {rentvine_id: WorkOrder},
     }
 
@@ -257,6 +330,8 @@ def fetch_mason_work_order_sweep(period_start, period_end):
         - _scheduled_date: str (YYYY-MM-DD) or None
         - _completed_date: str (YYYY-MM-DD) or None
         - _cancelled_date: str (YYYY-MM-DD) or None
+        - _work_performed_note: str or None
+        - _approved_estimate_amount: Decimal or None (dollars)
         - _is_recurring: bool
         - _mason_status: raw Mason status string
         - _mapped_bucket: "open" | "scheduled" | "completed" | "cancelled"
@@ -373,6 +448,20 @@ def fetch_mason_work_order_sweep(period_start, period_end):
             },
         )
 
+    # ── Estimates: unbounded (no date filter) ────────────────────────
+    # Estimates are a small bounded set (~74 across the whole account,
+    # one or two pages).  Open/Scheduled work orders are fetched without
+    # a date lower bound (Part 1), so windowing estimates would silently
+    # miss an estimate approved weeks ago on a long-standing open WO.
+    # Fetching all estimates is cheaper than a windowed sweep plus a
+    # gap-fill, and removes the window mismatch entirely.
+    estimates = client.get_estimates()
+    estimates_index = _index_by_work_order_id(estimates)
+    logger.info(
+        "mason_estimates_fetched",
+        extra={"count": len(estimates)},
+    )
+
     # ── Join to local WorkOrder records ──────────────────────────────
     # pms.workOrderId where pms.system == "rentvine" → WorkOrder.rentvine_id
     join_failures = []
@@ -428,6 +517,12 @@ def fetch_mason_work_order_sweep(period_start, period_end):
             wo, activity_index, visits_index,
         )
         wo["_cancelled_date"] = _resolve_cancelled_date(wo, activity_index)
+        wo["_work_performed_note"] = _resolve_work_performed_note(
+            wo.get("id"), visits_index,
+        )
+        wo["_approved_estimate_amount"] = _resolve_approved_estimate(
+            wo.get("id"), estimates_index,
+        )
         wo["_is_recurring"] = _is_recurring(wo)
 
         mason_status = (wo.get("status") or "").lower().strip()
@@ -518,5 +613,6 @@ def fetch_mason_work_order_sweep(period_start, period_end):
         "work_orders": all_work_orders,
         "visits_index": visits_index,
         "activity_index": activity_index,
+        "estimates_index": estimates_index,
         "rentvine_lookup": rentvine_lookup,
     }
