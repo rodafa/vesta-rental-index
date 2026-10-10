@@ -154,6 +154,14 @@ PROPERTY_MELD = {
     "MANAGEMENT_ID": os.environ.get("PROPERTY_MELD_MANAGEMENT_ID", ""),
 }
 
+MASON_API_KEY = os.environ.get("MASON_API_KEY", "")
+
+# Temporary feature flag: when True, weekly maintenance notes pull work-order
+# data from the Mason External API instead of the local Rentvine-synced
+# WorkOrder table.  Defaults to False (existing Rentvine path).
+# Delete this flag AND the Rentvine work-order path once cutover is confirmed.
+MASON_WORK_ORDERS = os.environ.get("MASON_WORK_ORDERS", "").lower() == "true"
+
 # --- AI ---
 
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")

@@ -1966,7 +1966,13 @@ def generate_portfolio_maintenance_notes(
     Generate portfolio-grain maintenance notes (Layer 1: PortfolioMaintenanceNote).
 
     One Anthropic call per portfolio. Owner-agnostic.
-    Data source: maintenance.WorkOrder (RentVine-native).
+
+    Data source controlled by settings.MASON_WORK_ORDERS:
+      False (default) — local WorkOrder table (synced from Rentvine).
+      True            — Mason External API batch sweep.
+
+    The Mason path and this flag are temporary scaffolding.  Delete the flag
+    AND the Rentvine work-order path once cutover is confirmed.
 
     Wipe-and-regenerate at portfolio grain: deletes DRAFT-status rows for the
     period, preserves APPROVED rows and rows with approved_generated_note.
@@ -1974,6 +1980,22 @@ def generate_portfolio_maintenance_notes(
     Returns dict: {generated, skipped, errors, error_details}.
     """
     from maintenance.selectors import get_portfolio_work_order_data
+
+    use_mason = getattr(settings, "MASON_WORK_ORDERS", False)
+
+    # If Mason flag is on, execute the batch sweep ONCE before the loop.
+    # The sweep result is passed into get_portfolio_work_order_data_mason()
+    # per portfolio — no module-level caching, no re-sweeping.
+    mason_sweep = None
+    if use_mason:
+        from integrations.mason.services import fetch_mason_work_order_sweep
+        from maintenance.mason_selectors import get_portfolio_work_order_data_mason
+
+        mason_sweep = fetch_mason_work_order_sweep(period_start, period_end)
+        logger.info(
+            "comms_mason_sweep_complete",
+            extra={"work_order_count": len(mason_sweep["work_orders"])},
+        )
 
     # Enforce: never generate for inactive portfolios
     portfolio_queryset = portfolio_queryset.filter(is_active=True)
@@ -2025,9 +2047,14 @@ def generate_portfolio_maintenance_notes(
                 continue
 
             # Gather portfolio-grain work-order data
-            data = get_portfolio_work_order_data(
-                portfolio, period_start, period_end
-            )
+            if use_mason:
+                data = get_portfolio_work_order_data_mason(
+                    portfolio, period_start, period_end, mason_sweep,
+                )
+            else:
+                data = get_portfolio_work_order_data(
+                    portfolio, period_start, period_end
+                )
 
             if not data["_has_data"]:
                 logger.info(
