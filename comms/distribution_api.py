@@ -18,6 +18,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import EmailDraft, PortfolioDistributionSnapshot
+from .services import _owner_greeting_name
 from .portfolio_api import _parse_month, _period_from_month, _require_access as _base_require_access
 from .services import (
     _normalize_email,
@@ -123,7 +124,7 @@ def list_recipients(request):
             continue
 
         rep_owner = min(group_owners, key=lambda o: o.pk)
-        owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+        owner_name = _owner_greeting_name(rep_owner)
 
         # Check each portfolio's distribution snapshot
         portfolios = Portfolio.objects.filter(

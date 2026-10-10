@@ -182,6 +182,12 @@ class OwnerSyncService(_BaseSyncService):
             fetched=len(records),
             errors=errors,
         )
+
+        # Populate contact_first_name for entity owners after all owners
+        # and portfolio links are up to date.
+        if not dry_run:
+            populate_owner_contact_names()
+
         return {
             "fetched": len(records),
             "created": created_count,
@@ -988,6 +994,96 @@ def link_owners_from_portfolio_contacts():
                 )
 
     return {"linked": linked, "skipped": skipped}
+
+
+def _is_entity_owner(owner):
+    """
+    Return True if this owner is an entity (LLC, trust, etc.) rather than
+    a person.  Rule: first_name is empty or starts with a digit.
+    """
+    first = (owner.first_name or "").strip()
+    return not first or first[0].isdigit()
+
+
+def populate_owner_contact_names(*, portfolio_id=None):
+    """
+    For each entity Owner, find the person Owner linked to the same
+    portfolio(s) and store that person's first_name in contact_first_name.
+
+    Entity = first_name empty or digit-starting.
+    Person = has a real first_name (non-empty, not digit-starting).
+    Tiebreak: lowest rentvine_contact_id among qualifying persons.
+
+    Args:
+        portfolio_id: if set, only process entity owners linked to this
+                      Portfolio.pk.  Pass None for a full run.
+
+    Returns dict of counts.
+    """
+    entity_owners = Owner.objects.filter(
+        is_active=True,
+    ).prefetch_related("portfolios")
+
+    if portfolio_id is not None:
+        entity_owners = entity_owners.filter(portfolios__pk=portfolio_id)
+
+    updated = 0
+    skipped_person = 0
+    skipped_no_match = 0
+
+    for owner in entity_owners:
+        if not _is_entity_owner(owner):
+            skipped_person += 1
+            continue
+
+        # Find person Owners sharing at least one portfolio
+        portfolio_pks = list(owner.portfolios.values_list("pk", flat=True))
+        if not portfolio_pks:
+            skipped_no_match += 1
+            continue
+
+        person = (
+            Owner.objects.filter(
+                is_active=True,
+                portfolios__pk__in=portfolio_pks,
+            )
+            .exclude(pk=owner.pk)
+            .order_by("rentvine_contact_id")
+        )
+
+        # Filter to persons in Python (can't express "first char is not
+        # digit and non-empty" cleanly in ORM).
+        contact_name = ""
+        for candidate in person:
+            if not _is_entity_owner(candidate):
+                contact_name = candidate.first_name.strip()
+                break
+
+        if contact_name and contact_name != owner.contact_first_name:
+            owner.contact_first_name = contact_name
+            owner.save(update_fields=["contact_first_name"])
+            updated += 1
+        elif not contact_name:
+            # Clear stale value if the person contact was removed
+            if owner.contact_first_name:
+                owner.contact_first_name = ""
+                owner.save(update_fields=["contact_first_name"])
+            skipped_no_match += 1
+
+    logger.info(
+        "populate_owner_contact_names",
+        extra={
+            "updated": updated,
+            "skipped_person": skipped_person,
+            "skipped_no_match": skipped_no_match,
+            "portfolio_filter": portfolio_id,
+        },
+    )
+    return {
+        "updated": updated,
+        "skipped_person": skipped_person,
+        "skipped_no_match": skipped_no_match,
+    }
 
 
 class WorkOrderSyncService(_BaseSyncService):

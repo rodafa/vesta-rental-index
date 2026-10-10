@@ -10,7 +10,7 @@ import threading
 from datetime import date, timedelta
 
 from .models import EmailDraft, PortfolioMaintenanceNote
-from .services import _normalize_email
+from .services import _normalize_email, _owner_greeting_name
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ def get_maintenance_recipients_for_period(period_start, period_type="weekly"):
             continue
 
         rep_owner = min(group_owners, key=lambda o: o.pk)
-        owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+        owner_name = _owner_greeting_name(rep_owner)
 
         portfolios = Portfolio.objects.filter(
             pk__in=portfolio_pks, is_active=True,

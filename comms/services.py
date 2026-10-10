@@ -11,6 +11,7 @@ safety modes (sandbox / test-email / live), and structured logging.
 import copy
 import json
 import logging
+import re
 import threading
 from datetime import date as _date
 from importlib import import_module
@@ -549,6 +550,39 @@ def _get_portfolio_display_identifier(portfolio_name, units_list):
     if len(distinct_addresses) == 1:
         return distinct_addresses[0]
     return portfolio_name
+
+
+# Precompiled regex: entity/business suffixes that indicate a non-person name.
+_ENTITY_WORD_RE = re.compile(
+    r"\b(?:LLC|L\.L\.C\.|Inc|Corp|Corporation|Co|Company|LP|LLP|Trust"
+    r"|Holdings|Properties|Partners|Group|Investments|Ventures|Enterprises)\b",
+    re.IGNORECASE,
+)
+
+
+def _owner_greeting_name(owner):
+    """Return a safe first name for 'Hi {name},' greetings.
+
+    Resolution order:
+      1. owner.first_name — if present and not digit-starting
+      2. owner.contact_first_name — human contact linked to entity's portfolio
+      3. first word of owner.name — if it's a real name (not a digit,
+         and name is not an entity like LLC/Inc/Trust)
+      4. "there" — safe fallback
+    """
+    first = (getattr(owner, "first_name", "") or "").strip()
+    if first and not first[0].isdigit():
+        return first
+
+    contact = (getattr(owner, "contact_first_name", "") or "").strip()
+    if contact:
+        return contact
+
+    full = (getattr(owner, "name", "") or "").strip()
+    if full and not full[0].isdigit() and not _ENTITY_WORD_RE.search(full):
+        return full.split()[0]
+
+    return "there"
 
 
 def _build_single_portfolio_prompt(section, period_start):
@@ -1484,9 +1518,7 @@ def generate_monthly_notes(
                 continue
 
             # Build data dict for prompt/context
-            owner_first_name = rep_owner.first_name or (
-                rep_owner.name or "Owner"
-            ).split()[0]
+            owner_first_name = _owner_greeting_name(rep_owner)
 
             data = {
                 "owner_first_name": owner_first_name,
@@ -2200,7 +2232,7 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
 
     # Representative owner (lowest PK, deterministic)
     rep_owner = min(owners, key=lambda o: o.pk)
-    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+    owner_name = _owner_greeting_name(rep_owner)
 
     # Union portfolios, dedupe by PK
     portfolio_pks = set()
@@ -2309,7 +2341,7 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
 
     # Representative owner (lowest PK, deterministic)
     rep_owner = min(owners, key=lambda o: o.pk)
-    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+    owner_name = _owner_greeting_name(rep_owner)
 
     # Union portfolios, dedupe by PK
     portfolio_pks = set()
@@ -2468,7 +2500,7 @@ def assemble_owner_leasing_email(recipient_email, period_start, period_end, peri
 
     # Representative owner (lowest PK, deterministic)
     rep_owner = min(owners, key=lambda o: o.pk)
-    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+    owner_name = _owner_greeting_name(rep_owner)
 
     # Union portfolios, dedupe by PK
     portfolio_pks = set()
@@ -2660,7 +2692,7 @@ def get_recipients_for_period(period_start, period_type="monthly"):
             continue
 
         rep_owner = min(group_owners, key=lambda o: o.pk)
-        owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+        owner_name = _owner_greeting_name(rep_owner)
 
         # Check each portfolio's note status
         from core.models import Portfolio
@@ -2782,9 +2814,7 @@ def send_draft(
                 f"regenerated before sending."
             )
 
-        owner_name = draft.owner.first_name or (
-            draft.owner.name or "Owner"
-        ).split()[0]
+        owner_name = _owner_greeting_name(draft.owner)
 
         message = Mail(
             from_email=settings.COMMS_FROM_EMAIL,
@@ -3068,7 +3098,7 @@ def assemble_owner_distribution_email(recipient_email, period_start, period_type
 
     # Representative owner (lowest PK, deterministic)
     rep_owner = min(owners, key=lambda o: o.pk)
-    owner_name = rep_owner.first_name or (rep_owner.name or "Owner").split()[0]
+    owner_name = _owner_greeting_name(rep_owner)
 
     # Union portfolios, dedupe by PK
     portfolio_pks = set()
