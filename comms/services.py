@@ -352,6 +352,60 @@ def _build_work_order_payload(address_groups, section_label):
     return "\n".join(lines)
 
 
+def _build_turn_prompt_section(turns, data):
+    """Build the unit-turn section of the AI prompt.
+
+    Collects zInspector items from COMPLETED work orders in each turn only.
+    Outstanding work is already shown by the "Still open" trade lines in the
+    template — the summary sentence must describe only what is done.
+    """
+    if not turns:
+        return ""
+
+    # Index WO dicts by work_order_number for fast lookup
+    wo_index = {}
+    for bucket in ("open", "scheduled", "completed", "cancelled"):
+        for group in data.get(bucket, []):
+            for wo in group.get("work_orders", []):
+                wo_index[str(wo["work_order_number"])] = wo
+
+    sections = []
+    for turn in turns:
+        # Only completed WOs — outstanding work is covered by trade lines
+        completed_nums = [
+            str(n) for n in turn.get("work_order_numbers", {}).get("completed", [])
+        ]
+        if not completed_nums:
+            continue
+
+        completed_items = []
+        for num in completed_nums:
+            wo = wo_index.get(num)
+            if not wo:
+                continue
+            zi_items = wo.get("zi_items")
+            if zi_items:
+                completed_items.extend(_format_zi_items_for_prompt(zi_items))
+            elif wo.get("description"):
+                completed_items.append(wo["description"][:200])
+
+        if not completed_items:
+            continue
+
+        key = turn["unit_key"]
+        addr = turn.get("address", "")
+        label = turn.get("unit_label", "")
+        header = f"{addr}, {label}" if label else addr
+        lines = [f"  [TURN:{key}] {header} — completed items:"]
+        for item in completed_items:
+            lines.append(f"    {item}")
+        sections.append("\n".join(lines))
+
+    if not sections:
+        return ""
+    return "Unit turns:\n" + "\n".join(sections)
+
+
 def _build_maintenance_prompt_work_orders(
     data, portfolio_name, period_start, period_end
 ):
@@ -359,7 +413,7 @@ def _build_maintenance_prompt_work_orders(
     Build the AI prompt for a portfolio-grain maintenance note using WorkOrder data.
 
     Owner-agnostic — no owner name, no cross-portfolio references.
-    AI returns: {"intro": "...", "wo_summaries": {"<work_order_number>": "..."}}
+    AI returns: {"intro": "...", "wo_summaries": {"<work_order_number>": "..."}, "turn_summaries": {"<unit_key>": "..."}}
     """
     open_items = _build_work_order_payload(
         data["open"], "Open"
@@ -373,14 +427,20 @@ def _build_maintenance_prompt_work_orders(
     cancelled = _build_work_order_payload(
         data["cancelled"], "Cancelled this week"
     )
+    turn_section = _build_turn_prompt_section(data.get("turns", []), data)
 
-    return (
+    prompt = (
         f'Write a maintenance update for the portfolio "{portfolio_name}".\n'
         f"Period: {period_start} to {period_end}.\n\n"
         f"{open_items}\n\n"
         f"{scheduled}\n\n"
         f"{completed}\n\n"
         f"{cancelled}\n\n"
+    )
+    if turn_section:
+        prompt += f"{turn_section}\n\n"
+
+    prompt += (
         "Write:\n"
         "1. A brief intro (1-2 sentences summarizing counts)\n"
         "2. For each work order identified by its [ID], a concise 1-2 sentence "
@@ -391,9 +451,28 @@ def _build_maintenance_prompt_work_orders(
         "in three rooms, touch-up paint, closet cleanouts, a smoke alarm and a "
         "cabinet repair — 16 items in all.' Do not state the property address or "
         "the completion date (the card already shows both). State only facts from "
-        "the items given; do not add detail.\n\n"
-        'Return valid JSON only: {"intro": "...", "wo_summaries": {"<id>": "..."}}'
+        "the items given; do not add detail.\n"
     )
+    if turn_section:
+        prompt += (
+            "3. For each unit turn identified by [TURN:<key>], write ONE sentence "
+            "listing the completed work — not per-trade, but as a single plain "
+            "list. Hard cap 45 words, target 35. Lead with the largest or most "
+            "substantial item, then the rest. No completion verbs (no 'were "
+            "completed', 'were addressed', 'were finished' — everything is already "
+            "under a 'Completed' heading). No preamble, no counts. Do not restate "
+            "the address, dates, or trade names. State only facts from the items.\n"
+        )
+
+    prompt += (
+        "\nReturn valid JSON only: "
+        '{"intro": "...", "wo_summaries": {"<id>": "..."}'
+    )
+    if turn_section:
+        prompt += ', "turn_summaries": {"<key>": "..."}'
+    prompt += "}"
+
+    return prompt
 
 
 def _format_period_label(period_type, period_start, period_end):
@@ -2140,6 +2219,21 @@ def generate_portfolio_maintenance_notes(
                             )
                         wo_dict["ai_summary"] = ai_text
 
+            # Attach turn-level AI summaries
+            turn_summaries = ai_result.get("turn_summaries", {})
+            for turn in data.get("turns", []):
+                key = turn["unit_key"]
+                ts = turn_summaries.get(key, "")
+                if ts:
+                    turn["turn_summary"] = ts
+                else:
+                    if turn_summaries:
+                        # Model returned turn_summaries but missed this key
+                        logger.warning(
+                            "turn_summary_missing",
+                            extra={"unit_key": key, "portfolio": portfolio.name},
+                        )
+
             # Build plain-text note
             generated_note = _build_maintenance_generated_note(ai_result)
 
@@ -2157,6 +2251,8 @@ def generate_portfolio_maintenance_notes(
             }
             if use_mason:
                 work_order_snapshot["_mason_path"] = True
+            if data.get("turns"):
+                work_order_snapshot["turns"] = data["turns"]
 
             notes_html = render_maintenance_notes_html_from_snapshot(
                 work_order_snapshot
@@ -2253,6 +2349,55 @@ def render_maintenance_notes_html_from_snapshot(snapshot):
     mason_path = bool(data.get("_mason_path"))
     cancelled_groups = data.get("cancelled", [])
 
+    # ── Turn groups ────────────────────────────────────────────────
+    turns = data.get("turns", [])
+
+    # Coerce completed_dates back from ISO strings
+    for turn in turns:
+        turn["completed_dates"] = [
+            _date.fromisoformat(d) if isinstance(d, str) else d
+            for d in turn.get("completed_dates", [])
+        ]
+
+    # Collect WO numbers belonging to any turn for skip logic
+    turn_wo_numbers = set()
+    for turn in turns:
+        for nums in turn.get("work_order_numbers", {}).values():
+            turn_wo_numbers.update(str(n) for n in nums)
+
+    # Stamp each WO dict so the template can skip turn cards
+    for bucket in ("open", "scheduled", "completed", "cancelled"):
+        for group in data.get(bucket, []):
+            for wo in group.get("work_orders", []):
+                wo["in_turn"] = (
+                    str(wo.get("work_order_number", "")) in turn_wo_numbers
+                )
+
+    # Derive turn status fields for the template
+    for turn in turns:
+        wo_nums = turn.get("work_order_numbers", {})
+        has_open = bool(wo_nums.get("open") or wo_nums.get("scheduled"))
+        turn["has_open_work"] = has_open
+        turn["all_completed"] = not has_open and bool(wo_nums.get("completed"))
+        turn["done_trades"] = [
+            t for t in turn.get("trades", []) if t["bucket"] == "completed"
+        ]
+        turn["open_trades"] = [
+            t for t in turn.get("trades", [])
+            if t["bucket"] in ("open", "scheduled")
+        ]
+        dates = turn.get("completed_dates", [])
+        if dates:
+            turn["date_range_start"] = min(dates)
+            turn["date_range_end"] = max(dates)
+
+    # Visible counts exclude turn WOs (for bucket headings)
+    def _visible_count(groups, skip):
+        return sum(
+            1 for g in groups for wo in g["work_orders"]
+            if str(wo.get("work_order_number", "")) not in skip
+        )
+
     context = {
         "ai_intro": data.get("intro", ""),
         "open_items": data.get("open", []),
@@ -2263,6 +2408,11 @@ def render_maintenance_notes_html_from_snapshot(snapshot):
         "scheduled_count": sum(len(g["work_orders"]) for g in data.get("scheduled", [])),
         "completed_count": sum(len(g["work_orders"]) for g in data.get("completed", [])),
         "cancelled_count": sum(len(g["work_orders"]) for g in cancelled_groups),
+        "open_visible_count": _visible_count(data.get("open", []), turn_wo_numbers),
+        "scheduled_visible_count": _visible_count(data.get("scheduled", []), turn_wo_numbers),
+        "completed_visible_count": _visible_count(data.get("completed", []), turn_wo_numbers),
+        "cancelled_visible_count": _visible_count(data.get("cancelled", []), turn_wo_numbers),
+        "turns": turns,
         "mason_path": mason_path,
         "cancelled_summary": (
             _build_cancelled_summary(cancelled_groups) if mason_path else ""

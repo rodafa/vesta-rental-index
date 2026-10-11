@@ -1,8 +1,8 @@
 {% load humanize %}
 {% comment %}
 Maintenance fragment — rendered into PortfolioMaintenanceNote.notes_html.
-Contains: AI intro, summary stats bar, work-order cards in four buckets,
-grouped by property address within each bucket.
+Contains: AI intro, summary stats bar, optional turn groups, work-order
+cards in four buckets, grouped by property address within each bucket.
 NO greeting, header, footer, or CTA — those belong to the owner-grain envelope (Layer 2).
 {% endcomment %}
 
@@ -37,16 +37,55 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
   </tr>
 </table>
 
-{% if open_items %}
+{% for turn in turns %}
+<!-- Unit Turn -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; border:1px solid #E0E0E0; border-radius:8px;">
+  <tr>
+    <td style="padding:16px;">
+      <h2 style="margin:0 0 12px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #1E3D58; padding-bottom:8px;">
+        {{ turn.address }}{% if turn.unit_label %}, {{ turn.unit_label }}{% endif %} &mdash; {% if turn.all_completed %}Unit turn complete{% else %}Unit turn in progress{% endif %}
+      </h2>
+      {% if turn.turn_summary %}
+      <p style="margin:0 0 12px; font-family:Helvetica, Arial, sans-serif; font-size:14px; line-height:1.4; color:#555555;">
+        {{ turn.turn_summary }}
+      </p>
+      {% endif %}
+      {% if turn.done_trades %}
+      <p style="margin:0 0 4px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:600; color:#39B54A;">
+        Completed{% if turn.date_range_start %} {{ turn.date_range_start|date:"M j" }}{% if turn.date_range_end != turn.date_range_start %}&ndash;{{ turn.date_range_end|date:"j" }}{% endif %}{% endif %}
+      </p>
+      {% for trade in turn.done_trades %}
+      <p style="margin:2px 0 2px 8px; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#555555;">
+        {{ trade.title }}{{ trade.count_suffix }}{% if trade.vendor_name %} &mdash; {{ trade.vendor_name }}{% endif %}{% if trade.cost %}, ${{ trade.cost|floatformat:2|intcomma }}{% endif %}
+      </p>
+      {% endfor %}
+      {% endif %}
+      {% if turn.open_trades %}
+      <p style="margin:{% if turn.done_trades %}12px{% else %}0{% endif %} 0 4px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:600; color:#1E3D58;">
+        Still open
+      </p>
+      {% for trade in turn.open_trades %}
+      <p style="margin:2px 0 2px 8px; font-family:Helvetica, Arial, sans-serif; font-size:13px; color:#555555;">
+        {{ trade.title }}{{ trade.count_suffix }}{% if trade.vendor_name %} &mdash; {{ trade.vendor_name }}{% endif %}
+      </p>
+      {% endfor %}
+      {% endif %}
+    </td>
+  </tr>
+</table>
+{% endfor %}
+
+{% if open_visible_count %}
 <!-- Open -->
 <h2 style="margin:0 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #1E3D58; padding-bottom:8px;">
-  Open ({{ open_count }})
+  Open ({{ open_visible_count }})
 </h2>
 {% for group in open_items %}
 <p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#1E3D58;">
   {{ group.property_address }}
 </p>
 {% for wo in group.work_orders %}
+{% if not wo.in_turn %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #1E3D58;">
   <tr>
     <td style="padding:16px;">
@@ -91,20 +130,22 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
     </td>
   </tr>
 </table>
+{% endif %}
 {% endfor %}
 {% endfor %}
 {% endif %}
 
-{% if scheduled %}
+{% if scheduled_visible_count %}
 <!-- Scheduled -->
 <h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#1E3D58; border-bottom:2px solid #6EA5CD; padding-bottom:8px;">
-  Scheduled ({{ scheduled_count }})
+  Scheduled ({{ scheduled_visible_count }})
 </h2>
 {% for group in scheduled %}
 <p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#1E3D58;">
   {{ group.property_address }}
 </p>
 {% for wo in group.work_orders %}
+{% if not wo.in_turn %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #6EA5CD;">
   <tr>
     <td style="padding:16px;">
@@ -150,20 +191,22 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
     </td>
   </tr>
 </table>
+{% endif %}
 {% endfor %}
 {% endfor %}
 {% endif %}
 
-{% if completed %}
+{% if completed_visible_count %}
 <!-- Completed -->
 <h2 style="margin:24px 0 8px; font-family:Helvetica, Arial, sans-serif; font-size:18px; font-weight:600; color:#39B54A; border-bottom:2px solid #39B54A; padding-bottom:8px;">
-  Completed This Week ({{ completed_count }})
+  Completed This Week ({{ completed_visible_count }})
 </h2>
 {% for group in completed %}
 <p style="margin:12px 0 6px; font-family:Helvetica, Arial, sans-serif; font-size:13px; font-weight:700; color:#1E3D58;">
   {{ group.property_address }}
 </p>
 {% for wo in group.work_orders %}
+{% if not wo.in_turn %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px; background-color:#fafafa; border-radius:6px; border-left:4px solid #39B54A;">
   <tr>
     <td style="padding:16px;">
@@ -222,6 +265,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
     </td>
   </tr>
 </table>
+{% endif %}
 {% endfor %}
 {% endfor %}
 {% endif %}
@@ -268,7 +312,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 {% endif %}
 {% endif %}
 
-{% if not open_items and not scheduled and not completed and not cancelled %}
+{% if not turns and not open_items and not scheduled and not completed and not cancelled %}
 <!-- No activity -->
 <p style="margin:24px 0; font-size:15px; line-height:1.5; color:#555555; text-align:center;">
   No maintenance activity to report this week. Everything is running smoothly.

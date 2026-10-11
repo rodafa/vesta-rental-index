@@ -49,6 +49,78 @@ def _parse_date(val):
         return None
 
 
+def _build_turn_groups(open_dicts, scheduled_dicts, completed_dicts):
+    """Build turn groups from work orders with work_order_type == 'turn'.
+
+    Groups by (property_id, unit_id) — unit_id may be None for
+    single-unit properties (falls back to property_id only).  Only
+    creates a group when 2+ turn WOs share the same key.  Lone turn
+    WOs render as normal cards.
+
+    Cancelled WOs are excluded — they render as normal cards in the
+    Cancelled bucket so nothing is silently lost.
+
+    Returns a list of turn group dicts for the snapshot.
+    """
+    from collections import OrderedDict
+
+    turn_wos = OrderedDict()  # unit_key -> [(bucket, wo_dict), ...]
+    for bucket_name, dicts in (
+        ("open", open_dicts),
+        ("scheduled", scheduled_dicts),
+        ("completed", completed_dicts),
+    ):
+        for wo in dicts:
+            if wo.get("work_order_type") != "turn":
+                continue
+            uid = wo.get("unit_id") or ""
+            pid = wo.get("property_id") or ""
+            key = f"{pid}:{uid}"
+            turn_wos.setdefault(key, []).append((bucket_name, wo))
+
+    groups = []
+    for key, entries in turn_wos.items():
+        if len(entries) < 2:
+            continue
+
+        first_wo = entries[0][1]
+        wo_numbers_by_bucket = {}
+        completed_dates = []
+        trades = []
+
+        for bucket_name, wo in entries:
+            wo_numbers_by_bucket.setdefault(bucket_name, []).append(
+                wo["work_order_number"]
+            )
+            if bucket_name == "completed" and wo.get("date_closed"):
+                completed_dates.append(wo["date_closed"])
+
+            zi_count = wo.get("zi_item_count")
+            count_suffix = (
+                f" ({zi_count} items)" if zi_count and zi_count > 1 else ""
+            )
+            trades.append({
+                "title": wo.get("title", ""),
+                "count_suffix": count_suffix,
+                "vendor_name": wo.get("vendor_name", ""),
+                "cost": wo.get("cost"),
+                "bucket": bucket_name,
+            })
+
+        groups.append({
+            "unit_key": key,
+            "address": first_wo.get("property_address", ""),
+            "unit_label": first_wo.get("unit_label", ""),
+            "work_order_numbers": wo_numbers_by_bucket,
+            "completed_dates": (
+                sorted(completed_dates) if completed_dates else []
+            ),
+            "trades": trades,
+        })
+
+    return groups
+
+
 def get_portfolio_work_order_data_mason(
     portfolio, period_start, period_end, mason_sweep,
 ):
@@ -166,9 +238,10 @@ def get_portfolio_work_order_data_mason(
         wo_dict["scheduled_start_date"] = scheduled_date
         wo_dict["date_closed"] = completed_date
 
-        # Source timestamps from Mason
+        # Mason-sourced metadata
         wo_dict["source_created_at"] = wo.get("createdAt")
         wo_dict["source_modified_at"] = wo.get("updatedAt")
+        wo_dict["work_order_type"] = wo.get("_work_order_type", "")
 
         # Tech's own description of work performed (completed cards only
         # in the template, but carried on all WOs for snapshot consistency).
@@ -243,7 +316,9 @@ def get_portfolio_work_order_data_mason(
         key=lambda d: d.get("source_modified_at") or "", reverse=True,
     )
 
-    return {
+    turns = _build_turn_groups(open_dicts, scheduled_dicts, completed_dicts)
+
+    result = {
         "open": _group_by_address(open_dicts),
         "scheduled": _group_by_address(scheduled_dicts),
         "completed": _group_by_address(completed_dicts),
@@ -252,3 +327,6 @@ def get_portfolio_work_order_data_mason(
             open_dicts or scheduled_dicts or completed_dicts or cancelled_dicts
         ),
     }
+    if turns:
+        result["turns"] = turns
+    return result

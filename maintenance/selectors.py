@@ -59,7 +59,7 @@ _TRADE_TITLE_MAP = {
     "Repairs": "Repairs",
     "Painting": "Painting",
     "Appliance": "Appliance",
-    "Other": "Other",
+    "Other": "Recommended",
 }
 
 
@@ -535,6 +535,7 @@ def _work_order_to_dict(wo, cost=None):
     return {
         "id": wo.pk,
         "property_id": wo.property_id,
+        "unit_id": wo.unit_id,
         "work_order_number": wo.work_order_number,
         "title": title,
         "description": description,

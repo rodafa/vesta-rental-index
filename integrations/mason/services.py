@@ -560,6 +560,7 @@ def fetch_mason_work_order_sweep(period_start, period_end):
         wo["_is_recurring"] = _is_recurring(wo)
         wo["_is_lawn_ish"] = _is_lawn_ish(wo)
         wo["_has_cadence"] = _has_cadence(wo)
+        wo["_work_order_type"] = (wo.get("workOrderType") or "").lower()
 
         mason_status = (wo.get("status") or "").lower().strip()
         wo["_mason_status"] = mason_status

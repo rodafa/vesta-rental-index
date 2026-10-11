@@ -260,11 +260,11 @@ class TestWorkOrderToDictZinspector:
         assert "Requested by: Property Manager" in d["description"]
         # Standard dict shape
         expected_keys = {
-            "id", "property_id", "work_order_number", "title", "description",
-            "vendor_name", "is_owner_approved", "is_internal", "estimated_amount",
-            "date_closed", "scheduled_start_date", "source_created_at",
-            "source_modified_at", "unit_address", "property_address",
-            "unit_label", "cost", "is_punch_list",
+            "id", "property_id", "unit_id", "work_order_number", "title",
+            "description", "vendor_name", "is_owner_approved", "is_internal",
+            "estimated_amount", "date_closed", "scheduled_start_date",
+            "source_created_at", "source_modified_at", "unit_address",
+            "property_address", "unit_label", "cost", "is_punch_list",
             "zi_items", "zi_item_count", "zi_human_summary",
         }
         assert set(d.keys()) == expected_keys
