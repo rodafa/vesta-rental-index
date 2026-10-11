@@ -13,8 +13,11 @@ called ONCE before the portfolio loop and passed in.
 import logging
 from datetime import date
 
+# LAWN_CARE_EXCLUSION_PATTERNS (defined in selectors.py) is used only by the
+# Rentvine work-order path.  On the Mason path the recurring flag replaces it.
+# Both the patterns and their definition in selectors.py get deleted along
+# with the Rentvine work-order path at cutover.
 from .selectors import (
-    LAWN_CARE_EXCLUSION_PATTERNS,
     _group_by_address,
     _work_order_to_dict,
     get_work_order_costs,
@@ -83,21 +86,42 @@ def get_portfolio_work_order_data_mason(
         if local_wo and local_wo.portfolio_id == portfolio.pk:
             portfolio_wos.append(wo)
 
-    # Apply lawn care exclusion (on Mason description)
-    filtered_wos = []
+    # Exclude routine lawn/grounds work entirely — never in any bucket.
+    # Two independent triggers, both gated on lawn-ish:
+    #   1. recurring flag (source=mason:recurring or workOrderType=recurring)
+    #   2. cadence phrase in description (bi-weekly, weekly, monthly, etc.)
+    # Non-recurring, non-cadence lawn work passes through normally.
+    # Recurring non-lawn work (e.g. seasonal inspections) keeps its
+    # existing behavior: completion notice in Completed only (lines 168-173).
+    after_lawn_filter = []
     for wo in portfolio_wos:
-        desc_lower = (wo.get("description") or "").lower()
-        excluded = False
-        for pat in LAWN_CARE_EXCLUSION_PATTERNS:
-            if pat in desc_lower:
-                excluded = True
-                break
-        if not excluded:
-            filtered_wos.append(wo)
+        if wo["_is_lawn_ish"]:
+            pms = wo.get("pms") or {}
+            wo_num = pms.get("workOrderNumber")
+            desc_head = (wo.get("description") or "")[:80]
+            if wo["_is_recurring"]:
+                logger.info(
+                    "mason_recurring_lawn_excluded",
+                    extra={
+                        "work_order_number": wo_num,
+                        "description": desc_head,
+                    },
+                )
+                continue
+            if wo["_has_cadence"]:
+                logger.info(
+                    "mason_cadence_lawn_excluded",
+                    extra={
+                        "work_order_number": wo_num,
+                        "description": desc_head,
+                    },
+                )
+                continue
+        after_lawn_filter.append(wo)
 
     # Exclude WOs with _mapped_bucket == "excluded"
     active_wos = [
-        wo for wo in filtered_wos if wo["_mapped_bucket"] != "excluded"
+        wo for wo in after_lawn_filter if wo["_mapped_bucket"] != "excluded"
     ]
 
     # Batch cost lookup — uses Rentvine bill data (unchanged)

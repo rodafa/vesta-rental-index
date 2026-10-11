@@ -17,6 +17,7 @@ Returns an index structure consumed by maintenance.mason_selectors.
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -251,6 +252,39 @@ def _is_recurring(wo):
         or wo_type.startswith("inspection")
         or source == "mason:recurring"
     )
+
+
+_LAWN_ISH_VENDOR_TYPES = frozenset({"landscaping", "landscaper", "tree_service"})
+
+_LAWN_ISH_DESC = re.compile(r"lawn|grass|mow|landscap", re.IGNORECASE)
+
+
+def _is_lawn_ish(wo):
+    """Return True when the work order is lawn/landscaping-related.
+
+    Matches on description keywords OR workOrderReview.vendorType.
+    Broad by design — the recurring gate does the safety work; this
+    function is never used alone to drop a work order.
+    """
+    desc = wo.get("description") or ""
+    if _LAWN_ISH_DESC.search(desc):
+        return True
+    review = wo.get("workOrderReview") or {}
+    vendor_type = (review.get("vendorType") or "").lower()
+    return vendor_type in _LAWN_ISH_VENDOR_TYPES
+
+
+_CADENCE_DESC = re.compile(
+    r"bi-weekly|biweekly|weekly|every\s+week|every\s+two\s+weeks"
+    r"|2x\s+per\s+month|twice\s+per\s+month|monthly|per\s+month",
+    re.IGNORECASE,
+)
+
+
+def _has_cadence(wo):
+    """Return True when the description contains a scheduling cadence phrase."""
+    desc = wo.get("description") or ""
+    return bool(_CADENCE_DESC.search(desc))
 
 
 def _resolve_work_performed_note(wo_id, visits_index):
@@ -524,6 +558,8 @@ def fetch_mason_work_order_sweep(period_start, period_end):
             wo.get("id"), estimates_index,
         )
         wo["_is_recurring"] = _is_recurring(wo)
+        wo["_is_lawn_ish"] = _is_lawn_ish(wo)
+        wo["_has_cadence"] = _has_cadence(wo)
 
         mason_status = (wo.get("status") or "").lower().strip()
         wo["_mason_status"] = mason_status
