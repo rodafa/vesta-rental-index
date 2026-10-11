@@ -32,6 +32,20 @@ _HTML_TAG = re.compile(r"<[^>]+>")
 # Collapse whitespace runs.
 _WS_RUN = re.compile(r"\s+")
 
+# Known zInspector category prefixes, longest first so "Carpet Cleaning"
+# matches before a hypothetical "Carpet".  Used to split free-text
+# instructions away from the category when no colon separator is present.
+_KNOWN_CATEGORIES = [
+    "Carpet Cleaning",
+    "Maintenance",
+    "Landscaping",
+    "Appliance",
+    "Cleaning",
+    "Painting",
+    "Repairs",
+    "Other",
+]
+
 
 def _parse_item(raw_text: str) -> dict:
     """Parse a single item string into {room, component, detail}.
@@ -88,9 +102,11 @@ def parse_zinspector_description(raw_description: str) -> dict | None:
     prefix = raw_description[:stamp_match.start()]
     # Strip HTML tags and collapse whitespace
     prefix_clean = _WS_RUN.sub(" ", _HTML_TAG.sub(" ", prefix)).strip()
-    # If the category has a colon (e.g. "Landscaping: Garbage to thrown out..."),
-    # take only the part before the first colon as category; the rest is the
-    # human summary.
+    # Split into category and human_summary.  Three strategies, tried
+    # in order:
+    #   1. Colon separator  ("Landscaping: Garbage to thrown out...")
+    #   2. Known-prefix match ("Cleaning AFTER 10/15 - please do not...")
+    #   3. Entire prefix is the category (bare "Maintenance")
     human_summary = ""
     if ":" in prefix_clean:
         category, human_summary = prefix_clean.split(":", 1)
@@ -98,6 +114,17 @@ def parse_zinspector_description(raw_description: str) -> dict | None:
         human_summary = human_summary.strip()
     else:
         category = prefix_clean
+        # Try prefix match against known categories — catches free-text
+        # instructions glued onto the category without a colon.
+        for known in _KNOWN_CATEGORIES:
+            if prefix_clean.startswith(known) and len(prefix_clean) > len(known):
+                # Must be followed by whitespace or punctuation, not a
+                # letter (avoids false splits on e.g. "Paintings").
+                rest = prefix_clean[len(known):]
+                if rest[0] in (" ", "\t", "-", ",", ";", "."):
+                    category = known
+                    human_summary = rest.lstrip(" \t-,;.").strip()
+                    break
 
     # --- Reference ---
     ref_match = _REFERENCE.search(raw_description)
