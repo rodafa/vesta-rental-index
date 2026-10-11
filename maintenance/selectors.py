@@ -48,6 +48,20 @@ LAWN_CARE_EXCLUSION_PATTERNS = (
     "recurring lawn maintenance",
 )
 
+# zInspector trade category → owner-facing title.
+# Vocabulary confirmed from prod data (120 WOs, 8 distinct categories).
+# Unknown trades pass through with a warning log.
+_TRADE_TITLE_MAP = {
+    "Maintenance": "Punch List",
+    "Cleaning": "Cleaning",
+    "Carpet Cleaning": "Cleaning",
+    "Landscaping": "Lawn Care",
+    "Repairs": "Repairs",
+    "Painting": "Painting",
+    "Appliance": "Appliance",
+    "Other": "Other",
+}
+
 
 # ---------------------------------------------------------------------------
 # Shared meld-gathering helper
@@ -476,20 +490,47 @@ def _work_order_to_dict(wo, cost=None):
     title = _extract_title(wo.description)
     description = _clean_html(wo.description)
     is_punch_list = False
+    zi_items = None
+    zi_item_count = None
+    zi_human_summary = None
 
     zi = parse_zinspector_description(wo.description)
     if zi is not None and len(zi["items"]) >= 2:
-        n = len(zi["items"])
         cat = zi["category"]
-        title = cat if cat else title
-        description = f"Inspection punch list - {n} items"
+        mapped = _TRADE_TITLE_MAP.get(cat)
+        if mapped is None:
+            logger.warning(
+                "zinspector_unknown_trade",
+                extra={"trade": cat, "wo": wo.work_order_number},
+            )
+            mapped = cat
+        title = mapped
+        # Description is the operator's free-text note only — never the raw
+        # zInspector block (contains internal URLs).  Empty when the prefix
+        # was just the trade word with no colon.
+        description = zi["human_summary"]
         is_punch_list = True
+        zi_items = zi["items"]
+        zi_item_count = len(zi["items"])
+        zi_human_summary = zi["human_summary"]
     elif zi is not None and len(zi["items"]) == 1:
-        item_text = zi["items"][0]
         cat = zi["category"]
-        full_title = f"{cat}: {item_text}" if cat else item_text
-        title = (full_title[:77] + "...") if len(full_title) > 80 else full_title
+        mapped = _TRADE_TITLE_MAP.get(cat)
+        if mapped is None:
+            logger.warning(
+                "zinspector_unknown_trade",
+                extra={"trade": cat, "wo": wo.work_order_number},
+            )
+            mapped = cat
+        item = zi["items"][0]
+        item_text = item["detail"] if item.get("detail") else (
+            f"{item['room']}: {item['component']}" if item.get("room") else ""
+        )
+        title = mapped
         description = item_text
+        zi_items = zi["items"]
+        zi_item_count = 1
+        zi_human_summary = zi["human_summary"]
 
     return {
         "id": wo.pk,
@@ -499,6 +540,7 @@ def _work_order_to_dict(wo, cost=None):
         "description": description,
         "vendor_name": wo.vendor_name,
         "is_owner_approved": wo.is_owner_approved,
+        "is_internal": wo.is_internal,
         "estimated_amount": wo.estimated_amount,
         "date_closed": wo.date_closed,
         "scheduled_start_date": wo.scheduled_start_date,
@@ -509,6 +551,9 @@ def _work_order_to_dict(wo, cost=None):
         "unit_label": unit_label,
         "cost": cost,
         "is_punch_list": is_punch_list,
+        "zi_items": zi_items,
+        "zi_item_count": zi_item_count,
+        "zi_human_summary": zi_human_summary,
     }
 
 

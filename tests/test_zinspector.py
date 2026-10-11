@@ -45,21 +45,36 @@ class TestParseZinspectorDescription:
 
     def test_100997_first_and_last_item(self):
         result = parse_zinspector_description(WO_100997_RAW)
-        assert "Bedroom 1" in result["items"][0]
-        assert "Metal debris to be picked up" in result["items"][-1]
+        first = result["items"][0]
+        assert first["room"] == "Bedroom 1: Left"
+        assert first["component"] == "Switch/Outlet"
+        assert "Needs to be removed" in first["detail"]
+        last = result["items"][-1]
+        assert "Metal debris to be picked up" in last["detail"]
 
     def test_100997_no_media_link_in_items(self):
         result = parse_zinspector_description(WO_100997_RAW)
         for item in result["items"]:
-            assert "Media Link" not in item
-            assert "portfolio.zinspector.com" not in item
+            text = f"{item['room']} {item['component']} {item['detail']}"
+            assert "Media Link" not in text
+            assert "portfolio.zinspector.com" not in text
+
+    def test_100997_human_summary_empty(self):
+        """WO_100997 prefix is just 'Maintenance' — no colon suffix → empty human_summary."""
+        result = parse_zinspector_description(WO_100997_RAW)
+        assert result["human_summary"] == ""
 
     def test_101081_single_item_not_split(self):
         result = parse_zinspector_description(WO_101081_RAW)
         assert result is not None
         assert len(result["items"]) == 1
-        assert "Garbage to thrown out" in result["items"][0]
-        assert "bamboo sprouts" in result["items"][0]
+        assert "Garbage to thrown out" in result["items"][0]["detail"]
+        assert "bamboo sprouts" in result["items"][0]["detail"]
+
+    def test_101081_human_summary(self):
+        result = parse_zinspector_description(WO_101081_RAW)
+        assert "Garbage to thrown out" in result["human_summary"]
+        assert "bamboo sprouts" in result["human_summary"]
 
     def test_101081_category_strips_colon_suffix(self):
         result = parse_zinspector_description(WO_101081_RAW)
@@ -79,21 +94,21 @@ class TestParseZinspectorDescription:
     def test_100988_curly_apostrophe_survives(self):
         result = parse_zinspector_description(WO_100988_RAW)
         assert any(
-            "I\u2019m not sure what the function of the button" in item
+            "I\u2019m not sure what the function of the button" in item["detail"]
             for item in result["items"]
         )
 
     def test_100988_curly_quotes_survive(self):
         result = parse_zinspector_description(WO_100988_RAW)
         assert any(
-            "\u201cother\u201d" in item
+            "\u201cother\u201d" in item["detail"]
             for item in result["items"]
         )
 
     def test_100988_longest_item_not_truncated(self):
         result = parse_zinspector_description(WO_100988_RAW)
         assert any(
-            "also a little loose w" in item
+            "also a little loose w" in item["detail"]
             for item in result["items"]
         )
 
@@ -101,8 +116,9 @@ class TestParseZinspectorDescription:
         for raw in (WO_100997_RAW, WO_101081_RAW, WO_100988_RAW):
             result = parse_zinspector_description(raw)
             for item in result["items"]:
-                assert "<" not in item, f"HTML tag found in item: {item!r}"
-                assert ">" not in item, f"HTML tag found in item: {item!r}"
+                text = f"{item['room']} {item['component']} {item['detail']}"
+                assert "<" not in text, f"HTML tag found in item: {item!r}"
+                assert ">" not in text, f"HTML tag found in item: {item!r}"
 
     def test_non_zinspector_returns_none(self):
         assert parse_zinspector_description(WO_101120_RAW) is None
@@ -176,8 +192,12 @@ class TestWorkOrderToDictZinspector:
         )
         d = _work_order_to_dict(wo)
         assert d["is_punch_list"] is True
-        assert d["title"] == "Maintenance"
-        assert d["description"] == "Inspection punch list - 5 items"
+        assert d["title"] == "Punch List"
+        assert d["description"] == ""  # no human_summary for bare "Maintenance" prefix
+        assert d["zi_item_count"] == 5
+        assert len(d["zi_items"]) == 5
+        assert d["zi_human_summary"] == ""
+        assert d["is_internal"] is False
 
     def test_100988_punch_list(self, portfolio, prop, unit):
         from maintenance.models import WorkOrder
@@ -194,7 +214,10 @@ class TestWorkOrderToDictZinspector:
         d = _work_order_to_dict(wo)
         assert d["is_punch_list"] is True
         assert d["title"] == "Repairs"
-        assert d["description"] == "Inspection punch list - 32 items"
+        assert d["description"] == ""  # no human_summary for bare "Repairs" prefix
+        assert d["zi_item_count"] == 32
+        assert len(d["zi_items"]) == 32
+        assert d["zi_human_summary"] == ""
 
     def test_101081_single_item(self, portfolio, prop, unit):
         from maintenance.models import WorkOrder
@@ -215,8 +238,9 @@ class TestWorkOrderToDictZinspector:
         assert "zInspector" not in d["description"]
         assert "Reference:" not in d["description"]
         assert "zinspector.com" not in d["description"]
-        assert d["title"].startswith("Landscaping:")
-        assert len(d["title"]) <= 80
+        assert d["title"] == "Lawn Care"
+        assert d["zi_item_count"] == 1
+        assert d["zi_human_summary"] is not None
 
     def test_101120_non_zinspector(self, portfolio, prop, unit):
         from maintenance.models import WorkOrder
@@ -234,15 +258,20 @@ class TestWorkOrderToDictZinspector:
         assert d["is_punch_list"] is False
         assert d["title"] == "Deep clean needed"
         assert "Requested by: Property Manager" in d["description"]
-        # Standard dict shape unchanged
+        # Standard dict shape
         expected_keys = {
             "id", "property_id", "work_order_number", "title", "description",
-            "vendor_name", "is_owner_approved", "estimated_amount",
+            "vendor_name", "is_owner_approved", "is_internal", "estimated_amount",
             "date_closed", "scheduled_start_date", "source_created_at",
             "source_modified_at", "unit_address", "property_address",
             "unit_label", "cost", "is_punch_list",
+            "zi_items", "zi_item_count", "zi_human_summary",
         }
         assert set(d.keys()) == expected_keys
+        # Non-zInspector WOs have zi_ fields as None
+        assert d["zi_items"] is None
+        assert d["zi_item_count"] is None
+        assert d["zi_human_summary"] is None
 
     def test_malformed_zinspector_fallthrough(self, portfolio, prop, unit):
         from maintenance.models import WorkOrder

@@ -291,6 +291,22 @@ def _build_meld_payload(melds, section_label):
     return "\n".join(lines)
 
 
+def _format_zi_items_for_prompt(zi_items):
+    """Format structured zInspector items into concise text for the AI prompt."""
+    parts = []
+    for item in zi_items:
+        room = item.get("room", "")
+        component = item.get("component", "")
+        detail = item.get("detail", "")
+        if room and component:
+            parts.append(f"{room}: {component} — {detail}" if detail else f"{room}: {component}")
+        elif room:
+            parts.append(f"{room} — {detail}" if detail else room)
+        else:
+            parts.append(detail)
+    return parts
+
+
 def _build_work_order_payload(address_groups, section_label):
     """Format address-grouped work-order dicts into structured text for the AI prompt.
 
@@ -305,19 +321,34 @@ def _build_work_order_payload(address_groups, section_label):
     for group in address_groups:
         lines.append(f"  {group['property_address']}:")
         for wo in group["work_orders"]:
-            parts = [
-                f"    - [{wo['work_order_number']}]",
-                f"Issue: {wo['description']}" if wo.get("is_punch_list") else f"Issue: {wo['description'][:200]}",
-            ]
-            if wo.get("vendor_name"):
-                parts.append(f"Vendor: {wo['vendor_name']}")
-            if wo.get("cost"):
-                parts.append(f"Cost: ${wo['cost']}")
-            if wo.get("scheduled_start_date"):
-                parts.append(f"Scheduled: {wo['scheduled_start_date']}")
-            if wo.get("date_closed"):
-                parts.append(f"Completed: {wo['date_closed']}")
-            lines.append(" | ".join(parts))
+            zi_items = wo.get("zi_items")
+            if zi_items and len(zi_items) >= 2:
+                # Punch list — feed the actual items to the AI
+                item_lines = _format_zi_items_for_prompt(zi_items)
+                parts = [f"    - [{wo['work_order_number']}] Punch list ({len(zi_items)} items):"]
+                if wo.get("vendor_name"):
+                    parts.append(f"Vendor: {wo['vendor_name']}")
+                if wo.get("cost"):
+                    parts.append(f"Cost: ${wo['cost']}")
+                if wo.get("date_closed"):
+                    parts.append(f"Completed: {wo['date_closed']}")
+                lines.append(" | ".join(parts))
+                for il in item_lines:
+                    lines.append(f"      {il}")
+            else:
+                parts = [
+                    f"    - [{wo['work_order_number']}]",
+                    f"Issue: {wo['description'][:200]}",
+                ]
+                if wo.get("vendor_name"):
+                    parts.append(f"Vendor: {wo['vendor_name']}")
+                if wo.get("cost"):
+                    parts.append(f"Cost: ${wo['cost']}")
+                if wo.get("scheduled_start_date"):
+                    parts.append(f"Scheduled: {wo['scheduled_start_date']}")
+                if wo.get("date_closed"):
+                    parts.append(f"Completed: {wo['date_closed']}")
+                lines.append(" | ".join(parts))
     return "\n".join(lines)
 
 
@@ -353,7 +384,14 @@ def _build_maintenance_prompt_work_orders(
         "Write:\n"
         "1. A brief intro (1-2 sentences summarizing counts)\n"
         "2. For each work order identified by its [ID], a concise 1-2 sentence "
-        "summary. Do NOT include the ID or dollar figures in the summary text.\n\n"
+        "summary. Do NOT include the ID or dollar figures in the summary text.\n"
+        "   For punch-list work orders (multiple inspection items), write a concise "
+        "summary of roughly 25-30 words that groups similar work, leading with "
+        "the largest categories and compressing the tail — e.g. 'Light fixtures "
+        "in three rooms, touch-up paint, closet cleanouts, a smoke alarm and a "
+        "cabinet repair — 16 items in all.' Do not state the property address or "
+        "the completion date (the card already shows both). State only facts from "
+        "the items given; do not add detail.\n\n"
         'Return valid JSON only: {"intro": "...", "wo_summaries": {"<id>": "..."}}'
     )
 
@@ -2081,10 +2119,26 @@ def generate_portfolio_maintenance_notes(
                 for group in data.get(section, []):
                     for wo_dict in group["work_orders"]:
                         wo_num = wo_dict["work_order_number"]
-                        if wo_dict.get("is_punch_list"):
-                            wo_dict["ai_summary"] = wo_dict["description"]
-                        else:
-                            wo_dict["ai_summary"] = summaries.get(wo_num, "")
+                        ai_text = summaries.get(wo_num, "")
+                        if not ai_text and wo_dict.get("is_punch_list"):
+                            # Fallback for zInspector WOs the model omitted
+                            zi_summary = wo_dict.get("zi_human_summary", "")
+                            zi_count = wo_dict.get("zi_item_count")
+                            if zi_summary:
+                                ai_text = zi_summary
+                            elif zi_count:
+                                ai_text = f"{zi_count} items from inspection"
+                            else:
+                                ai_text = ""
+                            logger.warning(
+                                "punch_list_ai_summary_fallback",
+                                extra={
+                                    "work_order_number": wo_num,
+                                    "portfolio": portfolio.name,
+                                    "fallback_text": ai_text,
+                                },
+                            )
+                        wo_dict["ai_summary"] = ai_text
 
             # Build plain-text note
             generated_note = _build_maintenance_generated_note(ai_result)

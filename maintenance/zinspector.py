@@ -33,6 +33,31 @@ _HTML_TAG = re.compile(r"<[^>]+>")
 _WS_RUN = re.compile(r"\s+")
 
 
+def _parse_item(raw_text: str) -> dict:
+    """Parse a single item string into {room, component, detail}.
+
+    Expected format: ``Room : Component | detail``.
+    Falls back gracefully when separators are missing.
+    """
+    room = ""
+    component = ""
+    detail = raw_text
+
+    # Split on " : " for room
+    if " : " in raw_text:
+        room_part, rest = raw_text.split(" : ", 1)
+        room = room_part.strip()
+        # Split on " | " for component/detail
+        if " | " in rest:
+            component_part, detail_part = rest.split(" | ", 1)
+            component = component_part.strip()
+            detail = detail_part.strip()
+        else:
+            detail = rest.strip()
+
+    return {"room": room, "component": component, "detail": detail}
+
+
 def parse_zinspector_description(raw_description: str) -> dict | None:
     """
     Parse a zInspector-originated work-order description.
@@ -41,9 +66,13 @@ def parse_zinspector_description(raw_description: str) -> dict | None:
     Otherwise returns::
 
         {
-            "category": str,       # e.g. "Maintenance", "Landscaping"
-            "reference": str|None, # e.g. "10283"
-            "items": [str, ...],   # cleaned item texts
+            "category": str,         # e.g. "Maintenance", "Landscaping"
+            "human_summary": str,    # free text after "Category:" before stamp (may be "")
+            "reference": str|None,   # e.g. "10283"
+            "items": [               # structured inspection items
+                {"room": str, "component": str, "detail": str},
+                ...
+            ],
         }
 
     Never raises — malformed input yields empty/None sub-fields.
@@ -55,14 +84,18 @@ def parse_zinspector_description(raw_description: str) -> dict | None:
     if not stamp_match:
         return None
 
-    # --- Category: text before the stamp ---
+    # --- Category + human summary: text before the stamp ---
     prefix = raw_description[:stamp_match.start()]
     # Strip HTML tags and collapse whitespace
     prefix_clean = _WS_RUN.sub(" ", _HTML_TAG.sub(" ", prefix)).strip()
     # If the category has a colon (e.g. "Landscaping: Garbage to thrown out..."),
-    # take only the part before the first colon.
+    # take only the part before the first colon as category; the rest is the
+    # human summary.
+    human_summary = ""
     if ":" in prefix_clean:
-        category = prefix_clean.split(":", 1)[0].strip()
+        category, human_summary = prefix_clean.split(":", 1)
+        category = category.strip()
+        human_summary = human_summary.strip()
     else:
         category = prefix_clean
 
@@ -89,10 +122,11 @@ def parse_zinspector_description(raw_description: str) -> dict | None:
             cleaned = _HTML_TAG.sub(" ", raw_item.replace("<br>", " ").replace("<BR>", " "))
             cleaned = _WS_RUN.sub(" ", cleaned).strip()
             if cleaned:
-                items.append(cleaned)
+                items.append(_parse_item(cleaned))
 
     return {
         "category": category,
+        "human_summary": human_summary,
         "reference": reference,
         "items": items,
     }
