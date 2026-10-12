@@ -413,7 +413,7 @@ def _build_maintenance_prompt_work_orders(
     Build the AI prompt for a portfolio-grain maintenance note using WorkOrder data.
 
     Owner-agnostic — no owner name, no cross-portfolio references.
-    AI returns: {"intro": "...", "wo_summaries": {"<work_order_number>": "..."}, "turn_summaries": {"<unit_key>": "..."}}
+    AI returns: {"intro": "...", "wo_summaries": {"<id>": "..."}, "wo_titles": {"<id>": "..."}, "turn_summaries": {"<key>": "..."}}
     """
     open_items = _build_work_order_payload(
         data["open"], "Open"
@@ -452,6 +452,11 @@ def _build_maintenance_prompt_work_orders(
         "cabinet repair — 16 items in all.' Do not state the property address or "
         "the completion date (the card already shows both). State only facts from "
         "the items given; do not add detail.\n"
+        "   For each non-punch-list work order, also write a short title: "
+        "2-5 words, hard cap 40 characters. Describe the work — what is "
+        "being done, not who or where. Derived strictly from the description; "
+        "do not infer or embellish. Examples: 'Replace garbage disposal', "
+        "'Patch drywall crack', 'Exterior gate repair'.\n"
     )
     if turn_section:
         prompt += (
@@ -466,7 +471,8 @@ def _build_maintenance_prompt_work_orders(
 
     prompt += (
         "\nReturn valid JSON only: "
-        '{"intro": "...", "wo_summaries": {"<id>": "..."}'
+        '{"intro": "...", "wo_summaries": {"<id>": "..."}, '
+        '"wo_titles": {"<id>": "..."}'
     )
     if turn_section:
         prompt += ', "turn_summaries": {"<key>": "..."}'
@@ -2218,6 +2224,38 @@ def generate_portfolio_maintenance_notes(
                                 },
                             )
                         wo_dict["ai_summary"] = ai_text
+
+            # Attach AI-generated short titles to non-zInspector WOs.
+            # Must happen BEFORE snapshot freeze (line ~2251) so the
+            # snapshot dict carries the final title.
+            wo_titles = ai_result.get("wo_titles", {})
+            title_path_counts = {"ai_title": 0, "ai_title_truncated": 0, "original_kept": 0, "zi_kept": 0}
+            for section in ("open", "scheduled", "completed", "cancelled"):
+                for group in data.get(section, []):
+                    for wo_dict in group["work_orders"]:
+                        if wo_dict.get("is_punch_list") or wo_dict.get("zi_items"):
+                            title_path_counts["zi_kept"] += 1
+                        else:
+                            ai_title = wo_titles.get(wo_dict["work_order_number"], "")
+                            if ai_title:
+                                wo_dict["title"] = ai_title
+                                if len(ai_title) <= 40:
+                                    title_path_counts["ai_title"] += 1
+                                else:
+                                    title_path_counts["ai_title_truncated"] += 1
+                            else:
+                                title_path_counts["original_kept"] += 1
+                        # Hard cap: any title over 40 chars gets truncated
+                        # at the last whole word within 40, regardless of source.
+                        if len(wo_dict["title"]) > 40:
+                            wo_dict["title"] = wo_dict["title"][:40].rsplit(" ", 1)[0]
+            logger.info(
+                "wo_title_paths",
+                extra={
+                    "portfolio": portfolio.name,
+                    **title_path_counts,
+                },
+            )
 
             # Attach turn-level AI summaries
             turn_summaries = ai_result.get("turn_summaries", {})
