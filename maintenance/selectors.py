@@ -15,6 +15,7 @@ from django.utils.html import strip_tags
 from integrations.property_meld.mappers import EMAIL_CANCELED_BUCKET, EMAIL_CLOSED_BUCKET
 
 from .models import Meld, WorkOrder
+from .sanitizers import sanitize_banned_words
 from .zinspector import parse_zinspector_description
 
 logger = logging.getLogger(__name__)
@@ -487,6 +488,7 @@ def _work_order_to_dict(wo, cost=None):
     if not unit_address:
         unit_address = property_address
 
+    raw_description = wo.description or ""
     title = _extract_title(wo.description)
     description = _clean_html(wo.description)
     is_punch_list = False
@@ -532,6 +534,14 @@ def _work_order_to_dict(wo, cost=None):
         zi_item_count = 1
         zi_human_summary = zi["human_summary"]
 
+    # Sanitize banned words from title, description, and zInspector item details
+    title = sanitize_banned_words(title)
+    description = sanitize_banned_words(description)
+    if zi_items:
+        for item in zi_items:
+            if item.get("detail"):
+                item["detail"] = sanitize_banned_words(item["detail"])
+
     return {
         "id": wo.pk,
         "property_id": wo.property_id,
@@ -539,6 +549,7 @@ def _work_order_to_dict(wo, cost=None):
         "work_order_number": wo.work_order_number,
         "title": title,
         "description": description,
+        "_raw_description": raw_description,
         "vendor_name": wo.vendor_name,
         "is_owner_approved": wo.is_owner_approved,
         "is_internal": wo.is_internal,

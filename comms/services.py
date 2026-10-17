@@ -54,7 +54,8 @@ Rules:
 - NEVER expose dollar figures in your prose — costs are shown structurally
 - The intro paragraph should be 1-2 sentences summarizing the week's activity \
 count (e.g. "This week there are 3 open work orders and 2 were completed.")
-- Do not editorialize or add unnecessary reassurance\
+- Do not editorialize or add unnecessary reassurance
+- Never name any person except vendor companies and Vesta staff\
 """,
     "monthly_owner_notes": """\
 You are a RENDERER, not a reporter. You receive pre-structured facts about a \
@@ -307,12 +308,17 @@ def _format_zi_items_for_prompt(zi_items):
     return parts
 
 
-def _build_work_order_payload(address_groups, section_label):
+def _build_work_order_payload(address_groups, section_label, *, name_re=None, send_date=None):
     """Format address-grouped work-order dicts into structured text for the AI prompt.
 
     address_groups is a list of {"property_address", "work_orders", "show_unit"} dicts
     produced by the selector's _group_by_address().
+
+    name_re: compiled regex for tenant-name scrubbing (or None to skip).
+    send_date: date used to detect "past scheduled + not complete" status.
     """
+    from maintenance.sanitizers import format_owner_date, scrub_tenant_names
+
     if not address_groups:
         return f"{section_label}: none"
 
@@ -321,6 +327,8 @@ def _build_work_order_payload(address_groups, section_label):
     for group in address_groups:
         lines.append(f"  {group['property_address']}:")
         for wo in group["work_orders"]:
+            desc_text = scrub_tenant_names(wo.get("description", ""), name_re)
+
             zi_items = wo.get("zi_items")
             if zi_items and len(zi_items) >= 2:
                 # Punch list — feed the actual items to the AI
@@ -331,23 +339,32 @@ def _build_work_order_payload(address_groups, section_label):
                 if wo.get("cost"):
                     parts.append(f"Cost: ${wo['cost']}")
                 if wo.get("date_closed"):
-                    parts.append(f"Completed: {wo['date_closed']}")
+                    parts.append(f"Completed: {format_owner_date(wo['date_closed'])}")
                 lines.append(" | ".join(parts))
                 for il in item_lines:
                     lines.append(f"      {il}")
             else:
                 parts = [
                     f"    - [{wo['work_order_number']}]",
-                    f"Issue: {wo['description'][:200]}",
+                    f"Issue: {desc_text[:200]}",
                 ]
                 if wo.get("vendor_name"):
                     parts.append(f"Vendor: {wo['vendor_name']}")
                 if wo.get("cost"):
                     parts.append(f"Cost: ${wo['cost']}")
                 if wo.get("scheduled_start_date"):
-                    parts.append(f"Scheduled: {wo['scheduled_start_date']}")
+                    sched = wo["scheduled_start_date"]
+                    if (
+                        send_date
+                        and hasattr(sched, "year")
+                        and sched < send_date
+                        and not wo.get("date_closed")
+                    ):
+                        parts.append("Status: still open")
+                    else:
+                        parts.append(f"Scheduled: {format_owner_date(sched)}")
                 if wo.get("date_closed"):
-                    parts.append(f"Completed: {wo['date_closed']}")
+                    parts.append(f"Completed: {format_owner_date(wo['date_closed'])}")
                 lines.append(" | ".join(parts))
     return "\n".join(lines)
 
@@ -407,7 +424,8 @@ def _build_turn_prompt_section(turns, data):
 
 
 def _build_maintenance_prompt_work_orders(
-    data, portfolio_name, period_start, period_end
+    data, portfolio_name, period_start, period_end,
+    *, name_re=None, send_date=None,
 ):
     """
     Build the AI prompt for a portfolio-grain maintenance note using WorkOrder data.
@@ -415,23 +433,29 @@ def _build_maintenance_prompt_work_orders(
     Owner-agnostic — no owner name, no cross-portfolio references.
     AI returns: {"intro": "...", "wo_summaries": {"<id>": "..."}, "wo_titles": {"<id>": "..."}, "turn_summaries": {"<key>": "..."}}
     """
+    from maintenance.sanitizers import format_owner_date
+
+    payload_kwargs = {"name_re": name_re, "send_date": send_date}
     open_items = _build_work_order_payload(
-        data["open"], "Open"
+        data["open"], "Open", **payload_kwargs
     )
     scheduled = _build_work_order_payload(
-        data["scheduled"], "Scheduled"
+        data["scheduled"], "Scheduled", **payload_kwargs
     )
     completed = _build_work_order_payload(
-        data["completed"], "Completed this week"
+        data["completed"], "Completed this week", **payload_kwargs
     )
     cancelled = _build_work_order_payload(
-        data["cancelled"], "Cancelled this week"
+        data["cancelled"], "Cancelled this week", **payload_kwargs
     )
     turn_section = _build_turn_prompt_section(data.get("turns", []), data)
 
+    period_start_display = format_owner_date(period_start)
+    period_end_display = format_owner_date(period_end)
+
     prompt = (
         f'Write a maintenance update for the portfolio "{portfolio_name}".\n'
-        f"Period: {period_start} to {period_end}.\n\n"
+        f"Period: {period_start_display} to {period_end_display}.\n\n"
         f"{open_items}\n\n"
         f"{scheduled}\n\n"
         f"{completed}\n\n"
@@ -2083,12 +2107,15 @@ def _build_maintenance_generated_note(ai_result):
 
 def generate_portfolio_maintenance_notes(
     portfolio_queryset, period_start, period_end,
-    period_type="weekly", dry_run=False,
+    period_type="weekly", dry_run=False, send_date=None,
 ):
     """
     Generate portfolio-grain maintenance notes (Layer 1: PortfolioMaintenanceNote).
 
     One Anthropic call per portfolio. Owner-agnostic.
+
+    send_date: the date the email will be sent (for seasonal detection and
+    date formatting). Defaults to today in ET.
 
     Data source controlled by settings.MASON_WORK_ORDERS:
       False (default) — local WorkOrder table (synced from Rentvine).
@@ -2119,6 +2146,19 @@ def generate_portfolio_maintenance_notes(
             "comms_mason_sweep_complete",
             extra={"work_order_count": len(mason_sweep["work_orders"])},
         )
+
+    from maintenance.sanitizers import (
+        _build_name_regex,
+        build_seasonal_wo_summary,
+        build_tenant_name_set,
+        default_send_date as _default_send_date,
+        validate_no_banned_words,
+        validate_no_tenant_names,
+        validate_no_third_person_owner,
+    )
+
+    if send_date is None:
+        send_date = _default_send_date()
 
     # Enforce: never generate for inactive portfolios
     portfolio_queryset = portfolio_queryset.filter(is_active=True)
@@ -2187,9 +2227,35 @@ def generate_portfolio_maintenance_notes(
                 skipped += 1
                 continue
 
+            # Build tenant name set from all WO descriptions in portfolio
+            all_descriptions = [
+                wo_dict.get("description", "")
+                for bucket in ("open", "scheduled", "completed", "cancelled")
+                for group in data.get(bucket, [])
+                for wo_dict in group.get("work_orders", [])
+            ]
+            tenant_names = build_tenant_name_set(portfolio, all_descriptions)
+            name_re = _build_name_regex(tenant_names)
+
+            # Detect seasonal inspections using _raw_description (no re-query)
+            for bucket in ("open", "scheduled", "completed", "cancelled"):
+                for group in data.get(bucket, []):
+                    for wo_dict in group.get("work_orders", []):
+                        raw_desc = wo_dict.get("_raw_description", "")
+                        seasonal = build_seasonal_wo_summary(
+                            raw_desc,
+                            wo_dict.get("scheduled_start_date"),
+                            send_date,
+                        )
+                        if seasonal:
+                            wo_dict["architect_plan_line"] = seasonal["architect_plan_line"]
+                            wo_dict["title"] = f"{seasonal['season']} Seasonal Inspection"
+                            wo_dict["description"] = seasonal["summary_sentence"]
+
             # Owner-agnostic AI call
             user_prompt = _build_maintenance_prompt_work_orders(
-                data, portfolio.name, period_start, period_end
+                data, portfolio.name, period_start, period_end,
+                name_re=name_re, send_date=send_date,
             )
             ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
 
@@ -2293,8 +2359,13 @@ def generate_portfolio_maintenance_notes(
                 work_order_snapshot["turns"] = data["turns"]
 
             notes_html = render_maintenance_notes_html_from_snapshot(
-                work_order_snapshot
+                work_order_snapshot, send_date=send_date,
             )
+
+            # Hard-fail validators on rendered HTML
+            validate_no_banned_words(notes_html)
+            validate_no_tenant_names(notes_html, name_re)
+            validate_no_third_person_owner(notes_html)
 
             if dry_run:
                 logger.info(
@@ -2355,17 +2426,20 @@ def _build_cancelled_summary(cancelled_groups):
     return ", ".join(parts)
 
 
-def render_maintenance_notes_html_from_snapshot(snapshot):
+def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
     """Render the maintenance card fragment HTML from a frozen work_order_snapshot.
 
     Pure function — takes the JSON-deserialized snapshot dict, returns an HTML
     string identical to what generate_portfolio_maintenance_notes produces via
     its inline render_to_string call.
 
+    send_date: used to detect "past scheduled + not complete" (empty display).
+
     Coercion: scheduled_start_date and date_closed are stored as ISO strings
-    after JSON round-tripping; the Django ``date`` template filter requires
-    real date objects, so they are parsed back.  cost and estimated_amount
-    pass through ``floatformat`` which handles strings natively — left as-is.
+    after JSON round-tripping; they are parsed back and pre-formatted into
+    ``scheduled_date_display`` and ``date_closed_display`` strings for the
+    template.  cost and estimated_amount pass through ``floatformat`` which
+    handles strings natively — left as-is.
 
     mason_path and cancelled_summary are derived from the snapshot's
     ``_mason_path`` key — the single source of truth.  An older snapshot
@@ -2373,9 +2447,11 @@ def render_maintenance_notes_html_from_snapshot(snapshot):
 
     The input snapshot is NOT mutated (operates on a deep copy).
     """
+    from maintenance.sanitizers import format_owner_date
+
     data = copy.deepcopy(snapshot)
 
-    # Coerce ISO-string dates back to date objects for the |date filter
+    # Coerce ISO-string dates back to date objects and pre-format for display
     for bucket in ("open", "scheduled", "completed", "cancelled"):
         for group in data.get(bucket, []):
             for wo in group.get("work_orders", []):
@@ -2383,6 +2459,24 @@ def render_maintenance_notes_html_from_snapshot(snapshot):
                     val = wo.get(field)
                     if val and isinstance(val, str):
                         wo[field] = _date.fromisoformat(val)
+
+                # Pre-format dates into display strings
+                sched = wo.get("scheduled_start_date")
+                closed = wo.get("date_closed")
+
+                # Past scheduled + no close → empty display (suppress stale date)
+                if (
+                    sched
+                    and send_date
+                    and hasattr(sched, "year")
+                    and sched < send_date
+                    and not closed
+                ):
+                    wo["scheduled_date_display"] = ""
+                else:
+                    wo["scheduled_date_display"] = format_owner_date(sched) if sched else ""
+
+                wo["date_closed_display"] = format_owner_date(closed) if closed else ""
 
     mason_path = bool(data.get("_mason_path"))
     cancelled_groups = data.get("cancelled", [])

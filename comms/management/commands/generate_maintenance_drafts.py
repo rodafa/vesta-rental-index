@@ -42,6 +42,11 @@ class Command(BaseCommand):
             help="Limit the number of portfolios to process.",
         )
         parser.add_argument(
+            "--send-date",
+            type=str,
+            help="Date the email will be sent (YYYY-MM-DD). Defaults to today ET.",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Run the pipeline without writing to the database.",
@@ -50,6 +55,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         period_start_str = options["period_start"]
         period_end_str = options["period_end"]
+        send_date_str = options["send_date"]
 
         # Default period: the most recent full week (Mon-Sun)
         if period_start_str:
@@ -61,6 +67,8 @@ class Command(BaseCommand):
             period_end = date.fromisoformat(period_end_str)
         else:
             period_end = period_start + timedelta(days=6)
+
+        send_date = date.fromisoformat(send_date_str) if send_date_str else None
 
         self.stdout.write(
             f"Generating maintenance notes for {period_start} to {period_end}..."
@@ -79,6 +87,7 @@ class Command(BaseCommand):
             period_end,
             period_type="weekly",
             dry_run=options["dry_run"],
+            send_date=send_date,
         )
 
         self.stdout.write(
