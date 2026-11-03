@@ -20,6 +20,73 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
+# ---------------------------------------------------------------------------
+# Banned-phrase detection (single source of truth)
+# ---------------------------------------------------------------------------
+
+BANNED_PHRASES = [
+    "want to be direct",
+    "direct with you",
+    "we want to be direct",
+    "to be direct with you",
+    "to be honest",
+    "frankly",
+    "i want to be upfront",
+    "to be upfront",
+    "want to be candid",
+    "candidly",
+    "i'll be frank",
+    "let me be honest",
+    "i'll be honest",
+    "let me be direct",
+    "let me be candid",
+]
+
+_QUOTE_TABLE = str.maketrans({
+    "\u2018": "'", "\u2019": "'",   # curly single quotes
+    "\u201c": '"', "\u201d": '"',   # curly double quotes
+    "\u2032": "'", "\u2033": '"',   # prime / double prime
+})
+
+
+def _normalize_for_phrase_match(text):
+    """Lowercase, straighten quotes, collapse whitespace."""
+    text = text.lower().translate(_QUOTE_TABLE)
+    return re.sub(r"\s+", " ", text)
+
+
+def check_banned_phrases(text):
+    """
+    Return list of banned phrases found in *text* (case-insensitive,
+    curly-quote-normalized, whitespace-collapsed).
+
+    Matching requires a word boundary after the phrase so that e.g.
+    "want to be direct" does not match "want to be directly".
+
+    The returned strings are the canonical forms from BANNED_PHRASES.
+    """
+    if not text:
+        return []
+    normalized = _normalize_for_phrase_match(text)
+    return [p for p in BANNED_PHRASES if re.search(re.escape(p) + r"\b", normalized)]
+
+
+def _drop_banned_sentences(text):
+    """
+    Return *text* with any sentence containing a banned phrase removed.
+
+    A "sentence" is delimited by `.`, `!`, or `?` followed by whitespace
+    or end-of-string.  Bullet lines (`- ...`) are treated as sentences.
+    """
+    if not text:
+        return text
+    # Split on sentence-ending punctuation (keep the delimiter)
+    parts = re.split(r'(?<=[.!?])\s+|(?=^- |\n- )', text, flags=re.MULTILINE)
+    kept = [p for p in parts if not check_banned_phrases(p)]
+    result = " ".join(kept).strip()
+    # Collapse any double-spaces left by removal
+    return re.sub(r"  +", " ", result)
+
 
 def _safe_delta(current, prior):
     """Compute current - prior, returning None if either side is None."""
@@ -555,6 +622,13 @@ def build_leasing_prompt(
         )
         lines.append("")
     lines.append(
+        "TONE RULE: No throat-clearing or 'candor' openers. Do not write phrases "
+        "like 'we want to be direct', 'to be honest', 'frankly', 'I want to be "
+        "upfront', or similar. State facts plainly — the directness should be "
+        "implicit, never announced."
+    )
+    lines.append("")
+    lines.append(
         "Write one concise leasing note per unit (opening prose, a short bullet "
         "list using '- ' prefix, and a closing action line). The intro is a 1-2 "
         "sentence portfolio-level summary of leasing activity this week. Return "
@@ -706,9 +780,11 @@ def generate_portfolio_leasing_note(
             note_text = prev_edited.get(uid) or prev_summaries.get(uid)
             action_text = prev_actions.get(uid)
             if note_text or action_text:
+                # Strip sentences containing banned phrases so they
+                # don't feed back into the prompt as prior context.
                 prior_context[uid] = {
-                    "prior_note": note_text or "",
-                    "prior_action": action_text or "",
+                    "prior_note": _drop_banned_sentences(note_text or ""),
+                    "prior_action": _drop_banned_sentences(action_text or ""),
                 }
 
     # Build per-unit contexts

@@ -125,6 +125,12 @@
     <form method="post" action="{% url 'leasing-notes-detail' note_id=note.pk %}">
       {% csrf_token %}
       <div class="card-body">
+        {% if intro_tone_flags %}
+        <div style="background:#FFF3E0; border:1px solid #FF9800; border-radius:4px; padding:8px 12px; margin-bottom:12px;">
+          <strong style="color:#E65100;">Tone flag (intro):</strong>
+          <span style="color:#BF360C;">Banned phrase{{ intro_tone_flags|length|pluralize }} detected: {{ intro_tone_flags|join:", " }}. Regenerate this note to fix it.</span>
+        </div>
+        {% endif %}
         {% for u in units %}
         {% if u.applications %}
         <div class="unit-field">
@@ -185,6 +191,12 @@
         </div>
         <div class="unit-field">
           <label class="unit-label" for="unit_{{ u.uid }}">{{ u.address }} — Leasing Note</label>
+          {% if u.tone_flags %}
+          <div style="background:#FFF3E0; border:1px solid #FF9800; border-radius:4px; padding:8px 12px; margin-bottom:8px;">
+            <strong style="color:#E65100;">Tone flag:</strong>
+            <span style="color:#BF360C;">Banned phrase{{ u.tone_flags|length|pluralize }} detected: {{ u.tone_flags|join:", " }}. Edit before approving.</span>
+          </div>
+          {% endif %}
           <textarea class="unit-textarea" id="unit_{{ u.uid }}" name="unit_{{ u.uid }}">{{ u.current_text }}</textarea>
         </div>
         {% endfor %}

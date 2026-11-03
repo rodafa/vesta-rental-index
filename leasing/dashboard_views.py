@@ -14,7 +14,7 @@ from comms.models import EmailDraft
 from comms.services import send_draft
 from leasing.email_services import assemble_leasing_drafts
 from leasing.models import PortfolioLeasingNote
-from leasing.note_services import render_leasing_notes_html_from_snapshot
+from leasing.note_services import check_banned_phrases, render_leasing_notes_html_from_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +278,11 @@ def _leasing_note_detail(request, note_id):
         ).order_by("detected_at"):
             price_history_map.setdefault(pc.unit_id, []).append(pc)
 
+    # Check intro for banned phrases.  The intro is not editable on
+    # the review screen, so we always check the AI-generated text.
+    ai_intro = (snapshot.get("ai_result") or {}).get("intro", "")
+    intro_tone_flags = check_banned_phrases(ai_intro)
+
     units = []
     for ctx in unit_contexts:
         uid = str(ctx["unit_id"])
@@ -290,6 +295,8 @@ def _leasing_note_detail(request, note_id):
             "current_action": current_action,
             "applications": raw_app_map.get(ctx["unit_id"], []),
             "price_history": price_history_map.get(ctx["unit_id"], []),
+            "tone_flags": check_banned_phrases(current_text)
+                         + check_banned_phrases(current_action),
         })
 
     period_label = ""
@@ -304,6 +311,7 @@ def _leasing_note_detail(request, note_id):
         "notes_html": note.notes_html,
         "period_start": note.period_start,
         "period_end": note.period_end,
+        "intro_tone_flags": intro_tone_flags,
     })
 
 
