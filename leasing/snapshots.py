@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 def build_unit_snapshot(
     unit, period_start, period_end, client=None,
     rv_advertised_dates=None, re_marked_available_dates=None,
-    applications=None, segment_benchmark=None, since_listed=None,
+    applications=None, applications_received=0,
+    segment_benchmark=None, since_listed=None,
 ):
     """
     Build or update a UnitLeasingSnapshot for a single unit and period.
@@ -37,6 +38,9 @@ def build_unit_snapshot(
             once by the caller, not once per unit.
         applications: optional list of application dicts for this unit,
             from build_unit_applications(). Defaults to [] when None.
+        applications_received: int, count of paid application groups whose
+            submitted_at falls in [period_start, period_end]. Comes from
+            build_unit_applications() period_counts, not len(applications).
         segment_benchmark: optional dict from compute_segment_benchmarks()
             for this unit's bedroom segment. Defaults to {} when None.
 
@@ -125,7 +129,7 @@ def build_unit_snapshot(
             "showings_completed": unit_metrics["showings_completed"],
             "showings_canceled": unit_metrics["showings_canceled"],
             "showings_missed": unit_metrics["showings_missed"],
-            "applications_received": unit_metrics["applications_received"],
+            "applications_received": applications_received,
             "touchpoints_calls": touchpoints_calls,
             "touchpoints_texts": touchpoints_texts,
             "upcoming_showings": upcoming_showings,

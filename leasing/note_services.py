@@ -470,6 +470,22 @@ def build_leasing_prompt(
         ]:
             lines.append(f"  {label}: {_format_val(ctx[key], ctx[f'{key}_delta'])}")
 
+        # Application detail — each entry is one application group.
+        # Two applicants in one group = ONE application (co-applicant or
+        # co-signer). Report as "1 application (2 applicants)".
+        apps = ctx.get("applications") or []
+        if apps:
+            total_applicants = sum(a.get("num_applicants") or 1 for a in apps)
+            app_word = "application" if len(apps) == 1 else "applications"
+            detail = f"  Application detail: {len(apps)} {app_word}"
+            if total_applicants != len(apps):
+                detail += f" ({total_applicants} applicants total)"
+            lines.append(detail)
+            lines.append(
+                "  NOTE: Multiple applicants in one group are co-applicants "
+                "or co-signers — count as ONE application, not separate ones."
+            )
+
         # Nullable reporting metrics
         for key, label in [
             ("touchpoints_calls", "Touchpoint calls"),

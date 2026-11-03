@@ -11,6 +11,7 @@ Usage:
 
 import logging
 import time
+from datetime import date
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
@@ -20,6 +21,7 @@ from integrations.rentengine.client import RentEngineClient
 from integrations.rentengine.mappers import (
     build_unit_applications,
     build_unit_marked_available_dates,
+    is_group_paid,
 )
 from integrations.rentvine.client import RentvineClient
 from integrations.rentvine.listing_dates import build_unit_advertised_dates
@@ -178,18 +180,23 @@ class Command(BaseCommand):
                 ))
 
         # --- Fetch application data once for all units ---
-        unit_applications = {}
+        app_period_counts = {}   # unit_id (RE) -> int
+        unit_applications = {}   # unit_id (RE) -> list of app dicts
+        all_group_rows = []      # kept for since-listed counting
         try:
             app_rows = client.get_reporting_applications(start, end)
-            group_rows = client.get_rental_application_groups()
-            unit_applications = build_unit_applications(
-                app_rows, group_rows, start, end,
+            all_group_rows = client.get_rental_application_groups()
+            app_period_counts, unit_applications = build_unit_applications(
+                all_group_rows, start, end,
+                reporting_rows=app_rows,
             )
             total_entries = sum(len(v) for v in unit_applications.values())
+            total_period = sum(app_period_counts.values())
             self.stdout.write(
                 f"Applications: {len(app_rows)} reporting rows, "
-                f"{len(group_rows)} groups, "
-                f"{total_entries} entries across "
+                f"{len(all_group_rows)} groups, "
+                f"{total_period} paid in period, "
+                f"{total_entries} entries (incl carried-over) across "
                 f"{len(unit_applications)} units"
             )
 
@@ -221,6 +228,47 @@ class Command(BaseCommand):
         since_listed_map = compute_since_listed_totals(
             units, end, marked_available_dates=dma_by_unit_id,
         )
+
+        # Merge group-based application counts into since-listed totals.
+        # For each unit with a dma, count paid groups with submitted_at
+        # in [dma, end].
+        re_to_core = {
+            u.rentengine_id: u.id for u in units
+            if u.rentengine_id is not None
+        }
+        dma_by_re_id = {
+            u.rentengine_id: dma_by_unit_id[u.id]
+            for u in units
+            if u.rentengine_id is not None and u.id in dma_by_unit_id
+        }
+        for group in all_group_rows:
+            if not is_group_paid(group):
+                continue
+            re_uid = group.get("unit_id")
+            if re_uid is None:
+                continue
+            try:
+                re_uid = int(re_uid)
+            except (ValueError, TypeError):
+                continue
+            dma = dma_by_re_id.get(re_uid)
+            if dma is None:
+                continue
+            submitted_raw = group.get("submitted_at")
+            if not submitted_raw:
+                continue
+            try:
+                submitted_date = date.fromisoformat(str(submitted_raw)[:10])
+            except (ValueError, TypeError):
+                continue
+            if dma <= submitted_date <= end:
+                core_uid = re_to_core.get(re_uid)
+                if core_uid is not None and core_uid in since_listed_map:
+                    since_listed_map[core_uid].setdefault(
+                        "applications_received", 0
+                    )
+                    since_listed_map[core_uid]["applications_received"] += 1
+
         self.stdout.write(
             f"Since-listed totals: {len(since_listed_map)}/"
             f"{len(units)} units have date_marked_available"
@@ -286,7 +334,8 @@ class Command(BaseCommand):
                         unit.id, addr,
                         m["new_leads"], m["showings_scheduled"],
                         m["showings_completed"], m["showings_canceled"],
-                        m["showings_missed"], m["applications_received"],
+                        m["showings_missed"],
+                        app_period_counts.get(unit.rentengine_id, 0),
                         calls, texts, upcoming, dom, reporting_ok,
                     ))
                 else:
@@ -296,6 +345,9 @@ class Command(BaseCommand):
                         re_marked_available_dates=re_marked_available_dates,
                         applications=unit_applications.get(
                             unit.rentengine_id, [],
+                        ),
+                        applications_received=app_period_counts.get(
+                            unit.rentengine_id, 0,
                         ),
                         segment_benchmark=benchmarks.get(
                             unit.bedrooms, {},

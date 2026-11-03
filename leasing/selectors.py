@@ -28,7 +28,6 @@ _EVENT_TYPE_TO_KEY = {
     EVENT_TYPE_SHOWING_SCHEDULED: "showings_scheduled",
     EVENT_TYPE_SHOWING_CANCELED: "showings_canceled",
     EVENT_TYPE_MISSED_SHOWING: "showings_missed",
-    EVENT_TYPE_APPLICATION_RECEIVED: "applications_received",
 }
 
 _TRACKED_EVENT_TYPES = tuple(_EVENT_TYPE_TO_KEY.keys())
@@ -51,7 +50,7 @@ def compute_leasing_metrics(unit, start_date, end_date):
 
     Returns:
         dict with keys: new_leads, showings_scheduled, showings_completed,
-        showings_canceled, showings_missed, applications_received.
+        showings_canceled, showings_missed.
         All values are integers.
 
     Raises:
@@ -177,9 +176,10 @@ def compute_since_listed_totals(units, as_of_date, marked_available_dates=None):
             "leads": int,
             "showings_scheduled": int,
             "showings_completed": int,
-            "applications_received": int,
         }
         Units with no date_marked_available are OMITTED entirely.
+        The caller is responsible for merging applications_received
+        from group-based counting.
 
     Query count: 3 (constant regardless of unit count), plus 1 fallback
     query if marked_available_dates is not provided. All three queries
@@ -229,7 +229,6 @@ def compute_since_listed_totals(units, as_of_date, marked_available_dates=None):
             "leads": 0,
             "showings_scheduled": 0,
             "showings_completed": 0,
-            "applications_received": 0,
         }
         for uid in unit_ids_with_dma
     }
@@ -247,25 +246,19 @@ def compute_since_listed_totals(units, as_of_date, marked_available_dates=None):
         if created_date >= dma_map[unit_id]:
             result[unit_id]["leads"] += 1
 
-    # Query 2: Showing Scheduled + Application Received
+    # Query 2: Showing Scheduled
     event_rows = (
         LeasingEvent.objects.filter(
             unit__in=units_with_dma,
-            event_type__in=[
-                EVENT_TYPE_SHOWING_SCHEDULED,
-                EVENT_TYPE_APPLICATION_RECEIVED,
-            ],
+            event_type=EVENT_TYPE_SHOWING_SCHEDULED,
             event_date__gte=min_dma,
             event_date__lte=as_of_date,
         )
-        .values_list("unit_id", "event_type", "event_date")
+        .values_list("unit_id", "event_date")
     )
-    for unit_id, event_type, event_date in event_rows:
+    for unit_id, event_date in event_rows:
         if event_date >= dma_map[unit_id]:
-            if event_type == EVENT_TYPE_SHOWING_SCHEDULED:
-                result[unit_id]["showings_scheduled"] += 1
-            else:
-                result[unit_id]["applications_received"] += 1
+            result[unit_id]["showings_scheduled"] += 1
 
     # Query 3: Showing Complete — deduplicated on (unit, prospect, event_date)
     # Same rule as compute_leasing_metrics_bulk: null prospect counts as 1

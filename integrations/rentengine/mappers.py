@@ -185,93 +185,123 @@ _ALLOWED_APP_KEYS = frozenset({
     "group_id", "status", "submitted_at", "num_applicants", "workflow_step",
 })
 
+# Group statuses that mean the application is resolved (no longer active).
+_RESOLVED_GROUP_STATUSES = frozenset({
+    "Approved", "Rejected", "Archived", "Moved In",
+})
 
-def build_unit_applications(reporting_rows, group_rows, period_start, period_end):
+
+def is_group_paid(group):
     """
-    Build per-unit application lists from reporting + groups data.
+    A group counts as one paid application if at least one applicant has
+    screening started: screening is not null AND credit_status is not null.
+
+    This is the single source of truth for "did this group pay?"
+    """
+    for applicant in (group.get("applicants") or []):
+        screening = applicant.get("screening")
+        if screening is not None and screening.get("credit_status") is not None:
+            return True
+    return False
+
+
+def build_unit_applications(group_rows, period_start, period_end,
+                            reporting_rows=None):
+    """
+    Build per-unit application data from group rows.
 
     Args:
-        reporting_rows: list of dicts from GET /reporting/applications.
         group_rows: list of dicts from GET /rental_application_groups.
         period_start: date object, inclusive start of reporting period.
         period_end: date object, inclusive end of reporting period.
+        reporting_rows: optional list of dicts from GET /reporting/applications.
+            Used only to enrich workflow_step. May be None.
 
     Returns:
-        dict mapping RentEngine unit_id (int) -> list of application dicts.
-        Each dict has exactly: group_id, status, submitted_at,
-        num_applicants, workflow_step.
+        (period_counts, applications) where:
+        - period_counts: dict mapping unit_id (int) -> int count of paid
+          groups whose submitted_at falls in [period_start, period_end].
+          This is the number that goes in applications_received.
+        - applications: dict mapping unit_id (int) -> list of app dicts.
+          Includes paid groups submitted in the period PLUS carried-over
+          open groups (paid groups from earlier weeks whose status is NOT
+          in {Approved, Rejected, Archived, Moved In}).
 
-    Business rules:
-        - Skip status == "Incomplete" (abandoned forms).
-        - Include "Submitted" unconditionally (always present until resolved).
-        - Include resolved (status not Incomplete/Submitted) only if
-          processed_at falls within [period_start, period_end].
+    Counting rule:
+        A group is "paid" when at least one applicant has screening started
+        (screening not null AND credit_status not null).
+        Group status Archived/Rejected does NOT exclude a paid group from
+        the period count.
 
     Privacy:
         NEVER includes lead_applicant, income_details, or any name field.
         A hard assertion enforces the allowed key set on every entry.
     """
-    # Build group_id -> unit_id lookup
-    group_to_unit = {}
-    for g in group_rows:
-        gid = g.get("id")
-        uid = g.get("unit_id")
-        if gid and uid is not None:
-            try:
-                group_to_unit[gid] = int(uid)
-            except (ValueError, TypeError):
-                continue
+    # Build group_id -> workflow_step lookup from reporting rows
+    workflow_steps = {}
+    if reporting_rows:
+        for row in reporting_rows:
+            gid = row.get("application_group_id")
+            step = row.get("current_workflow_step")
+            if gid and step:
+                workflow_steps[gid] = str(step)
 
-    result = {}
+    period_counts = {}   # unit_id -> int
+    applications = {}    # unit_id -> list of app dicts
 
-    for row in reporting_rows:
-        status = (row.get("status") or "").strip()
-
-        # Skip abandoned forms
-        if status == "Incomplete":
+    for group in group_rows:
+        if not is_group_paid(group):
             continue
 
-        group_id = row.get("application_group_id")
-        if not group_id:
+        group_id = group.get("id")
+        uid = group.get("unit_id")
+        if not group_id or uid is None:
+            continue
+        try:
+            unit_id = int(uid)
+        except (ValueError, TypeError):
             continue
 
-        unit_id = group_to_unit.get(group_id)
-        if unit_id is None:
-            continue
-
-        # Resolved apps: include only if processed_at is in the period
-        if status != "Submitted":
-            processed_raw = row.get("processed_at")
-            if not processed_raw:
-                continue
-            try:
-                processed_date = date.fromisoformat(str(processed_raw)[:10])
-            except (ValueError, TypeError):
-                continue
-            if not (period_start <= processed_date <= period_end):
-                continue
-
-        # Extract submitted_at as date string or None
-        submitted_raw = row.get("submitted_at")
+        # Parse submitted_at
+        submitted_raw = group.get("submitted_at")
         submitted_str = None
+        submitted_date = None
         if submitted_raw:
             try:
                 submitted_str = str(submitted_raw)[:10]
+                submitted_date = date.fromisoformat(submitted_str)
             except (ValueError, TypeError):
                 pass
 
-        # Extract num_applicants
-        num_applicants = _safe_int(row.get("num_applicants"))
+        status = (group.get("status") or "").strip()
+        num_applicants = len(group.get("applicants") or [])
 
-        # Extract workflow_step (dashboard-only, never in owner email)
-        workflow_step = str(row.get("current_workflow_step") or "")
+        # Period count: paid groups with submitted_at in [start, end]
+        in_period = (
+            submitted_date is not None
+            and period_start <= submitted_date <= period_end
+        )
+        if in_period:
+            period_counts[unit_id] = period_counts.get(unit_id, 0) + 1
+
+        # Applications list: in-period groups PLUS carried-over open groups
+        # (paid, from before the period, status not resolved).
+        carried_over = (
+            not in_period
+            and submitted_date is not None
+            and submitted_date < period_start
+            and status not in _RESOLVED_GROUP_STATUSES
+        )
+
+        if not in_period and not carried_over:
+            continue
 
         entry = {
             "group_id": group_id,
             "status": status,
             "submitted_at": submitted_str,
             "num_applicants": num_applicants,
-            "workflow_step": workflow_step,
+            "workflow_step": workflow_steps.get(group_id, ""),
         }
 
         # Hard privacy guard: assert exact key set
@@ -284,6 +314,6 @@ def build_unit_applications(reporting_rows, group_rows, period_start, period_end
                 f"Entry keys: {sorted(entry.keys())}"
             )
 
-        result.setdefault(unit_id, []).append(entry)
+        applications.setdefault(unit_id, []).append(entry)
 
-    return result
+    return period_counts, applications
