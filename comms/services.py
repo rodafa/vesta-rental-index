@@ -2379,6 +2379,16 @@ def generate_portfolio_maintenance_notes(
             if data.get("turns"):
                 work_order_snapshot["turns"] = data["turns"]
 
+            # Stamp structural intro so the dashboard textarea and
+            # the rendered HTML always start from the same sentence.
+            open_n = sum(len(g["work_orders"]) for g in data["open"])
+            sched_n = sum(len(g["work_orders"]) for g in data["scheduled"])
+            comp_n = sum(len(g["work_orders"]) for g in data["completed"])
+            canc_n = sum(len(g["work_orders"]) for g in data["cancelled"])
+            work_order_snapshot["intro"] = _build_structural_intro(
+                open_n, sched_n, comp_n, canc_n,
+            )
+
             notes_html = render_maintenance_notes_html_from_snapshot(
                 work_order_snapshot, send_date=send_date,
             )
@@ -2603,14 +2613,16 @@ def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
             if str(wo.get("work_order_number", "")) not in skip
         )
 
-    # Derive intro sentence structurally from bucket counts.
-    # This replaces the AI-generated intro so that the sentence is always
-    # consistent with the actual snapshot data — no stale frozen text.
+    # Use stamped intro from snapshot when present (generation path and
+    # user edits both write here).  Fall back to re-deriving for older
+    # snapshots that pre-date the intro key.
     open_n = sum(len(g["work_orders"]) for g in data.get("open", []))
     sched_n = sum(len(g["work_orders"]) for g in data.get("scheduled", []))
     comp_n = sum(len(g["work_orders"]) for g in data.get("completed", []))
     canc_n = sum(len(g["work_orders"]) for g in cancelled_groups)
-    intro_sentence = _build_structural_intro(open_n, sched_n, comp_n, canc_n)
+    intro_sentence = data.get("intro") or _build_structural_intro(
+        open_n, sched_n, comp_n, canc_n,
+    )
 
     context = {
         "ai_intro": intro_sentence,
