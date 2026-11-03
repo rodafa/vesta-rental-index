@@ -52,10 +52,10 @@ Rules:
 - No jargon, no filler, no speculation
 - Do NOT include work order numbers or ticket IDs in your prose
 - NEVER expose dollar figures in your prose — costs are shown structurally
-- The intro paragraph should be 1-2 sentences summarizing the week's activity \
-count (e.g. "This week there are 3 open work orders and 2 were completed.")
 - Do not editorialize or add unnecessary reassurance
-- Never name any person except vendor companies and Vesta staff\
+- Never name any person except vendor companies and Vesta staff
+- When a work order says "Reported by tenant", mention it ("A tenant reported…"). \
+When it does not, use passive voice — never guess who reported the issue\
 """,
     "monthly_owner_notes": """\
 You are a RENDERER, not a reporter. You receive pre-structured facts about a \
@@ -317,17 +317,27 @@ def _build_work_order_payload(address_groups, section_label, *, name_re=None, se
     name_re: compiled regex for tenant-name scrubbing (or None to skip).
     send_date: date used to detect "past scheduled + not complete" status.
     """
-    from maintenance.sanitizers import format_owner_date, scrub_tenant_names
+    from maintenance.sanitizers import (
+        format_owner_date,
+        scrub_phone_numbers,
+        scrub_tenant_names,
+    )
 
     if not address_groups:
         return f"{section_label}: none"
+
+    def _scrub(text):
+        """Apply tenant-name and phone-number scrubbing."""
+        return scrub_phone_numbers(scrub_tenant_names(text, name_re))
 
     total = sum(len(g["work_orders"]) for g in address_groups)
     lines = [f"{section_label} ({total}):"]
     for group in address_groups:
         lines.append(f"  {group['property_address']}:")
         for wo in group["work_orders"]:
-            desc_text = scrub_tenant_names(wo.get("description", ""), name_re)
+            desc_text = _scrub(wo.get("description", ""))
+            scope_text = _scrub(wo.get("scope_of_work", ""))
+            work_note_text = _scrub(wo.get("work_performed_note", ""))
 
             zi_items = wo.get("zi_items")
             if zi_items and len(zi_items) >= 2:
@@ -340,9 +350,15 @@ def _build_work_order_payload(address_groups, section_label, *, name_re=None, se
                     parts.append(f"Cost: ${wo['cost']}")
                 if wo.get("date_closed"):
                     parts.append(f"Completed: {format_owner_date(wo['date_closed'])}")
+                if wo.get("is_tenant_reported"):
+                    parts.append("Reported by tenant")
                 lines.append(" | ".join(parts))
                 for il in item_lines:
                     lines.append(f"      {il}")
+                if scope_text:
+                    lines.append(f"      Scope: {scope_text[:200]}")
+                if work_note_text:
+                    lines.append(f"      Work notes: {work_note_text[:200]}")
             else:
                 parts = [
                     f"    - [{wo['work_order_number']}]",
@@ -365,6 +381,12 @@ def _build_work_order_payload(address_groups, section_label, *, name_re=None, se
                         parts.append(f"Scheduled: {format_owner_date(sched)}")
                 if wo.get("date_closed"):
                     parts.append(f"Completed: {format_owner_date(wo['date_closed'])}")
+                if scope_text:
+                    parts.append(f"Scope: {scope_text[:200]}")
+                if work_note_text:
+                    parts.append(f"Work notes: {work_note_text[:200]}")
+                if wo.get("is_tenant_reported"):
+                    parts.append("Reported by tenant")
                 lines.append(" | ".join(parts))
     return "\n".join(lines)
 
@@ -431,7 +453,7 @@ def _build_maintenance_prompt_work_orders(
     Build the AI prompt for a portfolio-grain maintenance note using WorkOrder data.
 
     Owner-agnostic — no owner name, no cross-portfolio references.
-    AI returns: {"intro": "...", "wo_summaries": {"<id>": "..."}, "wo_titles": {"<id>": "..."}, "turn_summaries": {"<key>": "..."}}
+    AI returns: {"wo_summaries": {"<id>": "..."}, "wo_titles": {"<id>": "..."}, "turn_summaries": {"<key>": "..."}}
     """
     from maintenance.sanitizers import format_owner_date
 
@@ -466,8 +488,7 @@ def _build_maintenance_prompt_work_orders(
 
     prompt += (
         "Write:\n"
-        "1. A brief intro (1-2 sentences summarizing counts)\n"
-        "2. For each work order identified by its [ID], a concise 1-2 sentence "
+        "1. For each work order identified by its [ID], a concise 1-2 sentence "
         "summary. Do NOT include the ID or dollar figures in the summary text.\n"
         "   For punch-list work orders (multiple inspection items), write a concise "
         "summary of roughly 25-30 words that groups similar work, leading with "
@@ -484,7 +505,7 @@ def _build_maintenance_prompt_work_orders(
     )
     if turn_section:
         prompt += (
-            "3. For each unit turn identified by [TURN:<key>], write ONE sentence "
+            "2. For each unit turn identified by [TURN:<key>], write ONE sentence "
             "listing the completed work — not per-trade, but as a single plain "
             "list. Hard cap 45 words, target 35. Lead with the largest or most "
             "substantial item, then the rest. No completion verbs (no 'were "
@@ -495,7 +516,7 @@ def _build_maintenance_prompt_work_orders(
 
     prompt += (
         "\nReturn valid JSON only: "
-        '{"intro": "...", "wo_summaries": {"<id>": "..."}, '
+        '{"wo_summaries": {"<id>": "..."}, '
         '"wo_titles": {"<id>": "..."}'
     )
     if turn_section:
@@ -2086,12 +2107,8 @@ def _build_maintenance_prompt_portfolio(data, portfolio_name, period_start, peri
 
 
 def _build_maintenance_generated_note(ai_result):
-    """Build plain-text generated_note from AI result (intro + bullet summaries)."""
+    """Build plain-text generated_note from AI result (bullet summaries)."""
     parts = []
-    intro = ai_result.get("intro", "")
-    if intro:
-        parts.append(intro)
-
     summaries = ai_result.get("wo_summaries", {})
     if summaries:
         parts.append(
@@ -2227,13 +2244,18 @@ def generate_portfolio_maintenance_notes(
                 skipped += 1
                 continue
 
-            # Build tenant name set from all WO descriptions in portfolio
-            all_descriptions = [
-                wo_dict.get("description", "")
-                for bucket in ("open", "scheduled", "completed", "cancelled")
-                for group in data.get(bucket, [])
-                for wo_dict in group.get("work_orders", [])
-            ]
+            # Build tenant name set from all WO text fields in portfolio
+            all_descriptions = []
+            for bucket in ("open", "scheduled", "completed", "cancelled"):
+                for group in data.get(bucket, []):
+                    for wo_dict in group.get("work_orders", []):
+                        all_descriptions.append(wo_dict.get("description", ""))
+                        scope = wo_dict.get("scope_of_work", "")
+                        if scope:
+                            all_descriptions.append(scope)
+                        work_note = wo_dict.get("work_performed_note", "")
+                        if work_note:
+                            all_descriptions.append(work_note)
             tenant_names = build_tenant_name_set(portfolio, all_descriptions)
             name_re = _build_name_regex(tenant_names)
 
@@ -2347,7 +2369,6 @@ def generate_portfolio_maintenance_notes(
             # render_maintenance_notes_html_from_snapshot — one function,
             # one source of truth for mason_path, cancelled_summary, etc.
             work_order_snapshot = {
-                "intro": ai_result.get("intro", ""),
                 "open": data["open"],
                 "scheduled": data["scheduled"],
                 "completed": data["completed"],
@@ -2424,6 +2445,58 @@ def _build_cancelled_summary(cancelled_groups):
         addr = group.get("property_address", "Unknown")
         parts.append(f"{addr} ({count})" if count > 1 else addr)
     return ", ".join(parts)
+
+
+def _build_structural_intro(open_n, sched_n, comp_n, canc_n):
+    """Build a deterministic intro sentence from bucket counts.
+
+    Replaces the AI-generated intro so the sentence is always consistent
+    with the snapshot data — no frozen text that can go stale.
+    """
+    def _wo(n):
+        return "work order" if n == 1 else "work orders"
+
+    # Split into present-tense (open/scheduled) and past-tense (completed/cancelled)
+    present = []
+    if open_n:
+        present.append(f"{open_n} open {_wo(open_n)}")
+    if sched_n:
+        present.append(f"{sched_n} scheduled")
+
+    past = []
+    if comp_n:
+        past.append(f"{comp_n} {'was' if comp_n == 1 else 'were'} completed")
+    if canc_n:
+        past.append(f"{canc_n} {'was' if canc_n == 1 else 'were'} cancelled")
+
+    if not present and not past:
+        return "There were no work orders this week."
+
+    # Single-bucket cases — clean full sentence
+    if not past and len(present) == 1 and not sched_n:
+        verb = "is" if open_n == 1 else "are"
+        return f"This week there {verb} {present[0]}."
+    if not past and len(present) == 1 and not open_n:
+        verb = "is" if sched_n == 1 else "are"
+        return f"This week there {verb} {sched_n} scheduled {_wo(sched_n)}."
+    if not present and len(past) == 1:
+        if comp_n:
+            return f"This week {comp_n} {_wo(comp_n)} {'was' if comp_n == 1 else 'were'} completed."
+        return f"This week {canc_n} {_wo(canc_n)} {'was' if canc_n == 1 else 'were'} cancelled."
+
+    # Multiple buckets — combine present and past halves
+    if present:
+        first_n = open_n if open_n else sched_n
+        verb = "is" if first_n == 1 else "are"
+        present_text = " and ".join(present)
+        if past:
+            past_text = " and ".join(past)
+            return f"This week there {verb} {present_text}, and {past_text}."
+        return f"This week there {verb} {present_text}."
+
+    # Only past, multiple
+    past_text = " and ".join(past)
+    return f"This week {past_text}."
 
 
 def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
@@ -2530,8 +2603,17 @@ def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
             if str(wo.get("work_order_number", "")) not in skip
         )
 
+    # Derive intro sentence structurally from bucket counts.
+    # This replaces the AI-generated intro so that the sentence is always
+    # consistent with the actual snapshot data — no stale frozen text.
+    open_n = sum(len(g["work_orders"]) for g in data.get("open", []))
+    sched_n = sum(len(g["work_orders"]) for g in data.get("scheduled", []))
+    comp_n = sum(len(g["work_orders"]) for g in data.get("completed", []))
+    canc_n = sum(len(g["work_orders"]) for g in cancelled_groups)
+    intro_sentence = _build_structural_intro(open_n, sched_n, comp_n, canc_n)
+
     context = {
-        "ai_intro": data.get("intro", ""),
+        "ai_intro": intro_sentence,
         "open_items": data.get("open", []),
         "scheduled": data.get("scheduled", []),
         "completed": data.get("completed", []),

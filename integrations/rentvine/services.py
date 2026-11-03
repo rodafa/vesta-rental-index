@@ -1225,6 +1225,17 @@ class WorkOrderSyncService(_BaseSyncService):
                     updated_count += 1
 
             except Exception as exc:
+                # Detect dead database connection — abort immediately
+                # instead of logging 1000+ identical per-record errors.
+                exc_str = str(exc).lower()
+                if (
+                    "server closed the connection" in exc_str
+                    or "connection already closed" in exc_str
+                ):
+                    msg = f"Database connection lost, aborting sync: {exc}"
+                    logger.error(msg)
+                    errors.append(msg)
+                    break
                 msg = f"Error syncing work order record: {exc}"
                 logger.error(msg)
                 errors.append(msg)

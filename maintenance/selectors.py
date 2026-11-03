@@ -468,6 +468,83 @@ def _extract_title(raw_html: str) -> str:
     return first_line
 
 
+def _process_raw_description(raw_description, wo_number=None):
+    """Process a raw work-order description into title, description, and zInspector fields.
+
+    Shared by both the Rentvine path (_work_order_to_dict) and the Mason path
+    (mason_selectors overrides).
+
+    Returns a dict with keys: title, description, _raw_description, is_punch_list,
+    zi_items, zi_item_count, zi_human_summary, zi_category.
+    """
+    title = _extract_title(raw_description)
+    description = _clean_html(raw_description)
+    is_punch_list = False
+    zi_items = None
+    zi_item_count = None
+    zi_human_summary = None
+    zi_category = None
+
+    zi = parse_zinspector_description(raw_description)
+    if zi is not None and len(zi["items"]) >= 2:
+        cat = zi["category"]
+        mapped = _TRADE_TITLE_MAP.get(cat)
+        if mapped is None:
+            logger.warning(
+                "zinspector_unknown_trade",
+                extra={"trade": cat, "wo": wo_number},
+            )
+            mapped = cat
+        title = mapped
+        # Description is the operator's free-text note only — never the raw
+        # zInspector block (contains internal URLs).  Empty when the prefix
+        # was just the trade word with no colon.
+        description = zi["human_summary"]
+        is_punch_list = True
+        zi_items = zi["items"]
+        zi_item_count = len(zi["items"])
+        zi_human_summary = zi["human_summary"]
+        zi_category = cat
+    elif zi is not None and len(zi["items"]) == 1:
+        cat = zi["category"]
+        mapped = _TRADE_TITLE_MAP.get(cat)
+        if mapped is None:
+            logger.warning(
+                "zinspector_unknown_trade",
+                extra={"trade": cat, "wo": wo_number},
+            )
+            mapped = cat
+        item = zi["items"][0]
+        item_text = item["detail"] if item.get("detail") else (
+            f"{item['room']}: {item['component']}" if item.get("room") else ""
+        )
+        title = mapped
+        description = item_text
+        zi_items = zi["items"]
+        zi_item_count = 1
+        zi_human_summary = zi["human_summary"]
+        zi_category = cat
+
+    # Sanitize banned words from title, description, and zInspector item details
+    title = sanitize_banned_words(title)
+    description = sanitize_banned_words(description)
+    if zi_items:
+        for item in zi_items:
+            if item.get("detail"):
+                item["detail"] = sanitize_banned_words(item["detail"])
+
+    return {
+        "title": title,
+        "description": description,
+        "_raw_description": raw_description,
+        "is_punch_list": is_punch_list,
+        "zi_items": zi_items,
+        "zi_item_count": zi_item_count,
+        "zi_human_summary": zi_human_summary,
+        "zi_category": zi_category,
+    }
+
+
 def _work_order_to_dict(wo, cost=None):
     """Convert a WorkOrder instance to a plain dict for template/AI consumption."""
     unit_address = ""
@@ -488,68 +565,16 @@ def _work_order_to_dict(wo, cost=None):
     if not unit_address:
         unit_address = property_address
 
-    raw_description = wo.description or ""
-    title = _extract_title(wo.description)
-    description = _clean_html(wo.description)
-    is_punch_list = False
-    zi_items = None
-    zi_item_count = None
-    zi_human_summary = None
-
-    zi = parse_zinspector_description(wo.description)
-    if zi is not None and len(zi["items"]) >= 2:
-        cat = zi["category"]
-        mapped = _TRADE_TITLE_MAP.get(cat)
-        if mapped is None:
-            logger.warning(
-                "zinspector_unknown_trade",
-                extra={"trade": cat, "wo": wo.work_order_number},
-            )
-            mapped = cat
-        title = mapped
-        # Description is the operator's free-text note only — never the raw
-        # zInspector block (contains internal URLs).  Empty when the prefix
-        # was just the trade word with no colon.
-        description = zi["human_summary"]
-        is_punch_list = True
-        zi_items = zi["items"]
-        zi_item_count = len(zi["items"])
-        zi_human_summary = zi["human_summary"]
-    elif zi is not None and len(zi["items"]) == 1:
-        cat = zi["category"]
-        mapped = _TRADE_TITLE_MAP.get(cat)
-        if mapped is None:
-            logger.warning(
-                "zinspector_unknown_trade",
-                extra={"trade": cat, "wo": wo.work_order_number},
-            )
-            mapped = cat
-        item = zi["items"][0]
-        item_text = item["detail"] if item.get("detail") else (
-            f"{item['room']}: {item['component']}" if item.get("room") else ""
-        )
-        title = mapped
-        description = item_text
-        zi_items = zi["items"]
-        zi_item_count = 1
-        zi_human_summary = zi["human_summary"]
-
-    # Sanitize banned words from title, description, and zInspector item details
-    title = sanitize_banned_words(title)
-    description = sanitize_banned_words(description)
-    if zi_items:
-        for item in zi_items:
-            if item.get("detail"):
-                item["detail"] = sanitize_banned_words(item["detail"])
+    processed = _process_raw_description(
+        wo.description or "", wo_number=wo.work_order_number,
+    )
 
     return {
         "id": wo.pk,
         "property_id": wo.property_id,
         "unit_id": wo.unit_id,
         "work_order_number": wo.work_order_number,
-        "title": title,
-        "description": description,
-        "_raw_description": raw_description,
+        **processed,
         "vendor_name": wo.vendor_name,
         "is_owner_approved": wo.is_owner_approved,
         "is_internal": wo.is_internal,
@@ -562,10 +587,6 @@ def _work_order_to_dict(wo, cost=None):
         "property_address": property_address,
         "unit_label": unit_label,
         "cost": cost,
-        "is_punch_list": is_punch_list,
-        "zi_items": zi_items,
-        "zi_item_count": zi_item_count,
-        "zi_human_summary": zi_human_summary,
     }
 
 

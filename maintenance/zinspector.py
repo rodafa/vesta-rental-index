@@ -22,9 +22,10 @@ _WO_INSTRUCTIONS = re.compile(r"Work Order Instructions\s*:", re.IGNORECASE)
 # Locate the "Media Link:" trailer.
 _MEDIA_LINK = re.compile(r"Media Link\s*:", re.IGNORECASE)
 
-# Item marker: <br> followed by optional whitespace, a hyphen, then whitespace.
+# Item marker: <br> or newline followed by optional whitespace, a hyphen, then
+# whitespace.  Mason descriptions use \n- where Rentvine uses <br>-.
 # This is the ONLY reliable split point — bare <br> can appear WITHIN an item.
-_ITEM_MARKER = re.compile(r"<br\s*/?>[\s]*-\s+", re.IGNORECASE)
+_ITEM_MARKER = re.compile(r"(?:<br\s*/?>|\n)[\s]*-\s+", re.IGNORECASE)
 
 # Strip HTML tags for cleaning individual item text.
 _HTML_TAG = re.compile(r"<[^>]+>")

@@ -19,6 +19,7 @@ from datetime import date
 # with the Rentvine work-order path at cutover.
 from .selectors import (
     _group_by_address,
+    _process_raw_description,
     _work_order_to_dict,
     get_work_order_costs,
 )
@@ -219,6 +220,16 @@ def get_portfolio_work_order_data_mason(
         # cost, estimated_amount, is_owner_approved, zInspector parsing)
         wo_dict = _work_order_to_dict(local_wo, cost=cost)
 
+        # Override title/description/_raw_description from Mason's description.
+        # Mason is the source of truth for all content; Rentvine retains
+        # structural fields (address, cost, estimated_amount).
+        mason_desc = wo.get("description") or ""
+        if mason_desc:
+            processed = _process_raw_description(
+                mason_desc, wo_number=wo_dict.get("work_order_number"),
+            )
+            wo_dict.update(processed)
+
         # Override with Mason-sourced fields
         mason_vendor = wo.get("_vendor_name", "")
         if mason_vendor:
@@ -243,11 +254,32 @@ def get_portfolio_work_order_data_mason(
         wo_dict["source_modified_at"] = wo.get("updatedAt")
         wo_dict["work_order_type"] = wo.get("_work_order_type", "")
 
+        # Scope of work from Mason (vendor instructions)
+        scope = (wo.get("scopeOfWork") or "").strip()
+        if scope:
+            wo_dict["scope_of_work"] = scope
+
         # Tech's own description of work performed (completed cards only
         # in the template, but carried on all WOs for snapshot consistency).
         work_note = wo.get("_work_performed_note")
         if work_note:
             wo_dict["work_performed_note"] = work_note
+
+        # Attribution: tenant-reported flag from Mason.
+        # Strict rule: requester must match tenant, or tenant set with no
+        # requester and source indicates tenant origin.  Prevents false
+        # positives when tenantContactId is on the lease but someone else
+        # actually reported the issue.
+        tenant_id = wo.get("tenantContactId")
+        requester_id = wo.get("requesterContactId")
+        wo_source = (wo.get("source") or "").lower()
+        is_tenant_reported = False
+        if tenant_id and requester_id and str(tenant_id) == str(requester_id):
+            is_tenant_reported = True
+        elif tenant_id and not requester_id:
+            if "portal" in wo_source or "tenant" in wo_source:
+                is_tenant_reported = True
+        wo_dict["is_tenant_reported"] = is_tenant_reported
 
         bucket = wo["_mapped_bucket"]
 

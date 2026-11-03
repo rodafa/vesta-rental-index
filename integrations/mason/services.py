@@ -101,11 +101,14 @@ def _resolve_vendor_names(work_orders, client):
     for c in contacts:
         cid = c.get("id") or c.get("contactId")
         if cid:
-            # Build display name from available fields
+            # Build display name from available fields.
+            # Mason contacts often have only a flat "name" field with
+            # firstName/lastName/companyName empty.
             first = (c.get("firstName") or "").strip()
             last = (c.get("lastName") or "").strip()
             company = (c.get("companyName") or c.get("company") or "").strip()
-            name = f"{first} {last}".strip() or company or ""
+            flat_name = (c.get("name") or "").strip()
+            name = f"{first} {last}".strip() or company or flat_name
             if name:
                 contact_map[str(cid)] = name
 
@@ -200,7 +203,20 @@ def _resolve_completed_date(wo, activity_index, visits_index):
             if marked:
                 return marked[:10] if len(marked) >= 10 else marked
 
-    # 3. Fallback: status_changed to "closed"
+    # 3. status_changed → "work_done" event (the PM marked work complete
+    #    before the office filed the close — catches the gap between the
+    #    tech finishing and the admin closing).
+    for log in logs:
+        event_type = log.get("eventType") or log.get("type") or ""
+        if event_type == "status_changed":
+            details = log.get("details") or {}
+            new_status = details.get("newStatus") or details.get("to") or ""
+            if new_status == "work_done":
+                ts = log.get("createdAt") or log.get("timestamp") or ""
+                if ts:
+                    return ts[:10] if len(ts) >= 10 else ts
+
+    # 4. Fallback: status_changed to "closed"
     for log in logs:
         event_type = log.get("eventType") or log.get("type") or ""
         if event_type == "status_changed":

@@ -150,6 +150,32 @@ def validate_no_tenant_names(html: str, name_re: re.Pattern | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 1b2. Phone-number scrubbing
+# ---------------------------------------------------------------------------
+
+# Matches US phone numbers in common formats:
+# (555) 123-4567, 555-123-4567, 555.123.4567, 5551234567
+# Optional leading +1 or 1.
+_PHONE_RE = re.compile(
+    r"(?<!\d)"                        # not preceded by digit
+    r"(?:\+?1[\s.\-]?)?"              # optional country code
+    r"(?:\(\d{3}\)|\d{3})"            # area code
+    r"[\s.\-]?"                       # separator
+    r"\d{3}"                          # exchange
+    r"[\s.\-]?"                       # separator
+    r"\d{4}"                          # subscriber
+    r"(?!\d)",                        # not followed by digit
+)
+
+
+def scrub_phone_numbers(text: str) -> str:
+    """Replace phone numbers with '[phone]'. Returns cleaned text."""
+    if not text:
+        return text
+    return _PHONE_RE.sub("[phone]", text)
+
+
+# ---------------------------------------------------------------------------
 # 1c. Seasonal inspection
 # ---------------------------------------------------------------------------
 
