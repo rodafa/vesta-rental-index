@@ -1,0 +1,17 @@
+{
+  "active_units": 27,
+  "active_prospects": 235,
+  "leased_dom": 27.75,
+  "aged_dom": 53.22222222222222,
+  "answered_inbound_calls": 18,
+  "total_inbound_calls": 30,
+  "call_answer_rate": 0.6,
+  "sms_response_seconds": 1070,
+  "sms_response_seconds_with_ai": 129,
+  "time_to_showing_scheduled_hours": 16.1825,
+  "time_to_showing_complete_hours": 96.69472222222223,
+  "time_to_application_submitted_hours": 96.07444444444444,
+  "application_processing_hours": 157.4525,
+  "ai_performance_rate": 0.2,
+  "total_submitted_applications": 4
+}

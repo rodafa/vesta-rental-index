@@ -1,0 +1,50 @@
+[
+  {
+    "source_key": "rentengine",
+    "source_display": "RentEngine",
+    "leads": 2,
+    "showings_scheduled": 2,
+    "showings_completed": 0,
+    "upcoming_showings": 3,
+    "applications_requested": 0,
+    "applications_submitted": 0,
+    "apps_approved": 0,
+    "rejected_prescreens": 0
+  },
+  {
+    "source_key": "apartments.com",
+    "source_display": "Apartments.com",
+    "leads": 1,
+    "showings_scheduled": 0,
+    "showings_completed": 0,
+    "upcoming_showings": 0,
+    "applications_requested": 0,
+    "applications_submitted": 0,
+    "apps_approved": 0,
+    "rejected_prescreens": 0
+  },
+  {
+    "source_key": "phone call",
+    "source_display": "Phone Call",
+    "leads": 1,
+    "showings_scheduled": 0,
+    "showings_completed": 0,
+    "upcoming_showings": 0,
+    "applications_requested": 0,
+    "applications_submitted": 0,
+    "apps_approved": 0,
+    "rejected_prescreens": 0
+  },
+  {
+    "source_key": "zillow",
+    "source_display": "Zillow",
+    "leads": 1,
+    "showings_scheduled": 1,
+    "showings_completed": 0,
+    "upcoming_showings": 6,
+    "applications_requested": 0,
+    "applications_submitted": 0,
+    "apps_approved": 0,
+    "rejected_prescreens": 1
+  }
+]

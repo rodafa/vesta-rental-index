@@ -1,0 +1,67 @@
+[
+  {
+    "id": 479540,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "prospect_id": 2939012,
+    "task_type": "showing-awaiting-approval",
+    "task_type_label": "Showing awaiting approval",
+    "reason": "A showing needs approval",
+    "assigned_agent_user_id": null,
+    "created_at": "2026-11-04T21:34:56.689499+00:00",
+    "status": "open",
+    "resolved_at": null,
+    "resolved_by": null
+  },
+  {
+    "id": 473059,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "prospect_id": 2928583,
+    "task_type": "missed-call",
+    "task_type_label": "Missed call",
+    "reason": "Inbound call went unanswered",
+    "assigned_agent_user_id": null,
+    "created_at": "2026-11-04T16:13:37.843415+00:00",
+    "status": "open",
+    "resolved_at": null,
+    "resolved_by": null
+  },
+  {
+    "id": 468040,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "prospect_id": 2938077,
+    "task_type": "unresponded-message",
+    "task_type_label": "Unresponded message",
+    "reason": "A prospect's text or email is waiting for a reply",
+    "assigned_agent_user_id": null,
+    "created_at": "2026-11-04T00:04:06.474633+00:00",
+    "status": "open",
+    "resolved_at": null,
+    "resolved_by": null
+  },
+  {
+    "id": 463653,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "prospect_id": 2879530,
+    "task_type": "unresponded-message",
+    "task_type_label": "Unresponded message",
+    "reason": "A prospect's text or email is waiting for a reply",
+    "assigned_agent_user_id": null,
+    "created_at": "2026-11-03T19:49:19.437785+00:00",
+    "status": "open",
+    "resolved_at": null,
+    "resolved_by": null
+  },
+  {
+    "id": 81389,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "prospect_id": 2715488,
+    "task_type": "showing-canceled-by-prospect",
+    "task_type_label": "Showing canceled by prospect",
+    "reason": "A prospect canceled a scheduled showing",
+    "assigned_agent_user_id": null,
+    "created_at": "2026-10-06T21:22:17.223071+00:00",
+    "status": "open",
+    "resolved_at": null,
+    "resolved_by": null
+  }
+]

@@ -369,3 +369,69 @@ class RentEngineClient:
             f"reporting/leasing-performance/units/{unit_id}",
             params=params,
         )
+
+    # ------------------------------------------------------------------
+    # Methods below accept pre-built ISO-8601 strings (not date objects).
+    # The caller is responsible for ET-to-UTC conversion.
+    # ------------------------------------------------------------------
+
+    def _get_report(self, path, params):
+        """GET a reporting endpoint that returns {"data": [...]} without pagination."""
+        result = self.get(path, params=params)
+        if isinstance(result, dict) and "data" in result:
+            return result["data"]
+        if isinstance(result, list):
+            return result
+        raise RentEngineAPIError(
+            f"Unexpected response from {path}: {type(result).__name__}"
+        )
+
+    def get_reporting_overview(self, start_iso, end_iso, account_ids=None):
+        """GET /reporting/overview — account-level daily summary (not paginated)."""
+        account_ids = account_ids or self._default_account_ids()
+        params = {"account_ids": account_ids, "start": start_iso, "end": end_iso}
+        return self._get_report("reporting/overview", params)
+
+    def get_reporting_agent_performance(self, start_iso, end_iso, account_ids=None):
+        """GET /reporting/agent-performance — per-agent metrics (not paginated)."""
+        account_ids = account_ids or self._default_account_ids()
+        params = {"account_ids": account_ids, "start": start_iso, "end": end_iso}
+        return self._get_report("reporting/agent-performance", params)
+
+    def get_reporting_showings(self, start_iso, end_iso, account_ids=None):
+        """GET /reporting/showings — individual showing rows."""
+        account_ids = account_ids or self._default_account_ids()
+        params = {"account_ids": account_ids, "start": start_iso, "end": end_iso}
+        return self.get_all_enveloped(
+            "reporting/showings", params=params, page_size=2000,
+        )
+
+    def get_reporting_marketing_sources(self, start_iso, end_iso, account_ids=None):
+        """GET /reporting/marketing-sources — leads by source (not paginated)."""
+        account_ids = account_ids or self._default_account_ids()
+        params = {"account_ids": account_ids, "start": start_iso, "end": end_iso}
+        return self._get_report("reporting/marketing-sources", params)
+
+    def get_reporting_property_performance(self, start_iso, end_iso, account_ids=None):
+        """GET /reporting/property-performance — per-unit leasing metrics."""
+        account_ids = account_ids or self._default_account_ids()
+        params = {"account_ids": account_ids, "start": start_iso, "end": end_iso}
+        return self.get_all_enveloped(
+            "reporting/property-performance", params=params, page_size=2000,
+        )
+
+    def get_tasks(self, account_ids=None):
+        """GET /tasks — open tasks (paginated, uses account_id singular)."""
+        account_ids = account_ids or self._default_account_ids()
+        params = {"account_id": account_ids}
+        return self.get_all_enveloped("tasks", params=params, page_size=100)
+
+    def _default_account_ids(self):
+        """Read ACCOUNT_ID from settings; raise if missing."""
+        config = getattr(settings, "RENTENGINE", {})
+        account_ids = config.get("ACCOUNT_ID", "")
+        if not account_ids:
+            raise RentEngineAPIError(
+                "account_ids required. Set RENTENGINE_ACCOUNT_ID."
+            )
+        return account_ids

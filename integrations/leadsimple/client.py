@@ -176,6 +176,62 @@ def fetch_tasks(*, period_start=None, max_pages=None):
     return all_tasks
 
 
+def get_process(process_id):
+    """
+    GET /processes/{process_id} — single process with stage info.
+
+    Returns dict on success, or DEGRADED on failure.
+    """
+    auth = _get_auth()
+    if auth is None:
+        return DEGRADED
+
+    base_url, headers = auth
+    url = f"{base_url}/processes/{process_id}"
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+        except requests.RequestException as exc:
+            logger.warning(
+                "leadsimple_request_error",
+                extra={"process_id": process_id, "attempt": attempt, "error": str(exc)},
+            )
+            if attempt < MAX_RETRIES:
+                time.sleep(BACKOFF_FACTOR ** attempt)
+                continue
+            return DEGRADED
+
+        if resp.status_code < 300:
+            return resp.json()
+
+        if resp.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+            wait_s = _retry_wait_seconds(resp, resp.status_code, attempt)
+            logger.warning(
+                "leadsimple_retryable_error",
+                extra={
+                    "process_id": process_id,
+                    "attempt": attempt,
+                    "status_code": resp.status_code,
+                    "wait_seconds": wait_s,
+                },
+            )
+            time.sleep(wait_s)
+            continue
+
+        logger.error(
+            "leadsimple_api_error",
+            extra={
+                "process_id": process_id,
+                "status_code": resp.status_code,
+                "body": resp.text[:500],
+            },
+        )
+        return DEGRADED
+
+    return DEGRADED
+
+
 def _retry_wait_seconds(resp, status_code, attempt):
     """Seconds to wait before a retry.
 

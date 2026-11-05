@@ -1,0 +1,2550 @@
+[
+  {
+    "id": "b73a1719-a105-4fc9-9861-26d59140f4d0",
+    "unit_id": 88883,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-06",
+    "primary_application_id": "7d9c2347-3b32-4f5d-86ec-9db9811c5768",
+    "created_at": "2026-11-04T16:17:11.890814",
+    "updated_at": "2026-11-04T16:17:11.890814",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "25cd4f3e-e82c-4255-881e-e792ad513ae2",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-08",
+    "primary_application_id": "a02493d0-8843-4512-8c99-3cf8ad09e8f9",
+    "created_at": "2026-10-31T18:40:09.336679",
+    "updated_at": "2026-10-31T18:40:09.336679",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "648a9365-a90f-4dbf-b0e2-bd7166880b20",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-10",
+    "primary_application_id": "7dc90749-3201-45e9-bb78-059283eb7eaa",
+    "created_at": "2026-10-30T15:30:17.659966",
+    "updated_at": "2026-10-30T15:30:17.659966",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "c88ddeab-d838-4628-bce3-7046a0935661",
+    "unit_id": 98883,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Submitted",
+    "submitted_at": "2026-10-31T01:51:49.84252",
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "bcf16b10-113c-4218-852c-de0738fdc851",
+    "created_at": "2026-10-29T23:40:29.083915",
+    "updated_at": "2026-10-31T01:51:49.816",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f36b427b-be32-421a-a7a1-6b31725baf0f",
+    "unit_id": 87407,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": null,
+    "primary_application_id": "37eeae78-195e-4fad-94d5-f2275d13be02",
+    "created_at": "2026-10-29T16:12:33.700133",
+    "updated_at": "2026-10-29T16:12:33.700133",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "451ba913-6a6e-4949-9bda-074b3ce629e5",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Submitted",
+    "submitted_at": "2026-11-02T15:16:02.462157",
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "e6653fe0-b7a7-45ac-8eec-f823feb72727",
+    "created_at": "2026-10-29T14:39:03.059654",
+    "updated_at": "2026-11-02T15:16:02.392",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "88e902f2-6c57-4e41-b93a-30c14468de75",
+    "unit_id": 23539,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": null,
+    "primary_application_id": "fd302ec6-a1c0-40b0-ad84-89bb5219eccb",
+    "created_at": "2026-10-28T15:07:27.679447",
+    "updated_at": "2026-10-28T15:07:27.679447",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "cc2821e6-4960-443e-84d3-438aff190aed",
+    "unit_id": 92446,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": null,
+    "primary_application_id": "135b72e7-a8fd-4f35-b4db-a09c5423131a",
+    "created_at": "2026-10-27T20:43:43.719289",
+    "updated_at": "2026-10-27T20:43:43.719289",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "1aabb958-6485-42b8-825e-46bca603c80f",
+    "unit_id": 88883,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Awaiting Additional Info",
+    "submitted_at": "2026-10-27T18:02:41.441066",
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "31bd76ce-207c-47ab-bbb7-2a1414db903b",
+    "created_at": "2026-10-27T15:52:06.788726",
+    "updated_at": "2026-10-28T14:35:15.767396",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "1bd24773-b1d1-48c1-bef5-8477d6b27a3c",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-26T23:57:37.426681",
+    "move_in_date": "2026-10-27",
+    "primary_application_id": "8f90d656-e63a-4f69-9e2e-3d65254cb333",
+    "created_at": "2026-10-26T22:20:22.586914",
+    "updated_at": "2026-10-26T23:57:37.386",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bcd7b4dc-8901-4af2-89a6-1f82d6984bf2",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "5b59278f-5e81-4359-8f5f-b4750af84ecd",
+    "created_at": "2026-10-26T21:01:22.80904",
+    "updated_at": "2026-10-26T21:01:22.80904",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "885d796d-23fe-4817-a2eb-efab81feb042",
+    "unit_id": 60749,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "2463ad97-0fcb-416e-b480-3c7a73c98b55",
+    "created_at": "2026-10-26T16:08:08.134661",
+    "updated_at": "2026-10-26T16:08:08.134661",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "e5b758e5-2f3a-40e2-bc1a-c1e15bc82e28",
+    "unit_id": 88883,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "4a339de0-2cae-40b6-b080-6aa5dd2f7fba",
+    "created_at": "2026-10-26T13:58:50.227809",
+    "updated_at": "2026-10-26T13:58:50.227809",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "529d83b2-c89f-49d1-910f-845bba3d64ae",
+    "unit_id": 92446,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-25T01:36:48.456427",
+    "move_in_date": "2026-10-26",
+    "primary_application_id": "495153cf-e2ea-474d-af7d-4b29f1373f74",
+    "created_at": "2026-10-24T19:49:28.03778",
+    "updated_at": "2026-10-25T01:36:48.433",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "8cb27967-e938-46f1-be44-f92982353766",
+    "unit_id": 95847,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": null,
+    "primary_application_id": "e629817c-5799-4f91-b6fa-ec690cecbe01",
+    "created_at": "2026-10-24T17:55:24.742315",
+    "updated_at": "2026-10-24T17:55:24.742315",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "94d8fe63-c878-41a2-a479-66c150bda113",
+    "unit_id": 87407,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "42bed827-d717-48be-af02-dfb7e30877e7",
+    "created_at": "2026-10-24T13:25:29.745645",
+    "updated_at": "2026-10-24T13:25:29.745645",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "92f5a769-fb15-4ff1-931b-db8bb41c5069",
+    "unit_id": 60749,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Submitted",
+    "submitted_at": "2026-10-24T15:08:06.471416",
+    "move_in_date": "2026-11-15",
+    "primary_application_id": "75c71cd0-9b47-48e6-930b-bd768e0d50f8",
+    "created_at": "2026-10-24T03:54:03.863053",
+    "updated_at": "2026-10-24T15:08:06.448",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "cf2a0569-58d5-4f76-a842-0afe86e861c1",
+    "unit_id": 87488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Submitted",
+    "submitted_at": "2026-10-27T00:32:26.817029",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "a394f996-1644-4570-96b7-04ad0778797b",
+    "created_at": "2026-10-22T20:26:33.996249",
+    "updated_at": "2026-10-27T00:32:26.801",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "2f51ca10-0e2d-4a3c-916c-27850fc0346c",
+    "unit_id": 92446,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-22T20:36:00.004971",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "285f7222-43ea-4c4c-a0e8-8975f1af875c",
+    "created_at": "2026-10-22T19:05:31.255385",
+    "updated_at": "2026-10-22T20:35:59.975",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "3010a075-968b-469e-944e-1b58999cdd36",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-10-25",
+    "primary_application_id": "60d17964-cf31-4ace-9b35-7c582f4c09ac",
+    "created_at": "2026-10-22T09:36:06.186557",
+    "updated_at": "2026-10-22T09:36:06.186557",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "71cbd335-4014-4392-95dc-858da2612659",
+    "unit_id": 87309,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-22T00:15:51.415682",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "ff2627e0-646c-4b59-bccf-77a2b12d36cd",
+    "created_at": "2026-10-21T21:08:43.162082",
+    "updated_at": "2026-10-22T00:15:51.361",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "245b476a-293c-4c63-a583-ce50e6d99690",
+    "unit_id": 95847,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-21T22:08:56.718713",
+    "move_in_date": "2026-11-15",
+    "primary_application_id": "066f537b-fa56-4a96-a50f-f75717850781",
+    "created_at": "2026-10-21T19:34:00.463835",
+    "updated_at": "2026-10-21T22:08:56.693",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "4a3adac4-5572-41f0-a08e-3973ac97b14f",
+    "unit_id": 92395,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Submitted",
+    "submitted_at": "2026-10-31T20:47:38.079048",
+    "move_in_date": "2027-01-01",
+    "primary_application_id": "5c85302d-1b6c-4fc9-98ad-b7897d23f3a9",
+    "created_at": "2026-10-21T17:52:50.252274",
+    "updated_at": "2026-10-31T20:47:38.039",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bad0c47f-1d60-4f30-84bc-314eb2e1c9c1",
+    "unit_id": 98883,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-15",
+    "primary_application_id": "b61c14fd-c53f-4792-a71d-f4a23c8cb9d5",
+    "created_at": "2026-10-21T16:31:15.991341",
+    "updated_at": "2026-10-21T16:31:15.991341",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "84b8c8f7-9772-4de6-b8a7-b3190a83ae72",
+    "unit_id": 93149,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": null,
+    "primary_application_id": "b65cde32-8be2-4a24-8c8b-8e1acd2ddf6f",
+    "created_at": "2026-10-21T02:50:48.673593",
+    "updated_at": "2026-10-21T02:50:48.673593",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "82f8dea5-a6cd-46a8-a671-5c010848f8d9",
+    "unit_id": 92446,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-20",
+    "primary_application_id": "da314d1b-da47-4411-ac15-9df9ef376ac3",
+    "created_at": "2026-10-19T18:13:37.900049",
+    "updated_at": "2026-10-19T18:13:37.900049",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "7cc52514-b38a-45c2-b343-78271fac556a",
+    "unit_id": 88413,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-10-19T20:12:11.182796",
+    "move_in_date": "2026-11-19",
+    "primary_application_id": "a4fb3713-731f-4e6d-aa95-c94730e15c2b",
+    "created_at": "2026-10-19T16:26:18.088461",
+    "updated_at": "2026-10-19T20:12:11.168",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "e0b83093-b009-4910-83c4-c24a84b74d8b",
+    "unit_id": 95847,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-19T16:03:50.519348",
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "ac2e1d77-5f81-4276-b1ba-f6901372f121",
+    "created_at": "2026-10-19T15:11:35.547491",
+    "updated_at": "2026-10-19T16:03:50.49",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "10467a5c-8dfc-4c06-bc40-83a2a97b8c26",
+    "unit_id": 88350,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-19T17:03:57.894283",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "947b10dd-6957-4d62-a5c4-f81080da6e34",
+    "created_at": "2026-10-19T14:52:58.297454",
+    "updated_at": "2026-10-19T14:52:58.297454",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "36dc2973-d6ea-40b6-84b2-332ceb3d789e",
+    "unit_id": 87309,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-21T17:19:28.78611",
+    "move_in_date": "2026-10-20",
+    "primary_application_id": "4e9b5d17-d8cf-415f-b1e0-1946b2936e58",
+    "created_at": "2026-10-19T00:45:26.911504",
+    "updated_at": "2026-10-21T17:19:28.722",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "2892de01-357b-4a2e-b8f1-0e92a9a1db3e",
+    "unit_id": 84105,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-16T22:11:19.494606",
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "73d3215a-31a4-4610-bf85-2a01f2a67eb2",
+    "created_at": "2026-10-16T21:19:10.259242",
+    "updated_at": "2026-10-16T22:11:19.473",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "4a4723ec-fd9e-468e-a8f0-07750fa9326d",
+    "unit_id": 23544,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "599d2d1b-a0de-4e7a-bddb-1cd1cbe5d806",
+    "created_at": "2026-10-15T00:29:43.073052",
+    "updated_at": "2026-10-15T00:29:43.073052",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "b2b05c49-855a-4931-9a34-feba33e19d93",
+    "unit_id": 60749,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-11-14",
+    "primary_application_id": "2c81030b-f4ab-4093-8fa5-d16835b128e7",
+    "created_at": "2026-10-13T15:39:54.482687",
+    "updated_at": "2026-10-13T15:39:54.482687",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "57b38531-9bac-4101-b61f-892ea8841ba6",
+    "unit_id": 39486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-12T22:21:23.397878",
+    "move_in_date": "2026-10-13",
+    "primary_application_id": "e5c2ff91-d587-48d6-94e0-947f89b0a0c4",
+    "created_at": "2026-10-12T21:45:19.619618",
+    "updated_at": "2026-10-12T22:21:23.37",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bc468752-f897-427f-b9c6-12a002adc1c3",
+    "unit_id": 94491,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-13",
+    "primary_application_id": "891ddeaf-69f7-4255-8338-5ae5cca98f9f",
+    "created_at": "2026-10-12T21:42:56.479476",
+    "updated_at": "2026-10-12T21:42:56.479476",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "8f60c646-0bcd-4439-be30-1005f7e861c1",
+    "unit_id": 94491,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-10T02:31:25.84063",
+    "move_in_date": "2026-10-15",
+    "primary_application_id": "5ce1ed83-1799-4ae2-ad3f-9ec934d50e29",
+    "created_at": "2026-10-09T23:24:22.510645",
+    "updated_at": "2026-10-10T02:31:25.824",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "ffffc97b-a30f-4166-985e-c748fcabc8a8",
+    "unit_id": 60749,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-12-01",
+    "primary_application_id": "462906de-48fc-408f-9041-b268abc99b47",
+    "created_at": "2026-10-08T20:46:05.051153",
+    "updated_at": "2026-10-08T20:46:05.051153",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "21247319-643a-412e-be54-067c5f758276",
+    "unit_id": 24752,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-09T04:13:04.82065",
+    "move_in_date": "2026-10-09",
+    "primary_application_id": "5146c6ff-3354-40bc-a158-8217ddf6e0c7",
+    "created_at": "2026-10-08T14:02:32.175242",
+    "updated_at": "2026-10-09T04:13:04.806",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "52ad4ed6-fb14-417a-b6ee-dbffb833da56",
+    "unit_id": 29154,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-08T13:15:40.298977",
+    "move_in_date": "2026-10-17",
+    "primary_application_id": "11e7f0f0-08c2-43d2-9d2e-0c2b49610337",
+    "created_at": "2026-10-08T12:30:04.361122",
+    "updated_at": "2026-10-08T13:15:40.282",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f4b1263e-404a-46d2-baa2-8711d3be1baf",
+    "unit_id": 88413,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-10T18:04:40.214352",
+    "move_in_date": "2026-10-25",
+    "primary_application_id": "b9afc551-8bbe-4234-81a3-6b8aab6f6e8f",
+    "created_at": "2026-10-07T23:40:40.328219",
+    "updated_at": "2026-10-10T18:04:40.197",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "e179cca9-e82a-4a79-8e47-961fd51b3432",
+    "unit_id": 84105,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-07T19:54:46.961948",
+    "move_in_date": "2026-10-26",
+    "primary_application_id": "d7911780-bf0b-4c5a-84b3-118dd37dad5b",
+    "created_at": "2026-10-07T18:14:47.444513",
+    "updated_at": "2026-10-07T19:54:46.947",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "980abb18-260f-4f77-bd40-a04f1128529f",
+    "unit_id": 93149,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-08T14:50:16.571306",
+    "move_in_date": "2026-10-10",
+    "primary_application_id": "27d5322b-1aa7-4342-a8ad-ad03bea7215a",
+    "created_at": "2026-10-06T18:26:35.831721",
+    "updated_at": "2026-10-08T14:50:16.547",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "d70b6e2a-e3dc-4d42-b22e-1a36c6eaeadd",
+    "unit_id": 60749,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-10-06",
+    "primary_application_id": "066da5f2-b0ef-421d-a5cb-8edb00d5a81d",
+    "created_at": "2026-10-05T21:23:14.729952",
+    "updated_at": "2026-10-05T21:23:14.729952",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bffed791-88b6-409d-b3e8-2e343a63866e",
+    "unit_id": 92446,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-09",
+    "primary_application_id": "eced4657-7154-4f0b-8dbd-75cc41c0be98",
+    "created_at": "2026-10-05T19:15:30.509903",
+    "updated_at": "2026-10-05T19:15:30.509903",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "39482a68-1563-4325-9642-6520381c1f7d",
+    "unit_id": 87407,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-05",
+    "primary_application_id": "12a87089-1148-4ba3-a7cc-8a2d638174eb",
+    "created_at": "2026-10-04T17:10:49.36651",
+    "updated_at": "2026-10-04T17:10:49.36651",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "5ef182ba-0d81-4cbb-92de-9f1d97598e1c",
+    "unit_id": 29154,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-08T13:45:13.931758",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "41649350-79a1-4493-ba40-5ba16d277170",
+    "created_at": "2026-10-04T15:31:14.304768",
+    "updated_at": "2026-10-08T20:58:35.6",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "09078037-c5d4-45f8-9674-4786e706e8ae",
+    "unit_id": 92396,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-11-15",
+    "primary_application_id": "c96c2c4d-d49e-439c-8f9b-8f0a5dd40747",
+    "created_at": "2026-10-03T19:07:20.976506",
+    "updated_at": "2026-10-03T19:07:20.976506",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "effd31bd-e052-44d9-afaf-537b95021365",
+    "unit_id": 29154,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "8aa2a247-1394-4fac-9fb2-6dfda131a12e",
+    "created_at": "2026-10-03T16:30:08.221603",
+    "updated_at": "2026-10-03T16:30:08.221603",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "1f48ddc9-679a-4a0b-a9b1-1e7dbe4592eb",
+    "unit_id": 75318,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-10-02T19:15:42.052785",
+    "move_in_date": "2026-10-13",
+    "primary_application_id": "8ce65abc-a902-4809-9815-52e822e0d0d8",
+    "created_at": "2026-10-02T18:47:31.467375",
+    "updated_at": "2026-10-02T19:15:42.026",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "0107f4b4-4d87-4016-80d7-31d7b9cf9fa5",
+    "unit_id": 92446,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-10-01T23:19:49.322661",
+    "move_in_date": "2026-10-09",
+    "primary_application_id": "1b359c53-f0a1-4501-833c-80cf9efd97ce",
+    "created_at": "2026-10-01T20:35:10.152259",
+    "updated_at": "2026-10-01T23:19:49.308",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f1b6ab16-57a1-4f9b-8746-d35997a4eeab",
+    "unit_id": 39486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-10-02",
+    "primary_application_id": "15a2a84d-9f43-430b-9fd9-3759d35d879c",
+    "created_at": "2026-10-01T13:07:40.651548",
+    "updated_at": "2026-10-01T13:07:40.651548",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "75090bb4-df69-4e60-b2d5-68c322686551",
+    "unit_id": 92858,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-10-01T18:56:36.42922",
+    "move_in_date": "2026-10-14",
+    "primary_application_id": "7525635a-fb45-426b-8a1e-c02cd618ff57",
+    "created_at": "2026-09-30T22:35:17.175845",
+    "updated_at": "2026-09-30T22:35:17.175845",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "0ef4f804-5d9b-4f33-a747-f65fa0549c74",
+    "unit_id": 92396,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-30T23:55:17.312917",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "3b2155c1-7275-46b2-9b93-f4116c1ef358",
+    "created_at": "2026-09-30T21:08:00.97007",
+    "updated_at": "2026-09-30T23:55:17.271",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "1730e301-174f-4d44-99a5-af36a5914b64",
+    "unit_id": 88413,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-28T15:14:19.972974",
+    "move_in_date": "2026-09-29",
+    "primary_application_id": "72b93324-eb35-48e8-bde4-fadebd757d68",
+    "created_at": "2026-09-28T15:05:35.738383",
+    "updated_at": "2026-09-28T15:14:19.949",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bc19cbd5-0534-4381-b3bf-48a182752fd4",
+    "unit_id": 90666,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-09-28T20:30:34.293129",
+    "move_in_date": "2026-09-28",
+    "primary_application_id": "d36c5719-4c4d-4ba3-b7ea-ae1069e51154",
+    "created_at": "2026-09-27T20:14:49.188845",
+    "updated_at": "2026-09-27T20:14:49.188845",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "21b75a55-d940-46d5-ba92-5c7aea43839a",
+    "unit_id": 84245,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-26T17:47:56.884728",
+    "move_in_date": "2026-09-29",
+    "primary_application_id": "24f6df0e-3731-4e99-b79f-9b5fadd94f1e",
+    "created_at": "2026-09-26T17:15:47.825354",
+    "updated_at": "2026-09-26T17:47:56.869",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "5c93a0b1-4dc9-40d3-a272-346b2a218aac",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-16",
+    "primary_application_id": "6a2d266a-2939-486c-bf8f-a665ad27c24a",
+    "created_at": "2026-09-25T18:12:50.891777",
+    "updated_at": "2026-09-25T18:12:50.891777",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "e2818dbf-52dc-4d19-afb2-5e27932a0cae",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-25T19:10:37.302635",
+    "move_in_date": "2026-09-28",
+    "primary_application_id": "810833f5-ca51-465c-80a9-c57cb06aca28",
+    "created_at": "2026-09-25T17:51:56.848965",
+    "updated_at": "2026-09-25T19:10:37.24",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "ae964495-a67d-4a79-a644-1f354288f73e",
+    "unit_id": 84245,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-09-25T21:01:56.235775",
+    "move_in_date": "2026-10-15",
+    "primary_application_id": "58764b14-5166-4ae6-949c-a07e2eeb0629",
+    "created_at": "2026-09-25T13:38:28.909912",
+    "updated_at": "2026-09-25T13:38:28.909912",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "859a87d8-3ce3-44d9-929a-f5451fb1ae11",
+    "unit_id": 84105,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-24T22:26:41.764136",
+    "move_in_date": "2026-09-30",
+    "primary_application_id": "4c1035dc-dddd-42b6-8c01-ada923b31c3b",
+    "created_at": "2026-09-24T22:12:16.200241",
+    "updated_at": "2026-09-24T22:26:41.742",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "7276166c-ec8e-4396-a395-8617ee058582",
+    "unit_id": 75318,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Submitted",
+    "submitted_at": "2026-10-16T14:30:20.678373",
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "4e778106-28df-46fd-879f-9dd17bc4b09a",
+    "created_at": "2026-09-23T21:56:43.530227",
+    "updated_at": "2026-10-16T14:30:20.642",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "ab67ffe5-a893-4d85-82d7-c087281face4",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-09",
+    "primary_application_id": "8af4f949-f3a2-41cc-a18c-9dacc3badb77",
+    "created_at": "2026-09-23T19:21:08.876463",
+    "updated_at": "2026-09-23T19:21:08.876463",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "8ea9e4af-aa52-48d0-b7b5-84ba7756693d",
+    "unit_id": 84245,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-15",
+    "primary_application_id": "b67f377b-6d95-421a-a981-590ff6f55ba0",
+    "created_at": "2026-09-22T19:54:52.533861",
+    "updated_at": "2026-09-22T19:54:52.533861",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "d3032475-b9a5-40ec-9121-829069f01fba",
+    "unit_id": 48993,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-23T18:24:27.865177",
+    "move_in_date": "2026-10-31",
+    "primary_application_id": "f9eaaa47-d2db-4159-9646-36a79fe75018",
+    "created_at": "2026-09-22T14:21:57.007651",
+    "updated_at": "2026-09-22T14:21:57.007651",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "ed1f245f-0677-4c50-bf36-0c77f1da521c",
+    "unit_id": 90666,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-09-23",
+    "primary_application_id": "a254818b-6cbf-462d-ac7d-1107a3c94c46",
+    "created_at": "2026-09-22T00:42:22.309595",
+    "updated_at": "2026-09-22T00:42:22.309595",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "b337fdea-e7ce-4281-b270-a3617087d5ca",
+    "unit_id": 88413,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-09-22",
+    "primary_application_id": "1dbd2d12-0dae-42b6-b7fd-eb8d9c6389d4",
+    "created_at": "2026-09-21T23:52:51.435103",
+    "updated_at": "2026-09-21T23:52:51.435103",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "63b0006b-e683-4953-a140-286ccb275912",
+    "unit_id": 84245,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-25T18:06:01.883339",
+    "move_in_date": "2026-10-15",
+    "primary_application_id": "b931ca48-602b-44a2-b666-33ccd3515ab4",
+    "created_at": "2026-09-20T19:04:51.660997",
+    "updated_at": "2026-09-25T18:06:01.871",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "92664424-9723-4ee7-90b4-8ef805c2dd5a",
+    "unit_id": 75318,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-20T01:02:48.914263",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "e6ad49e8-6bb3-4773-9188-fea5e4cf0908",
+    "created_at": "2026-09-19T23:48:33.339007",
+    "updated_at": "2026-09-22T13:18:17.869",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "6d72b207-c995-424f-97e0-f78d8564bae6",
+    "unit_id": 74273,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-19",
+    "primary_application_id": "2cae7b13-c48d-401d-a1c0-551eada5d7c6",
+    "created_at": "2026-09-18T15:41:58.339181",
+    "updated_at": "2026-09-18T15:41:58.339181",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "477496c0-7cb7-439d-92a1-4ec5a87ff276",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-18",
+    "primary_application_id": "5dc3dd59-990b-46e6-8e87-c26ef7a263c7",
+    "created_at": "2026-09-17T20:27:07.607449",
+    "updated_at": "2026-09-17T20:27:07.607449",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f979b061-3978-456a-b242-0a7ac64989f8",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-29",
+    "primary_application_id": "6d90c5ba-aea5-4044-a474-54b567bd2b4e",
+    "created_at": "2026-09-17T20:04:35.983373",
+    "updated_at": "2026-09-17T20:04:35.983373",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "ecde838a-546a-4162-8d6c-d89a94fcc2b0",
+    "unit_id": 35645,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-17T16:33:40.373932",
+    "move_in_date": "2026-09-30",
+    "primary_application_id": "74339938-cd7a-405c-b56e-f570026bd5c0",
+    "created_at": "2026-09-17T15:57:33.824057",
+    "updated_at": "2026-09-17T16:33:40.363",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "fca4a4fe-c8d4-492f-856e-8a599db8287f",
+    "unit_id": 88201,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-28",
+    "primary_application_id": "76ce64c9-9a47-4763-aee1-950d1052efe8",
+    "created_at": "2026-09-15T18:21:26.692495",
+    "updated_at": "2026-09-15T18:21:26.692495",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "146cd53b-6ac9-4478-a9c9-ea3635146c72",
+    "unit_id": 88201,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-16",
+    "primary_application_id": "1b41e4c1-4115-4812-ab08-57e2d6d9a5fd",
+    "created_at": "2026-09-15T16:47:25.859651",
+    "updated_at": "2026-09-15T16:47:25.859651",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "849542fb-df10-49a3-975c-ea0c0e036f1c",
+    "unit_id": 81106,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-23",
+    "primary_application_id": "397b2c1b-a7a7-48b0-a888-7309d7ddfbb4",
+    "created_at": "2026-09-15T15:58:00.053441",
+    "updated_at": "2026-09-15T15:58:00.053441",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "8f3a40c0-1b5e-47f3-af80-787024ce5a22",
+    "unit_id": 75318,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-10-30",
+    "primary_application_id": "1a29b2d5-188c-47cf-bb7f-09e4084e86b1",
+    "created_at": "2026-09-15T12:49:36.599794",
+    "updated_at": "2026-09-15T12:49:36.599794",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "ecad967e-dad6-4a4f-95cc-90a36129e4ee",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-02",
+    "primary_application_id": "eed23c68-7503-466c-a217-e6dfbfb25b46",
+    "created_at": "2026-09-14T20:44:35.799527",
+    "updated_at": "2026-09-14T20:44:35.799527",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "121d2d6d-7c28-4e20-a82a-a8fe24edc5c5",
+    "unit_id": 88201,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-09-14T15:52:35.301622",
+    "move_in_date": "2026-09-15",
+    "primary_application_id": "82ff038b-83c7-42d8-806e-b887a9f60f6a",
+    "created_at": "2026-09-14T15:31:49.882932",
+    "updated_at": "2026-09-14T15:52:35.259",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "452fd9f8-a084-4297-9e89-f5c7dddb82dd",
+    "unit_id": 87488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "eea21096-dd16-42ff-b6c0-065eea1e18f3",
+    "created_at": "2026-09-14T14:12:34.573842",
+    "updated_at": "2026-09-14T14:12:34.573842",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "585814da-9960-4040-a323-618899619897",
+    "unit_id": 39486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-16T12:26:32.429704",
+    "move_in_date": "2026-09-21",
+    "primary_application_id": "1598c1be-2653-4175-b7b6-5cd735c0e5d7",
+    "created_at": "2026-09-11T20:37:19.010961",
+    "updated_at": "2026-09-16T12:26:32.407",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "d15cf7ac-bbaf-4bd0-bad3-b8ce5a44cccf",
+    "unit_id": 35584,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-11T20:16:38.720819",
+    "move_in_date": "2026-09-26",
+    "primary_application_id": "bc2290ab-4003-42d7-b850-0f92754ce456",
+    "created_at": "2026-09-11T15:39:37.975302",
+    "updated_at": "2026-09-11T21:02:02.762",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "1ec4b5d8-d670-479b-9a8c-1c9bb7a98235",
+    "unit_id": 35584,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-09-11T20:01:59.445148",
+    "move_in_date": "2026-09-12",
+    "primary_application_id": "7e07cb35-0326-47b2-8840-340e4ce9e690",
+    "created_at": "2026-09-11T14:36:37.881227",
+    "updated_at": "2026-09-11T14:36:37.881227",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "92f4d06a-83bd-48ec-bcf4-4ed6cca6ac9c",
+    "unit_id": 88201,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-12T12:55:28.469998",
+    "move_in_date": "2026-09-30",
+    "primary_application_id": "85f6033a-55b5-44d7-9ab5-a0677990e8b0",
+    "created_at": "2026-09-11T06:07:12.166906",
+    "updated_at": "2026-09-12T12:55:28.453",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "8210b101-d8b0-4bc3-8239-6585311bbdc2",
+    "unit_id": 75318,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-09-26",
+    "primary_application_id": "409260cb-db19-4e0f-8a37-fb40c92417a4",
+    "created_at": "2026-09-10T18:19:31.66667",
+    "updated_at": "2026-09-10T18:19:31.66667",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "c0fcb9d4-d956-4a30-8b62-581094ee8c52",
+    "unit_id": 87309,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-24",
+    "primary_application_id": "81691793-db96-46aa-b62f-1807364a57a3",
+    "created_at": "2026-09-10T18:00:14.945177",
+    "updated_at": "2026-09-10T18:00:14.945177",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "2b0be083-e519-4708-b576-958c2448bb7a",
+    "unit_id": 88413,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-10T17:31:10.541695",
+    "move_in_date": "2026-10-09",
+    "primary_application_id": "c8c2b68c-87f6-46f0-ad1d-f44e0d4211ce",
+    "created_at": "2026-09-10T17:01:51.913715",
+    "updated_at": "2026-09-10T17:31:10.482",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "7a42a3ac-1e78-46b4-8f8e-3837180f275e",
+    "unit_id": 35584,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-15",
+    "primary_application_id": "6db4a11d-3e07-4f01-b88c-c2652ba3a5b1",
+    "created_at": "2026-09-09T21:23:48.062507",
+    "updated_at": "2026-09-09T21:23:48.062507",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "0b6a8ea2-40dc-4aa9-9a33-55870093d24e",
+    "unit_id": 87407,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-10T23:44:31.874826",
+    "move_in_date": "2026-11-01",
+    "primary_application_id": "751f1095-740d-480d-89c0-cb37b1ac72dc",
+    "created_at": "2026-09-09T20:49:12.698124",
+    "updated_at": "2026-09-10T23:44:31.86",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "b3793792-f069-4988-9a4e-2fdf59a37e71",
+    "unit_id": 86005,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-09T22:50:42.401642",
+    "move_in_date": "2026-09-24",
+    "primary_application_id": "bb46e09c-55db-4810-b27c-a64803d62d09",
+    "created_at": "2026-09-09T13:55:26.378715",
+    "updated_at": "2026-09-09T22:50:42.389",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bf7aae62-7a32-4aac-9056-f1e4972359c8",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-09-09T17:50:41.585989",
+    "move_in_date": "2026-09-09",
+    "primary_application_id": "9a462f2a-70f0-4df7-8fd4-94edac1dfafb",
+    "created_at": "2026-09-08T17:32:02.623079",
+    "updated_at": "2026-09-08T17:32:02.623079",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "c0c1001e-6f9e-4fca-95b1-6842b8d31524",
+    "unit_id": 35645,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-30",
+    "primary_application_id": "eaddedee-9a1f-43d2-b1e4-a8d07b9d1e50",
+    "created_at": "2026-09-08T17:30:31.066946",
+    "updated_at": "2026-09-08T17:30:31.066946",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "a82d2f5c-f4b2-4f5d-b9d8-24e2f16ce0c3",
+    "unit_id": 72538,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-09-05T16:56:26.251746",
+    "move_in_date": "2026-09-14",
+    "primary_application_id": "0e18fbd9-5a80-40d9-b782-284dd6f3b857",
+    "created_at": "2026-09-05T15:48:24.61197",
+    "updated_at": "2026-09-05T16:56:26.219",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "95e1424d-e9c8-4f59-a34c-6641ec54212a",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-30",
+    "primary_application_id": "b40f4dad-5cc0-4ee7-a129-6b551ec38cd8",
+    "created_at": "2026-09-04T21:50:28.697752",
+    "updated_at": "2026-09-04T21:50:28.697752",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "d31e0cdb-706d-4dba-b463-bb2c123cf80e",
+    "unit_id": 94090,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-05T20:47:09.122753",
+    "move_in_date": "2026-09-28",
+    "primary_application_id": "4d0cd38b-e516-4d14-b1dc-cc1a915d361f",
+    "created_at": "2026-09-04T16:44:57.06125",
+    "updated_at": "2026-09-21T20:28:20.45",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "76aba544-736a-4741-89c7-1fad4266e5d8",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-16",
+    "primary_application_id": "a2b5528e-a3bc-4987-93a2-0a5e22c490cd",
+    "created_at": "2026-09-04T16:12:48.622425",
+    "updated_at": "2026-09-04T16:12:48.622425",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "a55c6d7e-63fe-4609-898a-14976a99db75",
+    "unit_id": 81106,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-04T13:00:22.109571",
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "6e610f89-64d6-4e19-b1c4-9a274ec0e02d",
+    "created_at": "2026-09-04T11:13:43.304151",
+    "updated_at": "2026-09-04T13:00:21.952",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "bf8f452e-773a-435d-9f0a-701397179f9f",
+    "unit_id": 39488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-16",
+    "primary_application_id": "8f036010-ea89-42b6-89ad-722ea146ccf5",
+    "created_at": "2026-09-03T18:53:43.105954",
+    "updated_at": "2026-09-03T18:53:43.105954",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "18d7d08e-8c19-4549-877a-df757b109413",
+    "unit_id": 88438,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-09-08T16:34:31.652038",
+    "move_in_date": "2026-09-25",
+    "primary_application_id": "57b468a6-1de0-47c6-ab58-169e9d0e9554",
+    "created_at": "2026-09-03T15:01:30.204346",
+    "updated_at": "2026-09-08T16:34:31.634",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "281abfa7-7a03-47de-9815-8297b27c7ead",
+    "unit_id": 29154,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-03T17:53:34.178188",
+    "move_in_date": "2026-09-17",
+    "primary_application_id": "2c751fd2-767d-454f-91f8-7c2d9dc49ad1",
+    "created_at": "2026-09-03T14:15:58.185732",
+    "updated_at": "2026-09-03T17:53:34.145",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "54bf473e-bb76-41a1-aba2-d1fc7c0844ee",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-04",
+    "primary_application_id": "aa00381d-455a-4bfb-b034-520ddf3282d7",
+    "created_at": "2026-09-03T05:43:18.218868",
+    "updated_at": "2026-09-03T05:43:18.218868",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "3333767b-a063-408f-a118-d3fbc36784fa",
+    "unit_id": 35584,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-11-05",
+    "primary_application_id": "cc9799da-2cbe-4793-baaf-dea68205fb58",
+    "created_at": "2026-09-02T14:26:59.602031",
+    "updated_at": "2026-09-02T14:26:59.602031",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "b0ba7bd4-6e91-4055-868c-95d063715f40",
+    "unit_id": 86005,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-03",
+    "primary_application_id": "a8c86469-a3a2-49fb-922e-6701b9b4b2cc",
+    "created_at": "2026-09-02T13:31:33.94541",
+    "updated_at": "2026-09-02T13:31:33.94541",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "cef2d435-2492-4dfa-8ed6-f8e403cea9a7",
+    "unit_id": 86005,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "62a4fb50-768f-43ad-aed4-85105adb12da",
+    "created_at": "2026-09-02T10:52:20.00578",
+    "updated_at": "2026-09-02T10:52:20.00578",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "3a07400c-d52f-428c-92c0-087e4505c29b",
+    "unit_id": 39488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-03",
+    "primary_application_id": "a1e1cc85-e673-4bce-b8c6-6f87abbdbef1",
+    "created_at": "2026-09-02T02:25:42.598435",
+    "updated_at": "2026-09-02T02:25:42.598435",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "502da0c5-119e-42e7-924e-3aed98727701",
+    "unit_id": 69337,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-09-03T02:22:08.578682",
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "7e45ce20-2818-4317-8aac-8cf464b6a021",
+    "created_at": "2026-09-01T20:53:59.556464",
+    "updated_at": "2026-09-03T02:22:08.519",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "dcf01506-f5b7-4c11-abef-66c0fed0bab1",
+    "unit_id": 39488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-25",
+    "primary_application_id": "65fd0b0c-60b9-4518-9e55-532700eeb607",
+    "created_at": "2026-09-01T19:20:10.21676",
+    "updated_at": "2026-09-01T19:20:10.21676",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "01502369-d011-4df5-80f6-de90cd59b3ab",
+    "unit_id": 35584,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-02",
+    "primary_application_id": "405dad10-265f-454f-8122-466ee8de4d58",
+    "created_at": "2026-09-01T18:37:23.921651",
+    "updated_at": "2026-09-01T18:37:23.921651",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "86c915c4-76d3-4568-8c85-371437177db8",
+    "unit_id": 39486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "2211b185-99ba-462a-8f7f-ccc5df8aafc3",
+    "created_at": "2026-09-01T01:35:49.624079",
+    "updated_at": "2026-09-01T01:35:49.624079",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "9d21c4cf-740c-4a53-8d01-62109f80a354",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-09-04T02:09:23.721282",
+    "move_in_date": "2026-09-04",
+    "primary_application_id": "ba709135-2d0f-4dde-842b-f85314f378e7",
+    "created_at": "2026-08-31T22:44:15.442314",
+    "updated_at": "2026-09-10T19:02:14.583",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "798b86b7-582a-46ed-9e27-e25d6f584c41",
+    "unit_id": 35645,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-08-31T20:42:41.472089",
+    "move_in_date": "2026-10-01",
+    "primary_application_id": "c7e649c6-027c-4db7-94f0-44561c7bb3b9",
+    "created_at": "2026-08-31T20:15:17.764322",
+    "updated_at": "2026-08-31T20:42:41.454",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "733787b8-a94a-4158-92ab-ba0e00f8e850",
+    "unit_id": 39488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-09-01T13:10:51.169286",
+    "move_in_date": "2026-08-31",
+    "primary_application_id": "e140f511-fb67-4540-8109-7931f542ce78",
+    "created_at": "2026-08-30T23:32:23.169926",
+    "updated_at": "2026-09-01T13:10:51.154",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "3f313a4a-d61e-426b-9adc-840d499b2f01",
+    "unit_id": 74602,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-08-30T17:36:14.361267",
+    "move_in_date": "2026-09-14",
+    "primary_application_id": "fc233150-724b-4582-9a18-0858d10c9302",
+    "created_at": "2026-08-30T16:48:12.233491",
+    "updated_at": "2026-09-02T15:48:56.466",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "8a7d676a-a374-4454-93a4-d52c55141f39",
+    "unit_id": 35584,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-09-01T19:52:51.079211",
+    "move_in_date": "2026-09-28",
+    "primary_application_id": "2e32ac5f-3320-42b2-bfef-2c562ba1af13",
+    "created_at": "2026-08-29T20:39:30.94232",
+    "updated_at": "2026-09-07T19:39:12.517",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f4a90972-eac1-404c-b23a-e56d8a2bca36",
+    "unit_id": 35645,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-08-30T18:24:20.727622",
+    "move_in_date": "2026-08-30",
+    "primary_application_id": "df9ed39d-3e7c-46c2-b912-49216d47067d",
+    "created_at": "2026-08-29T16:58:21.680405",
+    "updated_at": "2026-08-30T18:24:20.705",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "74d09d8e-9e57-441b-b046-8915ee135a03",
+    "unit_id": 69337,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-08-30",
+    "primary_application_id": "9916e291-df50-4c83-a99f-26b2102a1704",
+    "created_at": "2026-08-29T09:32:48.574406",
+    "updated_at": "2026-08-29T09:32:48.574406",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "73dde1c3-3cf1-48f5-9721-a3f3da9469cf",
+    "unit_id": 74602,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-08-28T19:06:32.524953",
+    "move_in_date": "2026-08-29",
+    "primary_application_id": "a442811e-262b-4e4e-b229-50814d27e92d",
+    "created_at": "2026-08-28T01:29:11.021505",
+    "updated_at": "2026-08-28T19:06:32.509",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "79f8aa6e-8ca1-44d8-b8c2-29b41b44f86d",
+    "unit_id": 39488,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-01",
+    "primary_application_id": "e4d88e90-4e2f-49a1-bdf6-f4f6e8be67ca",
+    "created_at": "2026-08-27T16:50:23.54205",
+    "updated_at": "2026-08-27T16:50:23.54205",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "281e0e83-d7a5-4731-90b8-4ef97f98b222",
+    "unit_id": 84105,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-08-27T08:43:11.970355",
+    "move_in_date": "2026-09-16",
+    "primary_application_id": "50c0af85-19de-437a-8283-660fa7311931",
+    "created_at": "2026-08-27T08:03:42.245477",
+    "updated_at": "2026-08-27T08:43:11.949",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "50b7d8ce-7c9a-4001-b86f-624b2a4f2bbb",
+    "unit_id": 24752,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-09-28T19:57:02.113598",
+    "move_in_date": "2026-09-07",
+    "primary_application_id": "d77a0009-dc14-4b8e-9526-1f3c18e6730f",
+    "created_at": "2026-08-27T00:24:09.554954",
+    "updated_at": "2026-09-28T19:57:02.089",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "96e3fae4-5081-4c66-9b1e-899b51ac8509",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-08-27",
+    "primary_application_id": "5135ad07-b7f3-4dd1-902b-131d772172a1",
+    "created_at": "2026-08-26T19:54:51.279967",
+    "updated_at": "2026-08-26T19:54:51.279967",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "d6021c34-b088-494c-be72-58868802e12b",
+    "unit_id": 35645,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-01",
+    "primary_application_id": "d69f7e39-8321-430e-8bff-f50b3868484e",
+    "created_at": "2026-08-26T18:21:14.14284",
+    "updated_at": "2026-08-26T18:21:14.14284",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "e7a6f2a5-8f91-43aa-84fe-fbb440277ecd",
+    "unit_id": 48993,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-08-26T20:40:02.026325",
+    "move_in_date": "2026-09-15",
+    "primary_application_id": "40351f16-9f6d-486c-9474-dc1739ccb1ee",
+    "created_at": "2026-08-26T17:05:03.325456",
+    "updated_at": "2026-08-27T20:49:36.919",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "75cd5f01-b515-446c-b12c-ed6cdfe85530",
+    "unit_id": 60749,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-01",
+    "primary_application_id": "afbe4ff1-7a7d-4f11-ab90-f6c7a1bbc020",
+    "created_at": "2026-08-26T13:55:40.047641",
+    "updated_at": "2026-08-26T13:55:40.047641",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "5588e248-c80c-41cc-bd71-fc9304ea66c4",
+    "unit_id": 74602,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Rejected",
+    "submitted_at": "2026-08-27T21:50:47.167606",
+    "move_in_date": "2026-08-30",
+    "primary_application_id": "6f2215b8-9406-4f5f-88e9-afe9edfa757c",
+    "created_at": "2026-08-25T20:32:58.642339",
+    "updated_at": "2026-08-27T21:50:47.132",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "60cf4d54-9962-42ab-8c46-d53bde5dda1e",
+    "unit_id": 48486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-01",
+    "primary_application_id": "f321abf2-4c08-4a7f-8801-a19e9d88bf34",
+    "created_at": "2026-08-25T16:19:25.344327",
+    "updated_at": "2026-08-25T16:19:25.344327",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "d81c8c18-738b-492e-9758-bb4c2d16fba4",
+    "unit_id": 84090,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-08-28T02:52:24.498197",
+    "move_in_date": "2026-08-28",
+    "primary_application_id": "e1706d23-a418-4c3a-8b5a-258ed3e18295",
+    "created_at": "2026-08-24T22:14:01.853912",
+    "updated_at": "2026-08-28T02:52:24.484",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f54d504b-67c1-4ea4-bfad-ffdb23035175",
+    "unit_id": 39486,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Incomplete",
+    "submitted_at": null,
+    "move_in_date": "2026-09-14",
+    "primary_application_id": "2cc84adb-ac72-4dfa-aed1-c6454b39c53f",
+    "created_at": "2026-08-24T21:39:02.691537",
+    "updated_at": "2026-08-24T21:39:02.691537",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "46fd6339-258d-4220-9abc-f4de6107eead",
+    "unit_id": 29154,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-08-25",
+    "primary_application_id": "0426b088-d995-4736-81ac-bae22ed61f69",
+    "created_at": "2026-08-24T21:38:05.568428",
+    "updated_at": "2026-08-24T21:38:05.568428",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "afe22bab-d8c6-49d1-a484-f7913412acdb",
+    "unit_id": 74602,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-15",
+    "primary_application_id": "6f4797ff-a912-428a-ad1c-653a38a4017b",
+    "created_at": "2026-08-22T23:18:12.990535",
+    "updated_at": "2026-08-22T23:18:12.990535",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "f94bbbed-3eae-4408-9412-15cd94de8135",
+    "unit_id": 72538,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": "2026-08-23T13:32:05.90501",
+    "move_in_date": "2026-08-23",
+    "primary_application_id": "73242fd6-f7f3-4512-8268-dd57e71c798a",
+    "created_at": "2026-08-22T22:32:26.130137",
+    "updated_at": "2026-08-23T13:32:05.885",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "060d2864-f3df-4256-a268-dd8c90a427a5",
+    "unit_id": 79317,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Moved In",
+    "submitted_at": "2026-08-22T15:50:47.81073",
+    "move_in_date": "2026-08-23",
+    "primary_application_id": "e2627e62-3079-41fb-90e3-b1984b4750f2",
+    "created_at": "2026-08-22T15:33:06.734412",
+    "updated_at": "2026-08-22T15:50:47.794",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "9f8e05e9-7709-4e81-bf61-2701953904c4",
+    "unit_id": 69337,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-10-21",
+    "primary_application_id": "b6ca7d73-07aa-4b9f-9277-eeb6d61962c2",
+    "created_at": "2026-08-20T16:03:18.607879",
+    "updated_at": "2026-08-20T16:03:18.607879",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "51dc5b43-bacb-4008-94a4-26c960619970",
+    "unit_id": 69337,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Archived",
+    "submitted_at": null,
+    "move_in_date": "2026-09-07",
+    "primary_application_id": "d351ec02-ce4c-4b41-9809-df0e0bf5d882",
+    "created_at": "2026-08-19T17:10:51.848132",
+    "updated_at": "2026-08-19T17:10:51.848132",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  },
+  {
+    "id": "1f3fbd26-85b4-48c9-960e-535d80fdb5b0",
+    "unit_id": 74273,
+    "account_id": "c26fbfed-dd3d-4c91-a198-b4d3d8259712",
+    "subteam_id": null,
+    "status": "Approved",
+    "submitted_at": "2026-09-17T19:51:08.710653",
+    "move_in_date": "2026-09-15",
+    "primary_application_id": "025a132b-8cde-4028-9bec-c711b8872606",
+    "created_at": "2026-08-18T17:58:07.049395",
+    "updated_at": "2026-09-17T19:51:08.692",
+    "applicants": [
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      },
+      {
+        "name": "REDACTED",
+        "email": "REDACTED"
+      }
+    ]
+  }
+]
