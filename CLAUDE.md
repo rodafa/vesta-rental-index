@@ -35,3 +35,9 @@ Operating rules for Claude Code in this repo. Read `ARCHITECTURE.md` for the ful
 5. Owner report (second product)
 6. Leasing (last — hardest data: three-system reconciliation)
 7. Dashboard + role-scoping
+
+## Hard rules (added after the Nov 2026 monthly notes build)
+- NEVER run `python manage.py migrate`. Rodrigo runs all migrations himself after reviewing the migration file.
+- NEVER run `generate_*` management commands or anything that calls the Anthropic API unless explicitly asked in that message.
+- When a prompt says PROPOSE-BEFORE-BUILD or "stop after the plan," present the plan and STOP. Do not write or edit any files until Rodrigo explicitly approves.
+- When asked to diagnose before fixing, report the evidence first (actual values, not hypotheses), then stop.
