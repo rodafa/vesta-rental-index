@@ -21,35 +21,27 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from automations.digest_config import (
-    DOM_THRESHOLD,
-    TAG_DISPLAY_ORDER,
-    TAG_WAIT,
-)
+from automations.digest_config import DOM_THRESHOLD
 from automations.digest_data import fetch_daily_data, fetch_weekly_data
 from automations.digest_format import (
-    check_watchlist_render,
+    check_dom_list_render,
     format_daily_digest,
     format_weekly_digest,
 )
 from automations.digest_metrics import (
     _available_rows,
-    compute_agent_contributions,
     compute_apps_submitted,
     compute_call_answer_rate,
     compute_daily_showings,
     compute_daily_tasks,
     compute_feedback_captured,
-    compute_issues,
     compute_lead_to_showing,
     compute_reply_time,
     compute_reply_time_history,
     compute_showing_completion,
     compute_stale_apps,
-    compute_top_sources,
     compute_units_leased,
     compute_units_past_dom,
-    compute_watchlist,
     compute_week_window,
     compute_yesterday_leads,
     score_measurables,
@@ -255,10 +247,6 @@ class Command(BaseCommand):
 
         scorecard = score_measurables(metrics)
         reply_time_history = compute_reply_time_history(data["overview_history"])
-        agent_contributions = compute_agent_contributions(data["agent_performance"])
-        top_sources = compute_top_sources(data["marketing_sources"])
-        issues = compute_issues(scorecard)
-        watchlist = compute_watchlist(data["pp_trailing"], today)
 
         week_label = (
             f"{week_start.strftime('%b')} {week_start.day} \u2013 "
@@ -269,26 +257,12 @@ class Command(BaseCommand):
             scorecard=scorecard,
             reply_time=reply_time,
             reply_time_history=reply_time_history,
-            agent_contributions=agent_contributions,
-            top_sources=top_sources,
-            watchlist=watchlist,
-            issues=issues,
+            dom_units=dom_result["units"],
             week_label=week_label,
         )
 
-        # --- ASSERTIONS ---
-        # (a) Rendered watchlist matches compute_watchlist count
-        check_watchlist_render(messages, len(watchlist))
-
-        # (b) Measurable 9 == watchlist units with DOM >= threshold
-        dom_from_watchlist = sum(
-            1 for u in watchlist
-            if u["dom"] >= DOM_THRESHOLD
-        )
-        assert metrics["units_past_dom"] == dom_from_watchlist, (
-            f"Measurable 9 ({metrics['units_past_dom']}) != "
-            f"watchlist DOM>={DOM_THRESHOLD} count ({dom_from_watchlist})"
-        )
+        # --- ASSERTION ---
+        check_dom_list_render(messages, dom_result["count"])
 
         # --- DRY-RUN RECONCILIATION OUTPUT ---
         self.stdout.write("\n" + "=" * 60)
@@ -309,16 +283,6 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Measurable 9 value: {metrics['units_past_dom']}"
         )
-
-        self.stdout.write(
-            f"Watchlist total flagged: {len(watchlist)}"
-        )
-        tag_dist = {}
-        for u in watchlist:
-            tag_dist[u["tag"]] = tag_dist.get(u["tag"], 0) + 1
-        for tag in TAG_DISPLAY_ORDER + [TAG_WAIT]:
-            if tag in tag_dist:
-                self.stdout.write(f"  {tag}: {tag_dist[tag]}")
 
         self.stdout.write(
             f"\nUnits leased ({week_start} to {week_end}): "

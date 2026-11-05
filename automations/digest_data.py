@@ -5,7 +5,6 @@ Pure fetch functions: call RentEngine / LeadSimple / Django ORM,
 return dicts of raw rows. No business logic or formatting here.
 """
 
-import json
 import logging
 import time
 from datetime import date, datetime, timedelta
@@ -173,22 +172,17 @@ def fetch_weekly_data(client: RentEngineClient, today: date, week_start: date, w
             "rows": rows,
         })
 
-    # 8. Agent performance — weekly window
-    t0 = time.monotonic()
-    data["agent_performance"] = client.get_reporting_agent_performance(week_start_iso, week_end_iso)
-    _log_fetch("agent-performance", "ok", len(data["agent_performance"]), int((time.monotonic() - t0) * 1000))
-
-    # 9. Marketing sources — weekly window
+    # 8. Marketing sources — weekly window
     t0 = time.monotonic()
     data["marketing_sources"] = client.get_reporting_marketing_sources(week_start_iso, week_end_iso)
     _log_fetch("marketing-sources-weekly", "ok", len(data["marketing_sources"]), int((time.monotonic() - t0) * 1000))
 
-    # 10. Applications — weekly window
+    # 9. Applications — weekly window
     t0 = time.monotonic()
     data["applications"] = client.get_reporting_applications(week_start, week_end)
     _log_fetch("applications-weekly", "ok", len(data["applications"]), int((time.monotonic() - t0) * 1000))
 
-    # 11. Application groups (all, no date filter)
+    # 10. Application groups (all, no date filter)
     t0 = time.monotonic()
     data["application_groups"] = client.get_rental_application_groups()
     _log_fetch("application-groups", "ok", len(data["application_groups"]), int((time.monotonic() - t0) * 1000))
@@ -268,32 +262,3 @@ def resolve_address(unit_id: int, address_lookup: dict) -> str:
     return f"Unit {unit_id}"
 
 
-def parse_showing_complete_context(raw_context) -> list[dict]:
-    """Parse showing_complete_context from property-performance.
-
-    Each entry is a JSON-encoded string. Returns list of parsed dicts,
-    skipping entries that are only {"relatedShowing": <int>}.
-    """
-    if not raw_context:
-        return []
-
-    entries = []
-    items = raw_context if isinstance(raw_context, list) else [raw_context]
-    for item in items:
-        if isinstance(item, str):
-            try:
-                parsed = json.loads(item)
-            except (json.JSONDecodeError, TypeError):
-                continue
-        elif isinstance(item, dict):
-            parsed = item
-        else:
-            continue
-
-        # Skip relatedShowing-only entries
-        if set(parsed.keys()) == {"relatedShowing"}:
-            continue
-
-        entries.append(parsed)
-
-    return entries

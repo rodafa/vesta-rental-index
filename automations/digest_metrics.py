@@ -4,39 +4,18 @@ Leasing digest metrics — pure functions that turn shaped data into numbers/tag
 No API calls, no formatting. Input: dicts from digest_data. Output: numbers, lists, tags.
 """
 
-import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from automations.digest_config import (
     APP_OPEN_STATUSES,
     APP_STALE_HOURS,
-    CONVERT_APPS_MAX,
-    CONVERT_SHOWINGS_MIN,
     DOM_THRESHOLD,
-    FIX_KEYWORD_FIELDS,
-    FIX_KEYWORD_RE,
-    FOLLOW_UP_LEADS_THRESHOLD,
-    FOLLOW_UP_SHOWINGS_MAX,
-    LOW_LEADS_LPW_THRESHOLD,
     PLACEHOLDER_RE,
     SHOWING_COMPLETE_STATUSES,
-    TAG_CONVERT,
-    TAG_FIX,
-    TAG_FOLLOW_UP,
-    TAG_LOW_LEADS,
-    TAG_PRICE,
-    TAG_REVIEW,
-    TAG_WAIT,
     TEAM_PASS_THRESHOLD,
-    WATCHLIST_DOM_TRIGGER,
-    WATCHLIST_KEYWORD_HIT_THRESHOLD,
-    WATCHLIST_LPW_TRIGGER,
-    WATCHLIST_LPW_WINDOW_DAYS,
-    WATCHLIST_MIN_DOM_FOR_LEAD_RULE,
     WEEKLY_GOALS,
 )
-from automations.digest_data import parse_showing_complete_context
 
 ET = ZoneInfo("America/New_York")
 
@@ -261,7 +240,8 @@ def compute_units_past_dom(pp_rows: list[dict], today: date) -> dict:
     """Count Available units with DOM >= threshold.
 
     Returns {count: int, units: list[dict]}.
-    DOM is computed by converting date_marked_available to ET date first.
+    Each unit dict is the original row plus a "dom" key with the computed value.
+    Units are sorted by DOM descending.
     """
     rows = _available_rows(pp_rows)
     units = []
@@ -272,9 +252,9 @@ def compute_units_past_dom(pp_rows: list[dict], today: date) -> dict:
         if dom is None:
             continue
         if dom >= DOM_THRESHOLD:
-            units.append({**row, "_dom": dom})
+            units.append({**row, "dom": dom})
 
-    units.sort(key=lambda u: u["_dom"], reverse=True)
+    units.sort(key=lambda u: u["dom"], reverse=True)
     return {"count": len(units), "units": units}
 
 
@@ -355,214 +335,6 @@ def compute_reply_time_history(overview_history: list[dict]) -> list[dict]:
             "label": f"{s.strftime('%b')} {s.day}\u2013{e.day}",
         })
     return result
-
-
-def compute_agent_contributions(agent_rows: list[dict]) -> list[dict]:
-    """Extract per-agent contributions, excluding Unassigned and all-zero agents.
-
-    Returns list of {name, showings, messages, calls, approved}.
-    """
-    result = []
-    for row in agent_rows:
-        name = (row.get("agent_name") or "").strip()
-        if name.lower() == "unassigned":
-            continue
-        entry = {
-            "name": name,
-            "showings": row.get("showings_completed", 0),
-            "messages": row.get("messages_sent", 0),
-            "calls": row.get("calls_made", 0),
-            "approved": row.get("apps_approved", 0),
-        }
-        if entry["showings"] == 0 and entry["messages"] == 0 and entry["calls"] == 0 and entry["approved"] == 0:
-            continue
-        result.append(entry)
-    return result
-
-
-def compute_top_sources(marketing_rows: list[dict], top_n: int = 3) -> list[dict]:
-    """Top N lead sources by lead count.
-
-    Returns list of {source, leads, scheduled, approved}.
-    """
-    sorted_rows = sorted(
-        marketing_rows, key=lambda r: r.get("leads", 0), reverse=True,
-    )[:top_n]
-    return [
-        {
-            "source": s.get("source_display", "Unknown"),
-            "leads": s.get("leads", 0),
-            "scheduled": s.get("showings_scheduled", 0),
-            "approved": s.get("apps_approved", 0),
-        }
-        for s in sorted_rows
-    ]
-
-
-def compute_issues(scorecard: dict) -> list[tuple]:
-    """Extract red measurables as issues for IDS discussion.
-
-    Returns list of (label, display_value, goal_display).
-    """
-    pct_keys = {"showing_completion", "lead_to_showing", "call_answer_rate", "feedback_captured"}
-    issues = []
-    for key, label, value, goal_display, is_green in scorecard["results"]:
-        if not is_green:
-            display = f"{value}%" if key in pct_keys else value
-            issues.append((label, display, goal_display))
-    return issues
-
-
-# ---------------------------------------------------------------------------
-# Watchlist
-# ---------------------------------------------------------------------------
-
-def _count_keyword_hits(row: dict) -> int:
-    """Count showing_complete_context entries with condition keyword matches."""
-    raw_context = row.get("showing_complete_context")
-    entries = parse_showing_complete_context(
-        raw_context if isinstance(raw_context, list) else [raw_context] if raw_context else []
-    )
-
-    hit_count = 0
-    for entry in entries:
-        for field in FIX_KEYWORD_FIELDS:
-            text = entry.get(field, "")
-            if text and FIX_KEYWORD_RE.search(str(text)):
-                hit_count += 1
-                break  # count each entry at most once
-    return hit_count
-
-
-def _compute_lpw(leads: int, dom: int) -> float:
-    """Compute leads per week normalized by exposure."""
-    weeks = min(dom, WATCHLIST_LPW_WINDOW_DAYS) / 7
-    if weeks <= 0:
-        return 0.0
-    return leads / weeks
-
-
-def tag_watchlist_unit(row: dict, today: date) -> tuple[str, str]:
-    """Assign exactly ONE tag to a watchlist unit, first match wins.
-
-    Order: WAIT, FIX, PRICE, FOLLOW-UP, CONVERT, LOW LEADS, REVIEW.
-
-    Returns (tag, evidence_line).
-    """
-    dom = compute_dom(row.get("date_marked_available"), today)
-    if dom is None:
-        dom = 0
-    leads = row.get("total_new_leads", 0)
-    lpw = _compute_lpw(leads, dom)
-    completed = row.get("showings_completed", 0)
-    apps = row.get("applications_received", 0)
-    price = row.get("unit_price") or row.get("advertised_rent") or ""
-    market = row.get("market") or {}
-    median = market.get("median_rent")
-    pricing_position = market.get("pricing_position")
-
-    base_evidence = (
-        f"{dom} DOM, {lpw:.1f} leads/wk, "
-        f"{completed} {'showing' if completed == 1 else 'showings'} done, "
-        f"{apps} {'app' if apps == 1 else 'apps'}"
-    )
-
-    # WAIT: listed < 14 days, or excluded_from_dom, or future showing
-    if dom < WATCHLIST_MIN_DOM_FOR_LEAD_RULE:
-        return TAG_WAIT, base_evidence
-    if row.get("excluded_from_dom"):
-        return TAG_WAIT, base_evidence
-    earliest_showing = row.get("unit_earliest_showing_date")
-    if earliest_showing:
-        try:
-            es_date = datetime.fromisoformat(earliest_showing).astimezone(ET).date()
-            if es_date > today:
-                return TAG_WAIT, base_evidence
-        except (ValueError, TypeError):
-            pass
-
-    # FIX: 2+ entries with keyword hits
-    keyword_hits = _count_keyword_hits(row)
-    if keyword_hits >= WATCHLIST_KEYWORD_HIT_THRESHOLD:
-        return TAG_FIX, f"{base_evidence}, {keyword_hits} keyword {'hit' if keyword_hits == 1 else 'hits'}"
-
-    # PRICE: overpriced AND 0 apps
-    if pricing_position == "overpriced" and apps == 0:
-        price_str = f"${int(price)}" if price else "?"
-        median_str = f"${int(median)}" if median else "?"
-        return TAG_PRICE, f"{base_evidence}, {price_str} vs {median_str} median"
-
-    # FOLLOW-UP: many leads, few scheduled showings
-    sched = row.get("showings_scheduled", 0)
-    if leads >= FOLLOW_UP_LEADS_THRESHOLD and sched <= FOLLOW_UP_SHOWINGS_MAX:
-        return TAG_FOLLOW_UP, base_evidence
-
-    # CONVERT: many completed showings, few apps
-    if completed >= CONVERT_SHOWINGS_MIN and apps <= CONVERT_APPS_MAX:
-        return TAG_CONVERT, base_evidence
-
-    # LOW LEADS: leads per week below threshold
-    if lpw < LOW_LEADS_LPW_THRESHOLD:
-        return TAG_LOW_LEADS, base_evidence
-
-    # REVIEW: fallthrough
-    return TAG_REVIEW, base_evidence
-
-
-def compute_watchlist(pp_trailing_rows: list[dict], today: date) -> list[dict]:
-    """Build the unit watchlist from 28-day trailing data.
-
-    Flagged if:
-      - DOM >= 30 (DOM trigger), OR
-      - DOM >= 14 AND lpw < 4 (lead trigger), OR
-      - 2+ keyword-hit entries (keyword trigger, always yellow)
-
-    Units with DOM < 14 skip DOM and lead triggers but CAN be flagged
-    by the keyword trigger.
-    """
-    rows = _available_rows(pp_trailing_rows)
-    flagged = []
-
-    for row in rows:
-        dom = compute_dom(row.get("date_marked_available"), today)
-        if dom is None:
-            continue
-        if row.get("excluded_from_dom"):
-            continue
-
-        leads = row.get("total_new_leads", 0)
-        lpw = _compute_lpw(leads, dom)
-
-        dom_trigger = dom >= WATCHLIST_DOM_TRIGGER
-        lead_trigger = (
-            dom >= WATCHLIST_MIN_DOM_FOR_LEAD_RULE and lpw < WATCHLIST_LPW_TRIGGER
-        )
-        keyword_hits = _count_keyword_hits(row)
-        keyword_trigger = keyword_hits >= WATCHLIST_KEYWORD_HIT_THRESHOLD
-
-        if not (dom_trigger or lead_trigger or keyword_trigger):
-            continue
-
-        # Color: red = both DOM + lead triggers, yellow = otherwise
-        if dom_trigger and lead_trigger:
-            color = "\U0001f534"  # red
-        else:
-            color = "\U0001f7e1"  # yellow
-
-        tag, evidence = tag_watchlist_unit(row, today)
-
-        flagged.append({
-            "unit_id": row.get("unit_id"),
-            "address": row.get("address", ""),
-            "dom": dom,
-            "tag": tag,
-            "color": color,
-            "evidence": evidence,
-            "lpw": lpw,
-            "keyword_hits": keyword_hits,
-        })
-
-    return flagged
 
 
 # ---------------------------------------------------------------------------

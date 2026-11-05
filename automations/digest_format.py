@@ -5,16 +5,13 @@ No API calls, no metric computation. Input: computed metrics. Output: text strin
 """
 
 import re
-from collections import Counter
 
 from automations.digest_config import (
+    DOM_LIST_MAX_DISPLAY,
     MESSAGE_MAX_CHARS,
     REPLY_TIME_GOAL_DISPLAY,
     REPLY_TIME_LABEL,
-    TAG_DISPLAY_ORDER,
-    TAG_WAIT,
     TEAM_PASS_THRESHOLD,
-    WATCHLIST_MAX_DISPLAY,
     WEEKLY_GOALS,
 )
 
@@ -23,10 +20,7 @@ def format_weekly_digest(
     scorecard: dict,
     reply_time: float | None,
     reply_time_history: list[dict],
-    agent_contributions: list[dict],
-    top_sources: list[dict],
-    watchlist: list[dict],
-    issues: list[tuple],
+    dom_units: list[dict],
     week_label: str,
 ) -> list[str]:
     """Format the full weekly digest as a list of Slack messages.
@@ -73,40 +67,17 @@ def format_weekly_digest(
                 trend_lines.append(f"\u2022 {label}: {val:.1f} min")
         sections.append("\n".join(trend_lines))
 
-    # --- Section 4: Agent contributions ---
-    if agent_contributions:
-        contrib_lines = ["\n*Contributions*"]
-        for a in agent_contributions:
-            contrib_lines.append(
-                f"\u2022 {a['name']}: "
-                f"{a['showings']} {'showing' if a['showings'] == 1 else 'showings'}, "
-                f"{a['messages']} {'msg' if a['messages'] == 1 else 'msgs'}, "
-                f"{a['calls']} {'call' if a['calls'] == 1 else 'calls'}, "
-                f"{a['approved']} approved"
-            )
-        sections.append("\n".join(contrib_lines))
-
-    # --- Section 5: Top lead sources ---
-    if top_sources:
-        source_lines = ["\n*Top lead sources*"]
-        for s in top_sources:
-            source_lines.append(
-                f"\u2022 {s['source']}: {s['leads']} {'lead' if s['leads'] == 1 else 'leads'}, "
-                f"{s['scheduled']} scheduled, {s['approved']} approved"
-            )
-        sections.append("\n".join(source_lines))
-
-    # --- Section 6: Issues for IDS ---
-    if issues:
-        issue_lines = ["\n*Issues for IDS*"]
-        for label, current, goal in issues:
-            issue_lines.append(f"\u2022 {label}: {current} vs goal {goal}")
-        sections.append("\n".join(issue_lines))
-
-    # --- Section 7: Watchlist ---
-    watchlist_text = _format_watchlist_block(watchlist)
-    if watchlist_text:
-        sections.append(watchlist_text)
+    # --- Section 4: Units past 30 DOM ---
+    dom_lines = ["\n*Units past 30 DOM*"]
+    if dom_units:
+        for u in dom_units[:DOM_LIST_MAX_DISPLAY]:
+            dom_lines.append(f"\u2022 {u['address']} \u2014 {u['dom']} DOM")
+        overflow = len(dom_units) - DOM_LIST_MAX_DISPLAY
+        if overflow > 0:
+            dom_lines.append(f"+{overflow} more")
+    else:
+        dom_lines.append("None")
+    sections.append("\n".join(dom_lines))
 
     return _split_messages(sections)
 
@@ -202,57 +173,6 @@ def format_daily_digest(
     return _split_messages(sections)
 
 
-def _format_watchlist_block(watchlist: list[dict]) -> str:
-    """Format the unit watchlist section.
-
-    Sort by tag priority (per TAG_DISPLAY_ORDER), then DOM descending within tag.
-    Cap at WATCHLIST_MAX_DISPLAY, overflow shows "+N more" with per-tag counts.
-    """
-    if not watchlist:
-        return ""
-
-    # Separate WAIT from actionable
-    actionable = [u for u in watchlist if u["tag"] != TAG_WAIT]
-    wait_units = [u for u in watchlist if u["tag"] == TAG_WAIT]
-
-    # Sort actionable by tag priority, then DOM descending
-    tag_order = {tag: i for i, tag in enumerate(TAG_DISPLAY_ORDER)}
-
-    def sort_key(u):
-        return (tag_order.get(u["tag"], 999), -u["dom"])
-
-    actionable.sort(key=sort_key)
-
-    # Combine: actionable first, then WAIT
-    sorted_list = actionable + wait_units
-    total = len(sorted_list)
-
-    displayed = sorted_list[:WATCHLIST_MAX_DISPLAY]
-    overflow_units = sorted_list[WATCHLIST_MAX_DISPLAY:]
-    overflow_count = len(overflow_units)
-
-    lines = [f"\n*Unit Watchlist* ({total} flagged)"]
-    for u in displayed:
-        lines.append(
-            f"{u['color']} {u['address']} \u2014 {u['tag']} \u2014 {u['evidence']}"
-        )
-
-    if overflow_count > 0:
-        # Per-tag counts in overflow
-        tag_counts = Counter(u["tag"] for u in overflow_units)
-        # Sort by tag display order
-        parts = []
-        for tag in TAG_DISPLAY_ORDER:
-            if tag in tag_counts:
-                parts.append(f"{tag_counts[tag]} {tag}")
-        if TAG_WAIT in tag_counts:
-            parts.append(f"{tag_counts[TAG_WAIT]} {TAG_WAIT}")
-        overflow_detail = ", ".join(parts)
-        lines.append(f"+{overflow_count} more: {overflow_detail}")
-
-    return "\n".join(lines)
-
-
 def _format_value(key: str, value) -> str:
     """Format a metric value for display."""
     if value is None:
@@ -291,57 +211,47 @@ def _split_messages(sections: list[str], max_chars: int = MESSAGE_MAX_CHARS) -> 
     return messages
 
 
-def check_watchlist_render(messages: list[str], expected_total: int) -> None:
-    """Verify rendered watchlist matches expected unit count.
+def check_dom_list_render(messages: list[str], expected_total: int) -> None:
+    """Verify rendered DOM list matches expected unit count.
 
-    Parses the watchlist block from the formatted messages. Checks:
-      1. "(N flagged)" header count == expected_total
-      2. Displayed unit lines + "+N more" overflow == expected_total
+    Parses the DOM list block from the formatted messages. Checks:
+      1. Bullet lines under "*Units past 30 DOM*"
+      2. Plus any "+N more" overflow
+      3. Total == expected_total
 
-    Raises ValueError on any mismatch. No-op when expected_total is 0
-    and no watchlist block is present.
+    A "None" line (zero units) counts as 0.
+    Raises ValueError on any mismatch.
     """
     full_text = "\n".join(messages)
-    if expected_total == 0:
-        if "*Unit Watchlist*" in full_text:
-            raise ValueError(
-                "Watchlist block rendered but expected_total is 0"
-            )
-        return
 
-    if "*Unit Watchlist*" not in full_text:
+    if "*Units past 30 DOM*" not in full_text:
         raise ValueError(
-            f"No watchlist block found but expected {expected_total} flagged"
+            f"No DOM list block found but expected {expected_total} units"
         )
 
-    # Extract the watchlist block: from "*Unit Watchlist*" to end of that section
-    wl_start = full_text.index("*Unit Watchlist*")
-    wl_block = full_text[wl_start:]
+    # Extract the DOM block: from "*Units past 30 DOM*" to end of that section
+    dom_start = full_text.index("*Units past 30 DOM*")
+    dom_block = full_text[dom_start:]
 
-    # Extract header count
-    header_match = re.search(r"\((\d+) flagged\)", wl_block)
-    if not header_match:
-        raise ValueError("Watchlist header missing '(N flagged)' count")
-    header_count = int(header_match.group(1))
-    if header_count != expected_total:
-        raise ValueError(
-            f"Watchlist header says {header_count} flagged "
-            f"but expected {expected_total}"
-        )
+    # Count bullet lines (address — N DOM)
+    bullet_lines = re.findall(r"^\u2022 .+ \u2014 \d+ DOM$", dom_block, re.MULTILINE)
 
-    # Count unit lines within the watchlist block (start with red or yellow emoji + space + address)
-    # These lines contain " \u2014 " (em-dash) separating address, tag, and evidence
-    unit_lines = re.findall(
-        r"^[\U0001f534\U0001f7e1] .+\u2014.+\u2014", wl_block, re.MULTILINE,
-    )
+    # Check for "None" line (zero units)
+    has_none = bool(re.search(r"^None$", dom_block, re.MULTILINE))
+
     # Check overflow line
-    overflow_match = re.search(r"^\+(\d+) more", wl_block, re.MULTILINE)
+    overflow_match = re.search(r"^\+(\d+) more$", dom_block, re.MULTILINE)
     overflow_n = int(overflow_match.group(1)) if overflow_match else 0
 
-    rendered_total = len(unit_lines) + overflow_n
-    if rendered_total != expected_total:
+    rendered_total = len(bullet_lines) + overflow_n
+
+    if has_none and expected_total != 0:
         raise ValueError(
-            f"Rendered watchlist total {rendered_total} "
-            f"({len(unit_lines)} lines + {overflow_n} overflow) "
+            f"DOM list shows 'None' but expected {expected_total} units"
+        )
+    if not has_none and rendered_total != expected_total:
+        raise ValueError(
+            f"Rendered DOM list total {rendered_total} "
+            f"({len(bullet_lines)} lines + {overflow_n} overflow) "
             f"!= expected {expected_total}"
         )
