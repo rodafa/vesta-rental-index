@@ -128,6 +128,7 @@ RESOLVED_STAGES: frozenset[tuple[str, str]] = frozenset({
     (_MOVE_OUT_UUID, "Tenant Moved Out - Move Out 100% Done"),
     (_MOVE_OUT_LEGACY_UUID, "Deposited Resolved Tenant 100% Closed Out"),
     (_OFFBOARDING_UUID, "Completed"),
+    (_RENEWAL_UUID, "Tenant Not Renewing"),
 })
 
 

@@ -250,3 +250,16 @@ TENANT_NOTICE_LEASE_STATUS_IDS = {2}
 # Excludes 23 (#4410 NSF Fee): an NSF fee can persist after the related rent is
 # settled, and these notices are about unpaid rent.
 TENANT_NOTICE_DISPLAY_ACCOUNT_IDS = {13, 25, 27}
+
+# --- Monthly Owner Note: Unattributed Maintenance Detection ---
+
+# RentVine chargeAccountIDs for Repairs & Maintenance expense accounts.
+# Bills whose charges post to one of these accounts (and have no work_order_id)
+# are flagged as unattributed maintenance costs in the monthly owner note.
+# Comma-separated in env; empty string = detection disabled.
+# Discover IDs: python manage.py dump_rentvine_transactions --type 7
+MAINTENANCE_EXPENSE_ACCOUNT_IDS: set[int] = {
+    int(x)
+    for x in os.environ.get("MAINTENANCE_EXPENSE_ACCOUNT_IDS", "").split(",")
+    if x.strip()
+}

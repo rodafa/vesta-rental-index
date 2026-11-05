@@ -753,6 +753,18 @@ def _owner_greeting_name(owner):
     return "there"
 
 
+_RECOMMENDATION_RE = re.compile(
+    r"recommend|suggest|advise|should\s+(?:be\s+)?replac|"
+    r"needs?\s+(?:to\s+be\s+)?replac|consider\s+replac",
+    re.IGNORECASE,
+)
+
+
+def _contains_recommendation(text):
+    """Return True when a work-performed note contains a tech recommendation."""
+    return bool(_RECOMMENDATION_RE.search(text))
+
+
 def _build_single_portfolio_prompt(section, period_start):
     """
     Build an OWNER-AGNOSTIC AI prompt for a single portfolio's monthly note.
@@ -764,6 +776,8 @@ def _build_single_portfolio_prompt(section, period_start):
 
     Passes structured facts per process: status_line, activity_band,
     surfaced_fragments, address, unit_number.
+    Passes Mason maintenance detail: per-WO description, completion text,
+    cost, open/cancelled status, and deferred items.
     """
     unit_count = section.get("unit_count", 1)
     structure = "MULTI-UNIT" if unit_count > 1 else "SINGLE-UNIT"
@@ -783,21 +797,145 @@ def _build_single_portfolio_prompt(section, period_start):
         "- Write a self-contained update for THIS portfolio only.",
         '- Use first person plural ("We", "Our team").',
         "- NEVER expose numeric task counts or work-order counts.",
-        "- NEVER include dollar figures.",
+        "- Dollar figures may appear ONLY if they exactly match a figure in "
+        "the Cost Facts. Never compute, total, or estimate.",
+        "- Do not combine separate facts into a claim the facts don't state "
+        '(e.g. "three units turned over simultaneously").',
+        "- No internal operations language: no \"recall\", no vendor QA detail "
+        "(e.g. which dryers a vendor missed), no internal task deadlines. "
+        "State outcome and next step only.",
+        "- Open items reported after the period end may appear in "
+        "What We're Watching.",
+        "- HARD LIMIT: 330 words total for the entire note (intro + "
+        "maintenance_summary + watching + all process_summaries combined). "
+        "Be concise.",
         "",
     ]
 
     # Financials are rendered separately — NOT passed to the AI prompt.
 
-    # Maintenance summary
+    # ── Mason maintenance facts ──────────────────────────────────────
+    mason = section.get("mason_maintenance", {})
+    mason_completed = mason.get("completed", [])
+    mason_deferred = mason.get("deferred", [])
+    mason_open = mason.get("open", [])
+    cost_facts = mason.get("cost_facts", {})
+    has_unattributed = section.get("has_unattributed_costs", False)
+
+    if mason.get("_has_data"):
+        parts.append("=== Maintenance Facts ===")
+        parts.append("")
+
+        if mason_completed:
+            parts.append("--- Completed ---")
+            for wo in mason_completed:
+                loc = wo["address"]
+                if wo.get("unit_number"):
+                    loc = f"{loc}, Unit {wo['unit_number']}"
+                parts.append(f"{loc}: {wo['description']}")
+                parts.append(f"  Completed: {wo['completed_date']}")
+                if wo.get("work_performed_note"):
+                    parts.append(f"  Work performed: {wo['work_performed_note']}")
+                if wo.get("cost") is not None:
+                    parts.append(f"  Cost: ${wo['cost']:,.2f}")
+                parts.append("")
+
+        if mason_open:
+            parts.append("--- Open at Period End ---")
+            for wo in mason_open:
+                loc = wo["address"]
+                if wo.get("unit_number"):
+                    loc = f"{loc}, Unit {wo['unit_number']}"
+                parts.append(f"{loc}: {wo['description']}")
+                parts.append(f"  Status: {wo['status']}")
+                if wo.get("open_since"):
+                    parts.append(f"  Open since: {wo['open_since']}")
+                if wo.get("scheduled_date"):
+                    parts.append(f"  Scheduled: {wo['scheduled_date']}")
+                parts.append("")
+
+        if mason_deferred:
+            parts.append("--- Deferred / Closed Without Work ---")
+            for wo in mason_deferred:
+                loc = wo["address"]
+                if wo.get("unit_number"):
+                    loc = f"{loc}, Unit {wo['unit_number']}"
+                parts.append(f"{loc}: {wo['description']}")
+                parts.append(f"  Cancelled: {wo['cancelled_date']}")
+                if wo.get("cancel_reason"):
+                    parts.append(f"  Reason: {wo['cancel_reason']}")
+                parts.append("")
+
+        # Cost facts for dollar validator
+        if cost_facts:
+            parts.append("=== Cost Facts ===")
+            for wo in mason_completed:
+                if wo.get("cost") is not None and wo.get("rentvine_id"):
+                    parts.append(f"${wo['cost']:,.2f} — {wo['description']}")
+            parts.append("")
+
+        # Watch list facts
+        watch_items = []
+        for wo in mason_open:
+            loc = wo["address"]
+            if wo.get("unit_number"):
+                loc = f"{loc}, Unit {wo['unit_number']}"
+            sched = (
+                f", scheduled for {wo['scheduled_date']}"
+                if wo.get("scheduled_date")
+                else ""
+            )
+            watch_items.append(
+                f"{loc}: {wo['description']} — open since "
+                f"{wo.get('open_since', 'unknown')}{sched}."
+            )
+        for wo in mason_deferred:
+            loc = wo["address"]
+            if wo.get("unit_number"):
+                loc = f"{loc}, Unit {wo['unit_number']}"
+            reason = wo.get("cancel_reason", "")
+            reason_text = f" ({reason})" if reason else ""
+            watch_items.append(
+                f"{loc}: {wo['description']} — deferred{reason_text}."
+            )
+        # Tech recommendations from completion notes
+        for wo in mason_completed:
+            note = wo.get("work_performed_note", "")
+            if note and _contains_recommendation(note):
+                parts_desc = wo["description"][:60]
+                watch_items.append(
+                    f"Technician recommendation from {parts_desc}: \"{note}\""
+                )
+
+        if watch_items:
+            parts.append("=== Watch List Facts ===")
+            for item in watch_items:
+                parts.append(f"- {item}")
+            parts.append("")
+
+    else:
+        # Fall back to RentVine summary counts when Mason sweep unavailable
+        maint = section.get("maintenance", {})
+        summary_line = maint.get("summary_line", "")
+        if summary_line:
+            parts.append(f"Maintenance: {summary_line}")
+        elif maint.get("_has_data"):
+            parts.append("Maintenance: Some work orders this period.")
+        else:
+            parts.append("Maintenance: No activity this period.")
+
+    # Maintenance summary line (always present for count context)
     maint = section.get("maintenance", {})
     summary_line = maint.get("summary_line", "")
     if summary_line:
-        parts.append(f"Maintenance: {summary_line}")
-    elif maint.get("_has_data"):
-        parts.append("Maintenance: Some work orders this period.")
-    else:
-        parts.append("Maintenance: No activity this period.")
+        parts.append(f"Maintenance counts: {summary_line}")
+
+    if has_unattributed:
+        parts.append(
+            "Unattributed maintenance costs: yes — additional maintenance "
+            "expenses appear on the owner statement that are not linked to "
+            "a specific work order."
+        )
 
     maint_narrative = section.get("maintenance_narrative_source", "")
     if maint_narrative:
@@ -846,19 +984,122 @@ def _build_single_portfolio_prompt(section, period_start):
 
     parts.append("")
     parts.append(
+        "FORMAT:\n\n"
         "Write:\n"
         "1. A brief intro — lead with the most significant actual item, not a "
         "generic energy assessment. 2-3 sentences max, fewer if the month was "
         "quiet.\n"
-        "2. For each process identified by its [ID], a summary as short as the "
+        "2. A \"maintenance_summary\" — bullet list grouped by property "
+        "address. Each bullet is ONE SENTENCE, MAX 20 WORDS: what was done + "
+        "cost (exactly as stated in Cost Facts). No vendor findings, no "
+        "history of prior visits, no QA detail. "
+        "If unattributed maintenance costs are flagged, end with a bullet: "
+        '"Additional maintenance expenses are detailed in your owner '
+        'statement."\n'
+        '3. A "watching" section — bullet list grouped by property address. '
+        "Each bullet is ONE SENTENCE, MAX 20 WORDS, format: "
+        '"<unit>: <issue in plain words> — <next step>." '
+        "No explanation of vendor findings, no disputing a vendor's "
+        "conclusion, no history of prior visits. Omit this "
+        "key entirely if there are no watch items.\n"
+        "An item in maintenance_summary must NOT be repeated in watching.\n"
+        "4. For each process identified by its [ID], a summary as short as the "
         "fact allows — a single clause if that's all it needs; never padded. "
         "Render the status_line faithfully. Weave surfaced_fragments "
         "naturally. Use activity_band as color but NEVER expose raw counts.\n"
         "Do NOT include the ID in the summary text.\n\n"
-        'Return valid JSON only: {"intro": "...", "process_summaries": {"<id>": "..."}}'
+        "Return valid JSON only:\n"
+        '{"intro": "...", "maintenance_summary": "...", "watching": "...", '
+        '"process_summaries": {"<id>": "..."}}'
     )
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Dollar validation
+# ---------------------------------------------------------------------------
+
+_DOLLAR_RE = re.compile(r"\$[\d,]+(?:\.\d{2})?")
+
+
+def _validate_dollar_amounts(ai_result, cost_facts):
+    """
+    Extract every $X.XX from AI output and verify each matches a cost
+    passed in Cost Facts. Returns list of mismatched dollar strings
+    (empty = clean).
+    """
+    allowed = set()
+    for amount in cost_facts.values():
+        # Canonical: $1,234.56
+        allowed.add(f"${amount:,.2f}")
+        # Without cents when .00
+        if amount == int(amount):
+            allowed.add(f"${int(amount):,}")
+
+    all_text = " ".join(filter(None, [
+        ai_result.get("intro", ""),
+        ai_result.get("maintenance_summary", ""),
+        ai_result.get("watching", ""),
+        *ai_result.get("process_summaries", {}).values(),
+    ]))
+
+    found = _DOLLAR_RE.findall(all_text)
+    return [d for d in found if d not in allowed]
+
+
+def _validate_word_count(ai_result, limit=330):
+    """Count words across all AI output fields.
+
+    Returns the word count if it exceeds *limit*, else None.
+    """
+    all_text = " ".join(filter(None, [
+        ai_result.get("intro", ""),
+        ai_result.get("maintenance_summary", ""),
+        ai_result.get("watching", ""),
+        *ai_result.get("process_summaries", {}).values(),
+    ]))
+    count = len(all_text.split())
+    return count if count > limit else None
+
+
+# ---------------------------------------------------------------------------
+# Internal-language validation
+# ---------------------------------------------------------------------------
+
+_BANNED_PHRASES = [
+    "recall",
+    "duct path",
+    "not addressed during",
+    "does not fully align",
+    "vendor missed",
+    "qa",
+]
+
+_BANNED_PHRASE_RES = [
+    re.compile(r"\b" + re.escape(phrase) + r"\b", re.IGNORECASE)
+    for phrase in _BANNED_PHRASES
+]
+
+
+def _check_internal_language(ai_result):
+    """Scan ALL AI text for banned internal-language phrases.
+
+    Returns a deduplicated list of matched phrases (lower-cased), or empty
+    list if clean.  Uses word-boundary matching, case-insensitive.
+    """
+    all_text = " ".join(filter(None, [
+        ai_result.get("intro", ""),
+        ai_result.get("maintenance_summary", ""),
+        ai_result.get("watching", ""),
+        *ai_result.get("process_summaries", {}).values(),
+    ]))
+
+    hits = []
+    for phrase, pattern in zip(_BANNED_PHRASES, _BANNED_PHRASE_RES):
+        if pattern.search(all_text):
+            hits.append(phrase)
+    return hits
 
 
 # ---------------------------------------------------------------------------
@@ -981,7 +1222,8 @@ def _build_generated_note(ai_result, data, product_name):
     Concatenate AI prose into a plain-text note for dashboard editing.
 
     For maintenance: intro + meld summaries.
-    For monthly_owner_notes: intro + process summaries grouped by category.
+    For monthly_owner_notes: intro + maintenance_summary + process summaries
+    grouped by category + watching.
     """
     parts = []
     intro = ai_result.get("intro", "")
@@ -989,6 +1231,10 @@ def _build_generated_note(ai_result, data, product_name):
         parts.append(intro)
 
     if product_name == "monthly_owner_notes":
+        maint_summary = ai_result.get("maintenance_summary", "")
+        if maint_summary:
+            parts.append(f"Maintenance:\n{maint_summary}")
+
         summaries = ai_result.get("process_summaries", {})
         by_category = data.get("processes_by_category", {})
         for cat_key, procs in by_category.items():
@@ -1001,6 +1247,10 @@ def _build_generated_note(ai_result, data, product_name):
                     cat_lines.append(summary)
             if cat_lines:
                 parts.append(f"{label}:\n" + "\n".join(f"- {s}" for s in cat_lines))
+
+        watching = ai_result.get("watching", "")
+        if watching:
+            parts.append(f"What We're Watching:\n{watching}")
     else:
         # Maintenance or generic — meld summaries
         summaries = ai_result.get("meld_summaries", {})
@@ -1096,6 +1346,70 @@ def _render_financials_html(context):
     return "\n".join(parts)
 
 
+_BULLET_PREFIX_RE = re.compile(r"^[-•*]\s+")
+
+
+def _render_bullet_section(parts, text, escape):
+    """Render AI bullet text as ``<ul>/<li>`` with brand styles.
+
+    Detects lines starting with ``- ``, ``• ``, or ``* `` as bullets.
+    Non-bullet lines are rendered as ``<p>`` (e.g. address sub-headers the AI
+    may produce).  If the text contains no bullet markers at all, the whole
+    block is rendered as a single ``<p>`` for graceful degradation.
+    """
+    _LI_STYLE = (
+        'style="margin:0 0 4px; font-family:Georgia,serif; '
+        'font-size:15px; line-height:1.6; color:#222222;"'
+    )
+    _UL_STYLE = (
+        'style="margin:0 0 12px; padding-left:20px; '
+        'list-style-type:disc;"'
+    )
+    _P_STYLE = (
+        'style="margin:8px 0 4px; font-family:Georgia,serif; '
+        'font-size:15px; line-height:1.6; color:#222222; font-weight:600;"'
+    )
+
+    lines = text.strip().splitlines()
+    has_bullets = any(_BULLET_PREFIX_RE.match(line) for line in lines)
+
+    if not has_bullets:
+        # Graceful degradation: plain paragraph
+        parts.append(
+            f'<p style="margin:0 0 12px; font-family:Georgia,serif; '
+            f'font-size:15px; line-height:1.6; color:#222222;">'
+            f'{escape(text)}</p>'
+        )
+        return
+
+    in_list = False
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if in_list:
+                parts.append("</ul>")
+                in_list = False
+            continue
+
+        if _BULLET_PREFIX_RE.match(stripped):
+            if not in_list:
+                parts.append(f"<ul {_UL_STYLE}>")
+                in_list = True
+            bullet_text = _BULLET_PREFIX_RE.sub("", stripped)
+            parts.append(f"<li {_LI_STYLE}>{escape(bullet_text)}</li>")
+        else:
+            # Non-bullet line (address sub-header)
+            if in_list:
+                parts.append("</ul>")
+                in_list = False
+            # Strip markdown bold markers — already rendered bold via CSS
+            header = stripped.strip("*").strip()
+            parts.append(f"<p {_P_STYLE}>{escape(header)}</p>")
+
+    if in_list:
+        parts.append("</ul>")
+
+
 def _render_notes_html(context):
     """
     Render the notes_html fragment for the SendGrid dynamic template.
@@ -1188,22 +1502,46 @@ def _render_notes_html(context):
                 for process in category.get("processes", []):
                     _render_process_block(parts, process, escape)
 
-        # Maintenance line (portfolio-level)
-        maint = section.get("maintenance", {})
-        if maint.get("has_data"):
+        # Maintenance summary (AI-generated from Mason detail)
+        maint_summary = section.get("maintenance_summary", "")
+        if maint_summary:
             parts.append(
-                f'<div style="margin:12px 0; padding:8px 12px; '
-                f'background-color:#fef3c7; border-radius:6px;">'
-                f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
-                f'font-size:13px; color:#92400e;">'
-                f'Maintenance: {maint.get("open_count", 0)} open • '
-                f'{maint.get("closed_count", 0)} closed • '
-                f'{maint.get("canceled_count", 0)} canceled'
-                f'</p></div>'
+                f'<h3 style="margin:16px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+                f'font-size:16px; font-weight:600; color:#1E3D58; '
+                f'border-bottom:2px solid #6EA5CD; padding-bottom:6px;">'
+                f'Maintenance</h3>'
             )
+            _render_bullet_section(parts, maint_summary, escape)
+        else:
+            # Fallback to counts-only line
+            maint = section.get("maintenance", {})
+            if maint.get("has_data"):
+                parts.append(
+                    f'<div style="margin:12px 0; padding:8px 12px; '
+                    f'background-color:#fef3c7; border-radius:6px;">'
+                    f'<p style="margin:0; font-family:Helvetica,Arial,sans-serif; '
+                    f'font-size:13px; color:#92400e;">'
+                    f'Maintenance: {maint.get("open_count", 0)} open • '
+                    f'{maint.get("closed_count", 0)} closed • '
+                    f'{maint.get("canceled_count", 0)} canceled'
+                    f'</p></div>'
+                )
+
+        # "What We're Watching" section
+        watching = section.get("watching", "")
+        if watching:
+            parts.append(
+                f'<h3 style="margin:16px 0 8px; font-family:Helvetica,Arial,sans-serif; '
+                f'font-size:16px; font-weight:600; color:#1E3D58; '
+                f'border-bottom:2px solid #6EA5CD; padding-bottom:6px;">'
+                f"What We're Watching</h3>"
+            )
+            _render_bullet_section(parts, watching, escape)
 
         # No activity fallback
-        if not maint.get("has_data") and not categories:
+        maint = section.get("maintenance", {})
+        has_maint = maint_summary or maint.get("has_data")
+        if not has_maint and not categories:
             parts.append(
                 '<p style="margin:8px 0 16px; font-family:Georgia,serif; '
                 'font-size:14px; color:#9ca3af; font-style:italic;">'
@@ -1291,6 +1629,7 @@ def _get_latest_statement(portfolio):
 def build_portfolio_section(
     portfolio, period_start, period_end, *,
     prefetched_processes=None, prefetched_tasks_index=None,
+    mason_sweep=None,
 ):
     """
     Pure function. Returns structured data for one portfolio's section
@@ -1298,8 +1637,13 @@ def build_portfolio_section(
 
     When prefetched_processes/prefetched_tasks_index are provided, passes
     them through to the pipeline selector (fetch-once pattern).
+    mason_sweep: pre-fetched Mason work order data (fetch-once pattern).
     """
-    from maintenance.selectors import get_portfolio_work_order_summary
+    from maintenance.selectors import (
+        get_portfolio_work_order_summary,
+        get_portfolio_mason_maintenance_facts,
+        get_unattributed_maintenance_costs,
+    )
     from integrations.leadsimple.selectors import get_portfolio_pipeline_data
     from core.models import Unit
 
@@ -1321,12 +1665,13 @@ def build_portfolio_section(
             "is_multi_unit": sibling_count > 1,
         })
 
-    # Collect that month's weekly maintenance notes (already sent to owners)
+    # Collect that month's approved weekly maintenance notes (already sent)
     weekly_maint_notes = PortfolioMaintenanceNote.objects.filter(
         portfolio=portfolio,
         period_type="weekly",
         period_start__gte=period_start,
         period_start__lte=period_end,
+        status="approved",
     ).exclude(notes_html="").order_by("period_start")
 
     maintenance_narrative_source = "\n\n".join(
@@ -1352,6 +1697,20 @@ def build_portfolio_section(
         for note in weekly_leasing_notes
     )
 
+    # Mason maintenance detail (per-WO facts, costs, watch list)
+    mason_maintenance = (
+        get_portfolio_mason_maintenance_facts(
+            portfolio, period_start, period_end, mason_sweep,
+        )
+        if mason_sweep
+        else {"completed": [], "cancelled": [], "open": [],
+              "cost_facts": {}, "_has_data": False}
+    )
+
+    has_unattributed_costs = get_unattributed_maintenance_costs(
+        portfolio, period_start, period_end,
+    )
+
     return {
         "portfolio_name": portfolio.name,
         "display_name": _get_portfolio_display_identifier(portfolio.name, units_list),
@@ -1359,6 +1718,8 @@ def build_portfolio_section(
         "maintenance": get_portfolio_work_order_summary(
             portfolio, period_start, period_end
         ),
+        "mason_maintenance": mason_maintenance,
+        "has_unattributed_costs": has_unattributed_costs,
         "maintenance_narrative_source": maintenance_narrative_source,
         "leasing_narrative_source": leasing_narrative_source,
         "pipeline": get_portfolio_pipeline_data(
@@ -1843,6 +2204,8 @@ def _build_single_portfolio_context(section, ai_result, period_label):
         "total_distribution": fin.get("total_distribution"),
         "ending_balance": fin.get("ending_balance"),
         "maintenance": template_maint,
+        "maintenance_summary": ai_result.get("maintenance_summary", ""),
+        "watching": ai_result.get("watching", ""),
         "categories": categories,
         "unit_count": section.get("unit_count", 1),
         "units": section.get("units", []),
@@ -1858,12 +2221,16 @@ def _build_single_portfolio_generated_note(ai_result, section):
     """
     Build plain-text generated_note for a single portfolio.
 
-    Intro + process summaries grouped by category.
+    Intro + maintenance_summary + process summaries by category + watching.
     """
     parts = []
     intro = ai_result.get("intro", "")
     if intro:
         parts.append(intro)
+
+    maint_summary = ai_result.get("maintenance_summary", "")
+    if maint_summary:
+        parts.append(f"Maintenance:\n{maint_summary}")
 
     summaries = ai_result.get("process_summaries", {})
     pipeline = section.get("pipeline", {})
@@ -1878,6 +2245,10 @@ def _build_single_portfolio_generated_note(ai_result, section):
                 cat_lines.append(summary)
         if cat_lines:
             parts.append(f"{label}:\n" + "\n".join(f"- {s}" for s in cat_lines))
+
+    watching = ai_result.get("watching", "")
+    if watching:
+        parts.append(f"What We're Watching:\n{watching}")
 
     return "\n\n".join(parts)
 
@@ -1965,6 +2336,29 @@ def generate_portfolio_notes(
         )
     all_tasks_index = build_tasks_index(all_tasks)
 
+    # Fetch-once: Mason work order sweep (soft-fail — degrades to
+    # count-only maintenance when unavailable).
+    mason_sweep = None
+    mason_unavailable = False
+    if getattr(settings, "MASON_WORK_ORDERS", False):
+        try:
+            from integrations.mason.services import fetch_mason_work_order_sweep
+            mason_sweep = fetch_mason_work_order_sweep(
+                period_start, period_end,
+            )
+            logger.info(
+                "comms_mason_sweep_fetched",
+                extra={"work_order_count": len(mason_sweep.get("work_orders", []))},
+            )
+        except Exception as exc:
+            mason_unavailable = True
+            logger.warning(
+                "comms_mason_sweep_failed",
+                extra={"error": str(exc)},
+            )
+    else:
+        mason_unavailable = True
+
     # Materialize to a list so we know the total for progress reporting
     portfolios = list(portfolio_queryset)
     total = len(portfolios)
@@ -1997,12 +2391,14 @@ def generate_portfolio_notes(
                 portfolio, period_start, period_end,
                 prefetched_processes=all_processes,
                 prefetched_tasks_index=all_tasks_index,
+                mason_sweep=mason_sweep,
             )
 
             # Check if this portfolio has any data worth reporting
             has_data = bool(
                 section.get("financials")
                 or section.get("maintenance", {}).get("_has_data")
+                or section.get("mason_maintenance", {}).get("_has_data")
                 or section.get("pipeline", {}).get("_has_data")
             )
             if not has_data:
@@ -2016,6 +2412,43 @@ def generate_portfolio_notes(
             # Owner-agnostic AI call (one per portfolio)
             user_prompt = _build_single_portfolio_prompt(section, period_start)
             ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
+
+            # Validation flags
+            validation_flags = {}
+
+            # Dollar validation
+            cost_facts = section.get("mason_maintenance", {}).get("cost_facts", {})
+            dollar_mismatches = _validate_dollar_amounts(ai_result, cost_facts)
+            if dollar_mismatches:
+                validation_flags["dollar_mismatches"] = dollar_mismatches
+                logger.warning(
+                    "comms_dollar_validation_mismatch",
+                    extra={
+                        "portfolio": portfolio.name,
+                        "mismatches": dollar_mismatches,
+                    },
+                )
+
+            # Word-count validation
+            over_length = _validate_word_count(ai_result)
+            if over_length:
+                validation_flags["over_length"] = over_length
+
+            # Internal-language check
+            internal_hits = _check_internal_language(ai_result)
+            if internal_hits:
+                validation_flags["internal_language"] = internal_hits
+
+            # Mason unavailable
+            if mason_unavailable:
+                validation_flags["mason_unavailable"] = True
+
+            # Join failures matched to this portfolio
+            join_failures = (
+                section.get("mason_maintenance", {}).get("join_failures", [])
+            )
+            if join_failures:
+                validation_flags["mason_join_failures"] = join_failures
 
             # Render HTML fragments for this single portfolio
             period_label = _format_period_label(period_type, period_start, period_end)
@@ -2032,6 +2465,7 @@ def generate_portfolio_notes(
                     extra={
                         "portfolio": portfolio.name,
                         "note_length": len(generated_note),
+                        "dollar_mismatches": dollar_mismatches,
                     },
                 )
                 generated += 1
@@ -2048,6 +2482,7 @@ def generate_portfolio_notes(
                     "generated_note": generated_note,
                     "approved_generated_note": "",
                     "status": "draft",
+                    "validation_flags": validation_flags,
                 },
             )
             generated += 1

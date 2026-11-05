@@ -662,10 +662,28 @@ def fetch_mason_work_order_sweep(period_start, period_end):
                     },
                 )
 
+    # ── Enrich join failures with derived dates and address ─────────
+    # These are used downstream to match unjoined WOs to portfolios by
+    # property address, filtered to the reporting period.
+    join_failure_ids = {f["mason_id"] for f in join_failures}
+    for wo in all_work_orders:
+        if wo.get("id") in join_failure_ids:
+            for f in join_failures:
+                if f["mason_id"] == wo["id"]:
+                    f["_completed_date"] = wo.get("_completed_date")
+                    f["_cancelled_date"] = wo.get("_cancelled_date")
+                    f["_mason_status"] = wo.get("_mason_status", "")
+                    f["propertyAddress"] = wo.get("propertyAddress") or ""
+                    f["pms_work_order_number"] = (
+                        f.get("pms_work_order_number") or ""
+                    )
+                    break
+
     return {
         "work_orders": all_work_orders,
         "visits_index": visits_index,
         "activity_index": activity_index,
         "estimates_index": estimates_index,
         "rentvine_lookup": rentvine_lookup,
+        "join_failures": join_failures,
     }

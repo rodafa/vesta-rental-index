@@ -159,6 +159,12 @@ class PortfolioMonthlyNote(models.Model):
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
     )
 
+    validation_flags = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Machine-checked validation results, e.g. dollar mismatches.",
+    )
+
     generated_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

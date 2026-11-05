@@ -16,6 +16,32 @@
   function words(t) { t = (t || '').trim(); return t ? t.split(/\s+/).length : 0; }
   function initials(name) { var p = (name || '').trim().split(/\s+/); return ((p[0] || '')[0] || '') + ((p[1] || '')[0] || ''); }
 
+  function hasValidationWarnings(n) {
+    var f = n.validation_flags || {};
+    return !!(
+      (f.dollar_mismatches && f.dollar_mismatches.length) ||
+      f.over_length ||
+      f.mason_unavailable ||
+      (f.mason_join_failures && f.mason_join_failures.length) ||
+      (f.internal_language && f.internal_language.length)
+    );
+  }
+  function validationWarningLines(n) {
+    var f = n.validation_flags || {}, lines = [];
+    if (f.dollar_mismatches && f.dollar_mismatches.length)
+      lines.push('\u26a0 Dollar mismatch: ' + f.dollar_mismatches.join(', '));
+    if (f.over_length)
+      lines.push('\u26a0 Over length: ' + f.over_length + ' words (limit 330)');
+    if (f.mason_unavailable)
+      lines.push('\u26a0 Mason data unavailable \u2014 maintenance detail missing');
+    if (f.mason_join_failures && f.mason_join_failures.length)
+      lines.push('\u26a0 ' + f.mason_join_failures.length + ' work order(s) could not be matched: ' +
+        f.mason_join_failures.map(function(j) { return j.description; }).join('; '));
+    if (f.internal_language && f.internal_language.length)
+      lines.push('\u26a0 Internal language detected: ' + f.internal_language.join(', '));
+    return lines;
+  }
+
   function toast(msg, kind) {
     var t = $('toast');
     t.textContent = msg;
@@ -129,6 +155,7 @@
           '<div><div class="row-name">' + esc(n.portfolio_name) + '</div>' +
           '<div class="row-owners">' + esc(ownersLine(n.owners)) + '</div></div>' +
           '<span class="badge badge-' + n.status + '">' + n.status + '</span>' +
+          (hasValidationWarnings(n) ? '<span class="badge badge-warn" title="' + esc(validationWarningLines(n).join('; ')) + '">\u26a0</span>' : '') +
         '</div>' +
         '<div class="row-foot">' +
           '<span class="row-meta">' +
@@ -161,6 +188,18 @@
     var st = $('note-status');
     st.className = 'badge badge-' + n.status;
     st.textContent = n.status;
+
+    // Validation warning banner
+    var warnEl = $('note-validation-warn');
+    if (warnEl) {
+      var warnLines = validationWarningLines(n);
+      if (warnLines.length) {
+        warnEl.style.display = '';
+        warnEl.innerHTML = warnLines.map(function(l) { return esc(l); }).join('<br>');
+      } else {
+        warnEl.style.display = 'none';
+      }
+    }
 
     var fin = n.total_income != null ?
       ('<div class="fin-period">Statement period: ' + (n.statement_period || '') + '</div>' +

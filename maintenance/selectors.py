@@ -7,6 +7,7 @@ Logic lives here; views and commands are thin orchestrators.
 import html
 import logging
 import re
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db.models import Q, Sum
@@ -846,3 +847,369 @@ def get_portfolio_work_order_summary(portfolio, period_start, period_end):
         "notable_items": [],
         "_has_data": has_data,
     }
+
+
+# ---------------------------------------------------------------------------
+# Mason maintenance facts for the monthly owner note prompt
+# ---------------------------------------------------------------------------
+
+
+def _match_join_failures_to_portfolio(
+    mason_sweep, portfolio, period_start, period_end,
+):
+    """Match join-failed Mason WOs to a portfolio by propertyAddress.
+
+    Mason WOs that couldn't be joined to a local WorkOrder (sync lag, ID
+    mismatch) still carry ``propertyAddress``.  We match that against local
+    Property.address_line_1 for the target portfolio's properties.
+
+    Returns a list of dicts for join-failed WOs whose ``propertyAddress``
+    matches a property in this portfolio AND whose completed/cancelled date
+    falls in the period.  These are surfaced in ``validation_flags`` so a
+    reviewer knows what was dropped.
+    """
+    from maintenance.mason_selectors import _parse_date
+
+    from core.models import Property
+
+    join_failures = mason_sweep.get("join_failures", [])
+    if not join_failures:
+        return []
+
+    # Build {normalised_address: property} for this portfolio's properties
+    portfolio_addrs = {}
+    for prop in Property.objects.filter(
+        portfolio=portfolio, is_active=True,
+    ):
+        addr = (prop.address_line_1 or "").strip().lower()
+        if addr:
+            portfolio_addrs[addr] = prop
+
+    matched = []
+    for failure in join_failures:
+        mason_addr = (failure.get("propertyAddress") or "").strip().lower()
+        if not mason_addr or mason_addr not in portfolio_addrs:
+            continue
+        cd = _parse_date(failure.get("_completed_date"))
+        cand = _parse_date(failure.get("_cancelled_date"))
+        in_period = (
+            (cd and period_start <= cd <= period_end)
+            or (cand and period_start <= cand <= period_end)
+        )
+        if in_period:
+            matched.append({
+                "description": (failure.get("description") or "")[:120],
+                "propertyAddress": failure.get("propertyAddress") or "",
+                "mason_status": failure.get("_mason_status") or "",
+                "pms_work_order_number": failure.get("pms_work_order_number") or "",
+            })
+
+    return matched
+
+
+def _extract_mason_cancel_reason(local_wo):
+    """Extract the Mason cancellation reason from the local WorkOrder description.
+
+    Mason appends a resolution note to the RentVine description after a
+    ``-------`` separator, e.g.::
+
+        Concrete in walkway outside unit door is broken.
+        -------
+        mason: Work not necessary - This is not going to be addressed
+
+    Returns the text after ``mason:`` (stripped), or "" when no annotation.
+    """
+    desc = local_wo.description or ""
+    sep_idx = desc.find("-------")
+    if sep_idx == -1:
+        return ""
+    after_sep = desc[sep_idx + 7:].strip()
+    # Skip the "mason:" or "Mason:" prefix
+    for prefix in ("mason:", "Mason:"):
+        if after_sep.startswith(prefix):
+            after_sep = after_sep[len(prefix):].strip()
+            break
+    # Strip trailing [Source] block and anything after it
+    source_idx = after_sep.find("[Source]")
+    if source_idx != -1:
+        after_sep = after_sep[:source_idx].strip()
+    # Also strip at double-newline (other trailing metadata)
+    nl_idx = after_sep.find("\n\n")
+    if nl_idx != -1:
+        after_sep = after_sep[:nl_idx].strip()
+    return after_sep
+
+
+_CANCEL_INCLUDE_TERMS = ("not addressed", "not going to be addressed", "deferred")
+_CANCEL_EXCLUDE_TERMS = (
+    "different work order",
+    "cancel and recreate",
+    "already done",
+    "no longer needed",
+    "duplicate",
+)
+
+
+def _is_deferred_cancel(reason):
+    """Return True when a cancelled WO should appear in the watch list.
+
+    Include-terms always win (even if an exclude-term also matches).
+    Unrecognized reasons default to include.
+    """
+    lower = reason.lower()
+    if any(t in lower for t in _CANCEL_INCLUDE_TERMS):
+        return True
+    if any(t in lower for t in _CANCEL_EXCLUDE_TERMS):
+        return False
+    # Unrecognized: include (safe default — show rather than hide)
+    return True
+
+
+# ── Safety / habitability constants for zero-cost filter ────────────
+_SAFETY_PRIORITY = 3  # RentVine priority_id: 1=Low, 2=Normal, 3=High/Emergency
+_HABITABILITY_TRADE_IDS = {
+    1,   # Security System
+    9,   # Electrical
+    12,  # Fire/Water Damage
+    17,  # HVAC
+    26,  # Plumbing
+    28,  # Roofing
+}
+
+
+def _is_safety_or_habitability(local_wo):
+    """Return True if the work order is emergency-priority or habitability-trade."""
+    if not local_wo:
+        return False
+    if local_wo.priority_id == _SAFETY_PRIORITY:
+        return True
+    if local_wo.vendor_trade_id in _HABITABILITY_TRADE_IDS:
+        return True
+    return False
+
+
+def _completed_in_period(wo, completed_date, local_wo, period_start, period_end):
+    """Return the effective completion date if the WO completed in the period.
+
+    Uses exactly ONE date to avoid a job appearing in two months' notes:
+    - If the local WorkOrder has ``date_closed``, use it exclusively.
+    - Otherwise fall back to the Mason visit-derived ``completed_date``.
+
+    Returns the chosen date only if it falls in the period, else None.
+    """
+    local_closed = local_wo.date_closed if local_wo else None
+    effective = local_closed if local_closed else completed_date
+    if effective and period_start <= effective <= period_end:
+        return effective
+    return None
+
+
+def get_portfolio_mason_maintenance_facts(
+    portfolio, period_start, period_end, mason_sweep,
+):
+    """
+    Per-work-order maintenance facts for the monthly portfolio note AI prompt.
+
+    Uses pre-fetched Mason sweep data (called ONCE per run) joined to local
+    WorkOrder records for portfolio filtering and RentVine cost lookup.
+
+    Returns::
+
+        {
+            "completed": [{address, unit_number, description, work_performed_note,
+                           completed_date, cost, rentvine_id}, ...],
+            "deferred": [{address, unit_number, description, cancelled_date,
+                          cancel_reason}, ...],
+            "open": [{address, unit_number, description, status, open_since,
+                      scheduled_date}, ...],
+            "cost_facts": {rentvine_id: Decimal, ...},
+            "join_failures": [{description, propertyAddress, mason_status}, ...],
+            "_has_data": bool,
+        }
+    """
+    from maintenance.mason_selectors import _parse_date
+
+    all_mason_wos = mason_sweep["work_orders"]
+
+    # Filter to this portfolio via local WorkOrder
+    portfolio_wos = [
+        wo for wo in all_mason_wos
+        if wo.get("_local_wo") and wo["_local_wo"].portfolio_id == portfolio.pk
+    ]
+
+    # ── Join-failure WOs matched to this portfolio by propertyAddress ──
+    join_failure_wos = _match_join_failures_to_portfolio(
+        mason_sweep, portfolio, period_start, period_end,
+    )
+
+    # Exclude lawn + recurring/cadence (same rule as weekly email)
+    after_lawn = []
+    for wo in portfolio_wos:
+        if wo["_is_lawn_ish"] and (wo["_is_recurring"] or wo["_has_cadence"]):
+            continue
+        after_lawn.append(wo)
+
+    # Exclude "excluded" bucket (duplicates etc.)
+    active_wos = [wo for wo in after_lawn if wo["_mapped_bucket"] != "excluded"]
+
+    # Batch cost lookup via RentVine bills
+    rentvine_ids = [
+        wo["_rentvine_id"] for wo in active_wos if wo.get("_rentvine_id")
+    ]
+    costs = get_work_order_costs(rentvine_ids)
+
+    completed = []
+    deferred = []
+    open_wos = []
+
+    for wo in active_wos:
+        local_wo = wo["_local_wo"]
+        address = (
+            local_wo.property.address_line_1
+            if local_wo.property
+            else ""
+        )
+        unit_number = (
+            local_wo.unit.unit_number
+            if local_wo.unit and local_wo.unit.unit_number
+            else ""
+        )
+        desc = (wo.get("description") or "").strip()
+        bucket = wo["_mapped_bucket"]
+        rv_id = wo.get("_rentvine_id")
+
+        completed_date = _parse_date(wo.get("_completed_date"))
+        cancelled_date = _parse_date(wo.get("_cancelled_date"))
+
+        # Recurring: only completions in period
+        if wo["_is_recurring"]:
+            if bucket == "completed":
+                effective = _completed_in_period(
+                    wo, completed_date, local_wo, period_start, period_end,
+                )
+                if effective:
+                    wo_cost = costs.get(rv_id) if rv_id else None
+                    if not wo_cost and not _is_safety_or_habitability(local_wo):
+                        continue
+                    completed.append({
+                        "address": address,
+                        "unit_number": unit_number,
+                        "description": desc,
+                        "work_performed_note": wo.get("_work_performed_note") or "",
+                        "completed_date": str(effective),
+                        "cost": wo_cost,
+                        "rentvine_id": rv_id,
+                    })
+            continue
+
+        if bucket in ("open", "scheduled"):
+            created_at = wo.get("createdAt", "")
+            open_since = created_at[:10] if created_at and len(created_at) >= 10 else ""
+            sched = _parse_date(wo.get("_scheduled_date"))
+            open_wos.append({
+                "address": address,
+                "unit_number": unit_number,
+                "description": desc,
+                "status": "scheduled" if bucket == "scheduled" else "open",
+                "open_since": open_since,
+                "scheduled_date": str(sched) if sched else None,
+            })
+        elif bucket == "completed":
+            effective = _completed_in_period(
+                wo, completed_date, local_wo, period_start, period_end,
+            )
+            if effective:
+                wo_cost = costs.get(rv_id) if rv_id else None
+                if not wo_cost and not _is_safety_or_habitability(local_wo):
+                    continue
+                completed.append({
+                    "address": address,
+                    "unit_number": unit_number,
+                    "description": desc,
+                    "work_performed_note": wo.get("_work_performed_note") or "",
+                    "completed_date": str(effective),
+                    "cost": wo_cost,
+                    "rentvine_id": rv_id,
+                })
+        elif bucket == "cancelled":
+            # One-date rule: local date_closed wins, else Mason cancelled_date
+            local_closed = local_wo.date_closed if local_wo else None
+            effective_cancel = local_closed if local_closed else cancelled_date
+            # 90-day lookback so deferred items persist across months
+            deferred_start = period_end - timedelta(days=90)
+            if effective_cancel and deferred_start <= effective_cancel <= period_end:
+                reason = _extract_mason_cancel_reason(local_wo)
+                if _is_deferred_cancel(reason):
+                    deferred.append({
+                        "address": address,
+                        "unit_number": unit_number,
+                        "description": desc,
+                        "cancelled_date": str(effective_cancel),
+                        "cancel_reason": reason,
+                    })
+
+    # Build cost_facts for dollar validator
+    cost_facts = {}
+    for item in completed:
+        if item.get("rentvine_id") and item.get("cost") is not None:
+            cost_facts[item["rentvine_id"]] = item["cost"]
+
+    return {
+        "completed": completed,
+        "deferred": deferred,
+        "open": open_wos,
+        "cost_facts": cost_facts,
+        "join_failures": join_failure_wos,
+        "_has_data": bool(completed or deferred or open_wos),
+    }
+
+
+def get_unattributed_maintenance_costs(portfolio, period_start, period_end):
+    """
+    Detect whether unattributed maintenance bills exist for this portfolio
+    in the period.
+
+    A bill is "unattributed maintenance" when:
+    - work_order_id IS NULL and meld_id IS NULL (not linked to any WO)
+    - is_voided = False
+    - bill_date falls in the period
+    - At least one non-voided BillCharge has a chargeAccountID in
+      MAINTENANCE_EXPENSE_ACCOUNT_IDS
+    - The charge's portfolioID matches the portfolio
+
+    Returns bool. No amounts exposed.
+    """
+    from accounting.models import Bill
+    from django.conf import settings
+
+    if not settings.MAINTENANCE_EXPENSE_ACCOUNT_IDS:
+        return False
+
+    if not hasattr(portfolio, "rentvine_id") or not portfolio.rentvine_id:
+        return False
+
+    portfolio_rv_id = str(portfolio.rentvine_id)
+    maint_acct_ids = {str(a) for a in settings.MAINTENANCE_EXPENSE_ACCOUNT_IDS}
+
+    unlinked_bills = Bill.objects.filter(
+        work_order_id__isnull=True,
+        meld_id__isnull=True,
+        is_voided=False,
+        bill_date__gte=period_start,
+        bill_date__lte=period_end,
+    ).prefetch_related("charges")
+
+    for bill in unlinked_bills:
+        for charge in bill.charges.all():
+            if charge.is_voided:
+                continue
+            tx = charge.raw_data.get("transaction", charge.raw_data)
+            charge_acct = str(tx.get("chargeAccountID") or "")
+            if charge_acct not in maint_acct_ids:
+                continue
+            # Verify portfolio via portfolioID in raw_data
+            rv_portfolio = str(tx.get("portfolioID") or "")
+            if rv_portfolio == portfolio_rv_id:
+                return True
+
+    return False

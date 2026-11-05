@@ -145,6 +145,7 @@ def _serialize_portfolio_note(note):
             {"id": o["pk"], "name": o["name"], "email": o["email"]}
             for o in owners
         ],
+        "validation_flags": note.validation_flags or {},
         "generated_at": note.generated_at.isoformat() if note.generated_at else None,
         "updated_at": note.updated_at.isoformat() if note.updated_at else None,
     }

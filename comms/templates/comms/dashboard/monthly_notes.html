@@ -136,6 +136,8 @@
   .badge-missing{background:var(--grey-bg);color:var(--ink-faint);border:1px solid var(--line);}
   .badge-ready{background:var(--green-soft);color:#1f7a2b;}
   .badge-not-ready{background:var(--orange-soft);color:#a4530a;}
+  .badge-warn{background:#fef3c7;color:#92400e;cursor:help;}
+  .validation-banner{background:#fef3c7;color:#92400e;padding:8px 12px;border-radius:var(--r-sm);font-size:12.5px;margin:0 0 12px;display:none;}
 
   /* ---------- Right: detail ---------- */
   .right{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;background:var(--grey-bg);}
@@ -336,6 +338,7 @@
           </div>
           <div class="dh-meta" id="note-meta"></div>
         </div>
+        <div class="validation-banner" id="note-validation-warn"></div>
         <div class="detail-scroll" id="detail-scroll"></div>
         <div class="detail-foot">
           <button class="btn btn-quiet" id="copy-btn">Copy</button>

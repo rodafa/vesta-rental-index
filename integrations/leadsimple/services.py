@@ -207,9 +207,11 @@ def is_reportable(process, tasks_index, period_start_et, period_end_et):
     - closed_at falls within the period
     - completed task count >= TASK_THRESHOLD (3) for normal categories
     - For HIGH_STAKES categories at an ONGOING stage: >= 1 completed task
-    - For HIGH_STAKES categories at a RESOLVED stage: only created_at or
-      closed_at in period (task activity alone is not sufficient — prevents
-      already-resolved outcomes from resurfacing due to housekeeping tasks)
+
+    A process at a RESOLVED stage (any category) is reportable ONLY if
+    created_at or closed_at falls in the period — task activity alone is
+    not sufficient.  Prevents already-resolved outcomes from resurfacing
+    due to housekeeping tasks.
     """
     # Check created_at in period
     created_et = _parse_dt_et(process.get("created_at"))
@@ -221,18 +223,17 @@ def is_reportable(process, tasks_index, period_start_et, period_end_et):
     if closed_et and period_start_et <= closed_et <= period_end_et:
         return True
 
-    # Resolved high-stakes stages: if neither created_at nor closed_at fell
-    # in this period (checked above), residual task activity should not pull
-    # the process back into the note.
-    category = process.get("category", "")
-    if category in HIGH_STAKES_CATEGORIES:
-        pt = process.get("process_type") or {}
-        pt_id = pt.get("id") or process.get("process_type_id") or ""
-        stage_name = (process.get("stage") or {}).get("name", "")
-        if (pt_id, stage_name) in RESOLVED_STAGES:
-            return False
+    # Resolved stages: if neither created_at nor closed_at fell in this
+    # period (checked above), residual task activity should not pull the
+    # process back into the note.  Applies to ALL categories.
+    pt = process.get("process_type") or {}
+    pt_id = pt.get("id") or process.get("process_type_id") or ""
+    stage_name = (process.get("stage") or {}).get("name", "")
+    if (pt_id, stage_name) in RESOLVED_STAGES:
+        return False
 
     # Check task activity
+    category = process.get("category", "")
     proc_id = process.get("id", "")
     proc_tasks = tasks_index.get(proc_id, [])
     completed_count = count_tasks_completed_in_period(
