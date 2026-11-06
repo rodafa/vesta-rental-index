@@ -597,14 +597,98 @@
       .catch(function (e) { setStatus('warn', 'Send all failed.'); toast('Send all failed: ' + e.message, 'warn'); });
   });
 
+  // --- Sync (shared by header button and modal button) ---
+  function runSync() {
+    setStatus('running', 'Syncing statements...');
+    return VestaAPI.post('/reports/sync-statements', {})
+      .then(function () {
+        $('sync-ago').textContent = 'updated just now';
+        setStatus('done', 'Sync complete.');
+        toast('Statements synced.', 'ok');
+      })
+      .catch(function (e) {
+        setStatus('warn', 'Sync failed.');
+        toast('Sync failed: ' + e.message, 'warn');
+        throw e;
+      });
+  }
+
+  $('run-sync').addEventListener('click', function () {
+    var btn = this; btn.disabled = true;
+    runSync().finally(function () { btn.disabled = false; });
+  });
+
   // --- Generate ---
   function openGenerateConfirm() {
+    $('gen-loading').style.display = '';
+    $('gen-ready').style.display = 'none';
+    $('gen-confirm').style.display = 'none';
+    $('gen-sync-btn').style.display = 'none';
+    $('gen-warn').style.display = 'none';
+    $('gen-modal').classList.add('show');
+    fetchReadiness();
+  }
+
+  function fetchReadiness() {
+    VestaAPI.get('/reports/portfolio-notes/statement-readiness?month=' + monthParam(periodStart))
+      .then(function (d) { renderReadiness(d); })
+      .catch(function (e) {
+        $('gen-loading').style.display = 'none';
+        $('gen-ready').style.display = '';
+        $('gen-warn').innerHTML = 'Could not check statement readiness: ' + esc(e.message);
+        $('gen-warn').style.display = '';
+        $('gen-sync-btn').style.display = 'none';
+        $('gen-confirm').style.display = '';
+        $('gen-confirm').textContent = 'Generate anyway';
+      });
+  }
+
+  function renderReadiness(d) {
+    $('gen-loading').style.display = 'none';
+    $('gen-ready').style.display = '';
+
     var rebuild = 0, safe = 0;
     portfolioNotes.forEach(function (n) { if (n.status === 'approved') safe++; else rebuild++; });
     $('gen-rebuild-n').textContent = rebuild;
     $('gen-safe-n').textContent = safe;
-    $('gen-modal').classList.add('show');
+
+    $('gen-sync-ts').textContent = d.last_synced_at || 'never';
+    $('gen-stmt-month').textContent = formatMonth(periodStart);
+    $('gen-stmt-n').textContent = d.with_statement;
+    $('gen-stmt-total').textContent = d.total_portfolios;
+
+    var hasMissing = d.missing && d.missing.length > 0;
+    var hasDups = d.duplicates && d.duplicates.length > 0;
+    var allGood = !hasMissing && !hasDups;
+
+    var stmtLine = $('gen-stmt-line');
+    if (allGood) {
+      stmtLine.style.background = 'var(--green-soft)';
+      stmtLine.style.color = '#1f7a2b';
+      stmtLine.querySelector('.ico').style.color = 'var(--green)';
+    } else {
+      stmtLine.style.background = 'var(--orange-soft)';
+      stmtLine.style.color = '#7a4500';
+      stmtLine.querySelector('.ico').style.color = 'var(--orange)';
+    }
+
+    if (!allGood) {
+      var lines = [];
+      if (hasMissing) lines.push('<b>Missing (' + d.missing.length + '):</b> ' + d.missing.map(esc).join(', '));
+      if (hasDups) lines.push('<b>Duplicate statements (' + d.duplicates.length + '):</b> ' + d.duplicates.map(esc).join(', '));
+      $('gen-warn').innerHTML = lines.join('<br>');
+      $('gen-warn').style.display = '';
+      $('gen-sync-btn').style.display = '';
+      $('gen-confirm').style.display = '';
+      $('gen-confirm').textContent = 'Generate anyway';
+    } else {
+      $('gen-warn').style.display = 'none';
+      $('gen-sync-btn').style.display = 'none';
+      $('gen-confirm').style.display = '';
+      $('gen-confirm').textContent = 'Generate';
+    }
   }
+
   function closeGenerateConfirm() { $('gen-modal').classList.remove('show'); }
 
   function doGenerate(opts) {
@@ -662,6 +746,14 @@
   $('gen-modal').addEventListener('click', function (e) { if (e.target === this) closeGenerateConfirm(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeGenerateConfirm(); });
 
+  $('gen-sync-btn').addEventListener('click', function () {
+    var btn = this; btn.disabled = true;
+    btn.textContent = 'Syncing\u2026';
+    runSync()
+      .then(function () { fetchReadiness(); })
+      .finally(function () { btn.disabled = false; btn.textContent = 'Run Sync first'; });
+  });
+
   $('run-btn').addEventListener('click', function () {
     $('filters').open = false;
     doGenerate({
@@ -674,18 +766,6 @@
   $('run-all-btn').addEventListener('click', function () {
     $('filters').open = false;
     openGenerateConfirm();
-  });
-
-  // --- Sync ---
-  $('run-sync').addEventListener('click', function () {
-    var btn = this; btn.disabled = true;
-    setStatus('running', 'Syncing statements...');
-    VestaAPI.post('/reports/sync-statements', {})
-      .then(function () {
-        $('sync-ago').textContent = 'updated just now';
-        setTimeout(function () { btn.disabled = false; setStatus('done', 'Sync complete.'); toast('Statements synced.', 'ok'); }, 500);
-      })
-      .catch(function (e) { btn.disabled = false; setStatus('warn', 'Sync failed.'); toast('Sync failed: ' + e.message, 'warn'); });
   });
 
   // --- Period change ---

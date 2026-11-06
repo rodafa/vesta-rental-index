@@ -6,6 +6,8 @@ Pure query functions — no side-effects.
 
 import logging
 
+from django.db.models import Max
+
 from accounting.models import PortfolioStatement
 
 logger = logging.getLogger(__name__)
@@ -63,4 +65,43 @@ def format_statement_financials(stmt):
         "total_adjustments": stmt.total_adjustments,
         "ending_balance": stmt.ending_balance,
         "total_distribution": stmt.total_distribution,
+    }
+
+
+def statement_readiness(portfolios, period_start, period_end):
+    """
+    Check how many of the given portfolios have a posted statement for the
+    period.
+
+    Returns dict with:
+        total_portfolios  – int
+        with_statement    – int
+        missing           – list[str] portfolio names without a statement
+        duplicates        – list[str] portfolio names with >1 posted statement
+        last_synced_at    – datetime | None  (max synced_at across all stmts)
+    """
+    missing = []
+    duplicates = []
+    with_statement = 0
+
+    for portfolio in portfolios:
+        try:
+            stmt = get_statement_for_period(portfolio, period_start, period_end)
+            if stmt is None:
+                missing.append(portfolio.name)
+            else:
+                with_statement += 1
+        except ValueError:
+            duplicates.append(portfolio.name)
+
+    last_synced_at = PortfolioStatement.objects.aggregate(
+        last=Max("synced_at")
+    )["last"]
+
+    return {
+        "total_portfolios": len(portfolios),
+        "with_statement": with_statement,
+        "missing": missing,
+        "duplicates": duplicates,
+        "last_synced_at": last_synced_at,
     }

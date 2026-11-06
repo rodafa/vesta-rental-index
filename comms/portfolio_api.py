@@ -153,6 +153,45 @@ def _serialize_portfolio_note(note):
 
 
 @require_GET
+def statement_readiness_api(request):
+    """GET /api/reports/portfolio-notes/statement-readiness?month=YYYY-MM
+
+    Pre-generate check: how many active portfolios have a posted statement?
+    """
+    err = _require_access(request)
+    if err:
+        return err
+
+    parsed = _parse_month(request)
+    if not parsed:
+        return JsonResponse({"error": "month param required"}, status=400)
+
+    year, month = parsed
+    period_start, period_end = _period_from_month(year, month)
+
+    from accounting.selectors import statement_readiness
+
+    portfolios = list(get_portfolio_generation_scope())
+    data = statement_readiness(portfolios, period_start, period_end)
+
+    # Format last_synced_at to ET string
+    import zoneinfo
+
+    last_synced = data["last_synced_at"]
+    if last_synced:
+        et = zoneinfo.ZoneInfo("America/New_York")
+        last_synced = last_synced.astimezone(et).strftime("%b %d, %Y %I:%M %p ET")
+
+    return JsonResponse({
+        "total_portfolios": data["total_portfolios"],
+        "with_statement": data["with_statement"],
+        "missing": data["missing"],
+        "duplicates": data["duplicates"],
+        "last_synced_at": last_synced,
+    })
+
+
+@require_GET
 def list_portfolio_notes(request):
     """GET /api/reports/portfolio-notes?month=YYYY-MM"""
     err = _require_access(request)
