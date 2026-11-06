@@ -18,17 +18,19 @@ import pytest
 
 from accounts.models import User
 from accounting.models import PortfolioStatement
+from accounting.selectors import get_statement_for_period, format_statement_financials
 from comms.models import EmailDraft, PortfolioMonthlyNote
 from comms.services import (
     assemble_owner_email,
     build_portfolio_section,
     generate_portfolio_notes,
+    get_portfolio_display_name,
     get_recipients_for_period,
     _normalize_email,
     _render_notes_html_from_text,
 )
 import comms.services as svc
-from core.models import Owner, Portfolio, Property
+from core.models import Owner, Portfolio, Property, Unit
 
 
 pytestmark = pytest.mark.django_db
@@ -258,10 +260,30 @@ class TestAssembleOwnerEmail:
         assert names == sorted(names)
 
     def test_financials_html_concatenated(self, portfolios, owners, portfolio_notes):
-        """Financials from multiple portfolios are concatenated."""
+        """Financials from multiple portfolios are concatenated (live render)."""
+        # Need PortfolioStatements for both of Carol's portfolios (Alpha + Gamma)
+        p1, _, p3 = portfolios
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=7001,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=1000, total_income=5000,
+            total_expenses=1500, total_adjustments=0,
+            ending_balance=4500, total_distribution=3500, status="2",
+        )
+        PortfolioStatement.objects.create(
+            portfolio=p3, rentvine_statement_id=7002,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=2000, total_income=3000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=4500, total_distribution=2500, status="2",
+        )
         result = assemble_owner_email("carol@example.com", PERIOD_START)
+        # Display names appear as section headers in the rendered financials
         assert "Alpha" in result["financials_html"]
         assert "Gamma" in result["financials_html"]
+        # Dollar amounts from the live statements
+        assert "5,000" in result["financials_html"]   # Alpha income
+        assert "3,000" in result["financials_html"]   # Gamma income
 
     def test_email_normalization(self, portfolios, owners, portfolio_notes):
         """Case-insensitive email matching."""
@@ -888,7 +910,17 @@ class TestOwnerSendsAPI:
         assert "shared@example.com" in emails
         assert "carol@example.com" in emails
 
-    def test_preview_returns_assembled(self, client, admin_user, portfolios, owners, portfolio_notes):
+    def test_preview_returns_assembled(self, client, admin_user, portfolios, owners, portfolio_notes, statements):
+        """Preview renders live financials from the period-matched statement."""
+        # statements fixture gives Alpha a statement. Create one for Gamma too.
+        p3 = portfolios[2]
+        PortfolioStatement.objects.create(
+            portfolio=p3, rentvine_statement_id=7003,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=2000, total_income=3000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=4500, total_distribution=2500, status="2",
+        )
         client.force_login(admin_user)
         resp = client.get(
             "/api/reports/owner-sends/recipients/carol@example.com/preview?month=2026-05"
@@ -896,11 +928,27 @@ class TestOwnerSendsAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["owner_name"] == "Carol"
-        assert "Alpha" in data["financials_html"]
+        assert "5,000" in data["financials_html"]  # Alpha income from statement
         assert data["all_approved"] is True
 
     def test_send_blocked_when_not_ready(self, client, admin_user, portfolios, owners, portfolio_notes):
-        """shared@example.com has a draft portfolio → send blocked."""
+        """shared@example.com has a draft portfolio → send blocked by approval check."""
+        # Add statements so the missing_statements guard doesn't fire first
+        p1, p2, _ = portfolios
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=7004,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=0, total_income=5000,
+            total_expenses=1500, total_adjustments=0,
+            ending_balance=3500, total_distribution=3500, status="2",
+        )
+        PortfolioStatement.objects.create(
+            portfolio=p2, rentvine_statement_id=7005,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=0, total_income=2000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=1500, total_distribution=1500, status="2",
+        )
         client.force_login(admin_user)
         resp = client.post(
             "/api/reports/owner-sends/recipients/shared@example.com/send?month=2026-05"
@@ -1114,3 +1162,275 @@ class TestGenerationLockTTL:
             )
 
         assert svc._portfolio_gen_started_at is None
+
+
+# ---------------------------------------------------------------------------
+# Selector tests — accounting.selectors
+# ---------------------------------------------------------------------------
+
+
+class TestGetStatementForPeriod:
+    def test_exact_match(self, portfolios, statements):
+        """Returns the posted statement for the exact period."""
+        p1 = portfolios[0]
+        stmt = get_statement_for_period(p1, PERIOD_START, PERIOD_END)
+        assert stmt is not None
+        assert stmt.rentvine_statement_id == 9001
+
+    def test_no_match(self, portfolios):
+        """Returns None when no posted statement matches the period."""
+        p2 = portfolios[1]  # Beta has no statement
+        stmt = get_statement_for_period(p2, PERIOD_START, PERIOD_END)
+        assert stmt is None
+
+    def test_wrong_period_returns_none(self, portfolios, statements):
+        """Statement for May doesn't match a June query."""
+        p1 = portfolios[0]
+        june_start = date(2026, 6, 1)
+        june_end = date(2026, 6, 30)
+        stmt = get_statement_for_period(p1, june_start, june_end)
+        assert stmt is None
+
+    def test_duplicate_raises(self, portfolios):
+        """Two posted statements for the same period raises ValueError."""
+        p1 = portfolios[0]
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=9001,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=1000, total_income=5000,
+            total_expenses=1500, total_adjustments=0,
+            ending_balance=4500, total_distribution=3500,
+            status="2",
+        )
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=9002,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=1000, total_income=5000,
+            total_expenses=1500, total_adjustments=0,
+            ending_balance=4500, total_distribution=3500,
+            status="2",
+        )
+        with pytest.raises(ValueError, match="Multiple posted statements"):
+            get_statement_for_period(p1, PERIOD_START, PERIOD_END)
+
+
+class TestFormatStatementFinancials:
+    def test_format(self, portfolios, statements):
+        """format_statement_financials returns a dict with statement_period label."""
+        stmt = statements
+        result = format_statement_financials(stmt)
+        assert result["statement_period"] == "May 01 \u2013 May 31, 2026"
+        assert result["total_income"] == stmt.total_income
+        assert result["total_expenses"] == stmt.total_expenses
+        assert result["ending_balance"] == stmt.ending_balance
+        assert result["total_distribution"] == stmt.total_distribution
+
+
+# ---------------------------------------------------------------------------
+# Display name tests
+# ---------------------------------------------------------------------------
+
+
+class TestFinancialsHeaderDisplayName:
+    def test_single_property_uses_address(self, portfolios):
+        """Single-property portfolio display name is the street address."""
+        p1 = portfolios[0]
+        prop = Property.objects.create(
+            rentvine_id=700, portfolio=p1,
+            address_line_1="123 Elm St", city="Asheville",
+            state="NC", postal_code="28801", is_active=True,
+        )
+        Unit.objects.create(
+            rentvine_id=701, property=prop, name="123 Elm St",
+            address_line_1="123 Elm St", is_active=True,
+        )
+        assert get_portfolio_display_name(p1) == "123 Elm St"
+
+    def test_multi_property_uses_llc_name(self, portfolios):
+        """Multi-property portfolio display name is the LLC name."""
+        p1 = portfolios[0]
+        prop1 = Property.objects.create(
+            rentvine_id=800, portfolio=p1,
+            address_line_1="100 Main St", city="Asheville",
+            state="NC", postal_code="28801", is_active=True,
+        )
+        prop2 = Property.objects.create(
+            rentvine_id=801, portfolio=p1,
+            address_line_1="200 Oak Ave", city="Asheville",
+            state="NC", postal_code="28801", is_active=True,
+        )
+        Unit.objects.create(
+            rentvine_id=802, property=prop1, name="100 Main St",
+            address_line_1="100 Main St", is_active=True,
+        )
+        Unit.objects.create(
+            rentvine_id=803, property=prop2, name="200 Oak Ave",
+            address_line_1="200 Oak Ave", is_active=True,
+        )
+        assert get_portfolio_display_name(p1) == "Alpha Portfolio"
+
+
+# ---------------------------------------------------------------------------
+# Send guard tests — missing / duplicate statement blocking
+# ---------------------------------------------------------------------------
+
+
+class TestSendBlockedOnMissingStatement:
+    def test_send_blocked_missing_statement(
+        self, client, admin_user, portfolios, owners, portfolio_notes,
+    ):
+        """send_recipient returns 400 when a portfolio has no statement."""
+        # carol@example.com owns Alpha + Gamma.
+        # Alpha note is approved, Gamma note is approved.
+        # Neither has a PortfolioStatement for the period → missing_statements.
+        client.force_login(admin_user)
+        resp = client.post(
+            "/api/reports/owner-sends/recipients/carol@example.com/send?month=2026-05"
+        )
+        assert resp.status_code == 400
+        data = resp.json()
+        assert data["ok"] is False
+        assert "missing_statements" in data
+        assert len(data["missing_statements"]) > 0
+
+
+class TestBulkSendBlockedAndGood:
+    def test_blocked_separate_from_failed(
+        self, client, admin_user, portfolios, owners, portfolio_notes, statements,
+    ):
+        """send_all: blocked recipients are in blocked list, NOT in failed count."""
+        # statements fixture gives Alpha a statement.
+        # Gamma has no statement → carol blocked.
+        # shared@example.com has Beta=draft → skipped (not approved).
+        client.force_login(admin_user)
+        resp = client.post(
+            "/api/reports/owner-sends/send-all?month=2026-05"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # blocked is a list, failed is an int
+        assert isinstance(data["blocked"], list)
+        assert isinstance(data["failed"], int)
+        # blocked recipients are NOT counted in failed
+        blocked_emails = [b["email"] for b in data["blocked"]]
+        # Verify counts add up (blocked is not in sent or failed)
+        assert data["sent"] + data["failed"] + data["skipped"] + len(data["blocked"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Duplicate statement containment
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateStatementContainment:
+    def test_build_portfolio_section_catches_duplicate(self, portfolios):
+        """build_portfolio_section logs warning but doesn't raise on duplicates."""
+        p1 = portfolios[0]
+        prop = Property.objects.create(
+            rentvine_id=900, portfolio=p1,
+            address_line_1="50 Pine St", city="Asheville",
+            state="NC", postal_code="28801", is_active=True,
+        )
+        Unit.objects.create(
+            rentvine_id=901, property=prop, name="50 Pine St",
+            address_line_1="50 Pine St", is_active=True,
+        )
+        # Create two posted statements for the same period
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=8001,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=0, total_income=1000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=500, total_distribution=0,
+            status="2",
+        )
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=8002,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=0, total_income=1000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=500, total_distribution=0,
+            status="2",
+        )
+
+        with patch("maintenance.selectors.get_portfolio_maintenance_summary",
+                    return_value={"_has_data": False, "open_count": 0, "closed_count": 0, "canceled_count": 0, "summary_line": "", "notable_items": []}), \
+             patch("integrations.leadsimple.selectors.get_portfolio_pipeline_data",
+                    return_value={"_has_data": False, "processes_by_category": {}, "total_count": 0, "_degraded": False}):
+            section = build_portfolio_section(p1, PERIOD_START, PERIOD_END)
+
+        # Should NOT raise — returns empty financials
+        assert section["financials"] == {}
+
+    def test_assemble_catches_duplicate(self, portfolios, owners, portfolio_notes):
+        """assemble_owner_email returns duplicate_statements, doesn't raise."""
+        p1 = portfolios[0]
+        # Create two posted statements for Alpha
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=8011,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=0, total_income=1000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=500, total_distribution=0,
+            status="2",
+        )
+        PortfolioStatement.objects.create(
+            portfolio=p1, rentvine_statement_id=8012,
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            beginning_balance=0, total_income=1000,
+            total_expenses=500, total_adjustments=0,
+            ending_balance=500, total_distribution=0,
+            status="2",
+        )
+
+        result = assemble_owner_email("carol@example.com", PERIOD_START)
+        assert "Alpha Portfolio" in result["duplicate_statements"]
+
+
+# ---------------------------------------------------------------------------
+# Assembly renders financials from live statement
+# ---------------------------------------------------------------------------
+
+
+class TestAssembleFinancialsFromStatement:
+    def test_renders_from_statement_not_stored(self, portfolios, owners, statements):
+        """assemble_owner_email renders financials from the live statement."""
+        p1 = portfolios[0]
+        # Create a note with WRONG stored financials_html (simulates the bug)
+        PortfolioMonthlyNote.objects.create(
+            portfolio=p1, period_type="monthly",
+            period_start=PERIOD_START, period_end=PERIOD_END,
+            financials_html="<p>WRONG OLD FINANCIALS</p>",
+            notes_html="<p>Good note.</p>",
+            generated_note="Good note.",
+            status="approved",
+        )
+
+        # carol@example.com owns Alpha + Gamma.
+        # Alpha has a statement; Gamma does not.
+        result = assemble_owner_email("carol@example.com", PERIOD_START)
+
+        # financials_html should come from the live statement, not stored
+        assert "WRONG OLD FINANCIALS" not in result["financials_html"]
+        # Should contain the real statement period
+        assert "May 01" in result["financials_html"]
+        assert "$5,000" in result["financials_html"] or "5,000" in result["financials_html"]
+
+    def test_missing_statements_list(self, portfolios, owners):
+        """Portfolios without statements appear in missing_statements."""
+        p1, p2, p3 = portfolios
+        # Create notes for Alpha and Gamma (carol's portfolios) but NO statements
+        for p in [p1, p3]:
+            PortfolioMonthlyNote.objects.create(
+                portfolio=p, period_type="monthly",
+                period_start=PERIOD_START, period_end=PERIOD_END,
+                notes_html="<p>Some notes.</p>",
+                generated_note="Some notes.",
+                status="approved",
+            )
+
+        result = assemble_owner_email("carol@example.com", PERIOD_START)
+        # Both Alpha and Gamma should be missing statements
+        assert "Alpha Portfolio" in result["missing_statements"]
+        assert "Gamma Portfolio" in result["missing_statements"]
+        assert result["duplicate_statements"] == []

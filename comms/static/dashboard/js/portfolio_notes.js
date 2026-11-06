@@ -586,7 +586,11 @@
     setStatus('running', 'Sending to all ready recipients...');
     VestaAPI.post('/reports/owner-sends/send-all?month=' + monthParam(periodStart), {})
       .then(function (r) {
-        setStatus('done', (r.sent || 0) + ' sent, ' + (r.failed || 0) + ' failed, ' + (r.skipped || 0) + ' skipped.');
+        var blockedN = (r.blocked && r.blocked.length) ? r.blocked.length : 0;
+        var line = (r.sent || 0) + ' sent, ' + (r.failed || 0) + ' failed, ' + (r.skipped || 0) + ' skipped';
+        if (blockedN) line += ', ' + blockedN + ' blocked';
+        setStatus('done', line + '.');
+        if (blockedN) toast(blockedN + ' recipient(s) blocked — missing or duplicate statements.', 'warn');
         toast((r.sent || 0) + ' email(s) sent.', 'ok');
         return loadAll();
       })

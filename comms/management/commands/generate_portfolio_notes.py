@@ -92,6 +92,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"Done: generated={result['generated']}  "
                 f"skipped={result['skipped']}  "
+                f"no_statement={result.get('no_statement', 0)}  "
                 f"errors={result['errors']}"
             )
         )

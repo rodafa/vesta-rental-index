@@ -90,32 +90,27 @@ def _serialize_portfolio_note(note):
         .values("pk", "name", "email")
     )
 
-    # Statement data from the portfolio
-    from accounting.models import PortfolioStatement
-
-    latest_stmt = (
-        PortfolioStatement.objects.filter(
-            portfolio=note.portfolio, status="2"
-        )
-        .order_by("-period_end")
-        .first()
-    )
+    # Statement data — period-matched, not "latest"
+    from accounting.selectors import get_statement_for_period, format_statement_financials
 
     statement_period = None
     total_income = None
     total_expenses = None
     total_distribution = None
     ending_balance = None
+    statement_error = None
 
-    if latest_stmt:
-        statement_period = (
-            f"{latest_stmt.period_start.strftime('%b %d')} – "
-            f"{latest_stmt.period_end.strftime('%b %d, %Y')}"
-        )
-        total_income = float(latest_stmt.total_income)
-        total_expenses = float(latest_stmt.total_expenses)
-        total_distribution = float(latest_stmt.total_distribution)
-        ending_balance = float(latest_stmt.ending_balance)
+    try:
+        stmt = get_statement_for_period(note.portfolio, note.period_start, note.period_end)
+        if stmt:
+            fin = format_statement_financials(stmt)
+            statement_period = fin["statement_period"]
+            total_income = float(fin["total_income"])
+            total_expenses = float(fin["total_expenses"])
+            total_distribution = float(fin["total_distribution"])
+            ending_balance = float(fin["ending_balance"])
+    except ValueError as exc:
+        statement_error = str(exc)
 
     # Use approved_generated_note if set, else generated_note
     display_note = note.approved_generated_note or note.generated_note
@@ -141,6 +136,7 @@ def _serialize_portfolio_note(note):
         "total_expenses": total_expenses,
         "total_distribution": total_distribution,
         "ending_balance": ending_balance,
+        "statement_error": statement_error,
         "owners": [
             {"id": o["pk"], "name": o["name"], "email": o["email"]}
             for o in owners
@@ -485,6 +481,20 @@ def send_recipient(request, email):
     # Assemble the email
     assembled = assemble_owner_email(norm_email, period_start, period_type="monthly")
 
+    if assembled.get("missing_statements"):
+        return JsonResponse({
+            "ok": False,
+            "error": "Missing statements — run Sync",
+            "missing_statements": assembled["missing_statements"],
+        }, status=400)
+
+    if assembled.get("duplicate_statements"):
+        return JsonResponse({
+            "ok": False,
+            "error": "Duplicate statements — fix in Rentvine",
+            "duplicate_statements": assembled["duplicate_statements"],
+        }, status=400)
+
     if not assembled["all_approved"]:
         gating = [
             p["name"] for p in assembled["portfolios"]
@@ -669,6 +679,7 @@ def send_all_ready(request):
     sent = 0
     failed = 0
     skipped = 0
+    blocked = []
 
     for recip in recipients:
         if recip["is_sent"]:
@@ -682,6 +693,20 @@ def send_all_ready(request):
 
         try:
             assembled = assemble_owner_email(norm_email, period_start, period_type="monthly")
+
+            # Block (not fail) if statements are missing or duplicated
+            block_reasons = []
+            if assembled.get("missing_statements"):
+                block_reasons.append(
+                    f"missing statements: {', '.join(assembled['missing_statements'])}"
+                )
+            if assembled.get("duplicate_statements"):
+                block_reasons.append(
+                    f"duplicate statements: {', '.join(assembled['duplicate_statements'])}"
+                )
+            if block_reasons:
+                blocked.append({"email": norm_email, "reasons": block_reasons})
+                continue
 
             if not assembled["financials_html"] and not assembled["notes_html"]:
                 skipped += 1
@@ -733,4 +758,6 @@ def send_all_ready(request):
             )
             failed += 1
 
-    return JsonResponse({"sent": sent, "failed": failed, "skipped": skipped})
+    return JsonResponse({
+        "sent": sent, "failed": failed, "skipped": skipped, "blocked": blocked,
+    })

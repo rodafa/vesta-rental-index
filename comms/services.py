@@ -720,6 +720,25 @@ def _get_portfolio_display_identifier(portfolio_name, units_list):
     return portfolio_name
 
 
+def get_portfolio_display_name(portfolio):
+    """Return the display name for a portfolio (street address if single-property, else LLC name).
+
+    Runs a lightweight query for distinct property addresses — does NOT build
+    the full units_list that build_portfolio_section needs for multi-unit rendering.
+    """
+    from core.models import Unit
+
+    addresses = list(
+        Unit.objects.filter(
+            property__portfolio=portfolio, is_active=True,
+        ).select_related("property").values_list(
+            "property__address_line_1", flat=True,
+        ).distinct()
+    )
+    units_list = [{"address": a} for a in addresses]
+    return _get_portfolio_display_identifier(portfolio.name, units_list)
+
+
 # Precompiled regex: entity/business suffixes that indicate a non-person name.
 _ENTITY_WORD_RE = re.compile(
     r"\b(?:LLC|L\.L\.C\.|Inc|Corp|Corporation|Co|Company|LP|LLP|Trust"
@@ -1158,13 +1177,8 @@ def _build_monthly_context_portfolio(data, ai_result, period_label, summaries):
         # Financial data
         fin = section.get("financials", {})
 
-        # Statement period label
-        stmt_period = ""
-        if fin.get("period_start") and fin.get("period_end"):
-            stmt_period = (
-                f"{fin['period_start'].strftime('%b %d')} – "
-                f"{fin['period_end'].strftime('%b %d, %Y')}"
-            )
+        # Statement period label (pre-formatted by format_statement_financials)
+        stmt_period = fin.get("statement_period", "")
 
         # Maintenance summary
         maint = section.get("maintenance", {})
@@ -1598,34 +1612,6 @@ def _render_notes_html_from_text(text):
     return "\n".join(parts)
 
 
-def _get_latest_statement(portfolio):
-    """
-    Fetch the latest posted PortfolioStatement for a portfolio.
-
-    Returns a dict with financial fields, or {} if none exists.
-    """
-    from accounting.models import PortfolioStatement
-
-    stmt = (
-        PortfolioStatement.objects.filter(portfolio=portfolio, status="2")
-        .order_by("-period_end")
-        .first()
-    )
-    if stmt is None:
-        return {}
-
-    return {
-        "period_start": stmt.period_start,
-        "period_end": stmt.period_end,
-        "beginning_balance": stmt.beginning_balance,
-        "total_income": stmt.total_income,
-        "total_expenses": stmt.total_expenses,
-        "total_adjustments": stmt.total_adjustments,
-        "ending_balance": stmt.ending_balance,
-        "total_distribution": stmt.total_distribution,
-    }
-
-
 def build_portfolio_section(
     portfolio, period_start, period_end, *,
     prefetched_processes=None, prefetched_tasks_index=None,
@@ -1711,10 +1697,22 @@ def build_portfolio_section(
         portfolio, period_start, period_end,
     )
 
+    from accounting.selectors import get_statement_for_period, format_statement_financials
+
+    try:
+        stmt = get_statement_for_period(portfolio, period_start, period_end)
+        financials = format_statement_financials(stmt) if stmt else {}
+    except ValueError:
+        logger.warning(
+            "comms_duplicate_statements",
+            extra={"portfolio": portfolio.name, "period_start": str(period_start)},
+        )
+        financials = {}
+
     return {
         "portfolio_name": portfolio.name,
-        "display_name": _get_portfolio_display_identifier(portfolio.name, units_list),
-        "financials": _get_latest_statement(portfolio),
+        "display_name": get_portfolio_display_name(portfolio),
+        "financials": financials,
         "maintenance": get_portfolio_work_order_summary(
             portfolio, period_start, period_end
         ),
@@ -2163,12 +2161,7 @@ def _build_single_portfolio_context(section, ai_result, period_label):
     summaries = ai_result.get("process_summaries", {})
 
     fin = section.get("financials", {})
-    stmt_period = ""
-    if fin.get("period_start") and fin.get("period_end"):
-        stmt_period = (
-            f"{fin['period_start'].strftime('%b %d')} – "
-            f"{fin['period_end'].strftime('%b %d, %Y')}"
-        )
+    stmt_period = fin.get("statement_period", "")
 
     maint = section.get("maintenance", {})
 
@@ -2311,6 +2304,7 @@ def generate_portfolio_notes(
 
     generated = 0
     skipped = 0
+    no_statement = 0
     errors = []
 
     # Fetch-once: pull all processes and tasks once, pass to each portfolio.
@@ -2409,6 +2403,9 @@ def generate_portfolio_notes(
                 skipped += 1
                 continue
 
+            if not section.get("financials"):
+                no_statement += 1
+
             # Owner-agnostic AI call (one per portfolio)
             user_prompt = _build_single_portfolio_prompt(section, period_start)
             ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
@@ -2502,6 +2499,7 @@ def generate_portfolio_notes(
     return {
         "generated": generated,
         "skipped": skipped,
+        "no_statement": no_statement,
         "errors": len(errors),
         "error_details": errors[:20],
     }
@@ -3093,6 +3091,9 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
     Pure function. Assemble the content of a monthly owner email for one
     recipient from portfolio-grain PortfolioMonthlyNote rows.
 
+    Financials are rendered LIVE from the period-matched PortfolioStatement
+    at assembly time — not read from stored financials_html.
+
     Returns dict:
         {
             "owner_name": str,
@@ -3102,6 +3103,8 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
                 {"id": int, "name": str, "status": str}, ...
             ],
             "all_approved": bool,
+            "missing_statements": [str],     # portfolio names with no statement
+            "duplicate_statements": [str],   # portfolio names with duplicate statements
         }
 
     For each portfolio, uses approved_generated_note (and re-rendered
@@ -3109,17 +3112,23 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
 
     Orders portfolios ALPHABETICALLY by name.
     """
+    import calendar
+    from accounting.selectors import get_statement_for_period, format_statement_financials
     from core.models import Owner
+
+    _empty = {
+        "owner_name": "Owner",
+        "financials_html": "",
+        "notes_html": "",
+        "portfolios": [],
+        "all_approved": False,
+        "missing_statements": [],
+        "duplicate_statements": [],
+    }
 
     norm_email = _normalize_email(recipient_email)
     if not norm_email:
-        return {
-            "owner_name": "Owner",
-            "financials_html": "",
-            "notes_html": "",
-            "portfolios": [],
-            "all_approved": False,
-        }
+        return _empty
 
     # Group active owners sharing this email, union their portfolios
     owners = list(
@@ -3129,13 +3138,7 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
         ).prefetch_related("portfolios")
     )
     if not owners:
-        return {
-            "owner_name": "Owner",
-            "financials_html": "",
-            "notes_html": "",
-            "portfolios": [],
-            "all_approved": False,
-        }
+        return _empty
 
     # Representative owner (lowest PK, deterministic)
     rep_owner = min(owners, key=lambda o: o.pk)
@@ -3149,12 +3152,13 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
 
     if not portfolio_pks:
         return {
+            **_empty,
             "owner_name": owner_name,
-            "financials_html": "",
-            "notes_html": "",
-            "portfolios": [],
-            "all_approved": False,
         }
+
+    # Derive period_end from period_start
+    _, last_day = calendar.monthrange(period_start.year, period_start.month)
+    period_end = _date(period_start.year, period_start.month, last_day)
 
     # Fetch portfolio notes for this period, ordered alphabetically
     from core.models import Portfolio
@@ -3167,6 +3171,8 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
     notes_parts = []
     portfolio_info = []
     all_approved = True
+    missing_statements = []
+    duplicate_statements = []
 
     for portfolio in portfolios:
         note = PortfolioMonthlyNote.objects.filter(
@@ -3193,13 +3199,38 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
         if note.status != "approved":
             all_approved = False
 
+        # Render financials LIVE from the period-matched statement
+        try:
+            stmt = get_statement_for_period(portfolio, period_start, period_end)
+        except ValueError:
+            duplicate_statements.append(portfolio.name)
+            stmt = None
+
+        if stmt:
+            fin = format_statement_financials(stmt)
+            display_name = get_portfolio_display_name(portfolio)
+            fin_context = {
+                "portfolio_sections": [{
+                    "portfolio_name": portfolio.name,
+                    "display_name": display_name,
+                    "has_financials": True,
+                    "statement_period": fin["statement_period"],
+                    "total_income": fin["total_income"],
+                    "total_expenses": fin["total_expenses"],
+                    "total_distribution": fin["total_distribution"],
+                    "ending_balance": fin["ending_balance"],
+                }]
+            }
+            financials_parts.append(_render_financials_html(fin_context))
+        elif portfolio.name not in duplicate_statements:
+            missing_statements.append(portfolio.name)
+
         # Use approved content if available, otherwise generated
         if note.approved_generated_note:
             notes_html = _render_notes_html_from_text(note.approved_generated_note)
         else:
             notes_html = note.notes_html
 
-        financials_parts.append(note.financials_html)
         notes_parts.append(notes_html)
 
     return {
@@ -3208,6 +3239,8 @@ def assemble_owner_email(recipient_email, period_start, period_type="monthly"):
         "notes_html": "\n".join(p for p in notes_parts if p),
         "portfolios": portfolio_info,
         "all_approved": all_approved,
+        "missing_statements": missing_statements,
+        "duplicate_statements": duplicate_statements,
     }
 
 

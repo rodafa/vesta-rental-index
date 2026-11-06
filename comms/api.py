@@ -53,32 +53,29 @@ def _serialize_draft(draft):
     status_map = {"draft": "pending", "approved": "approved", "sent": "sent"}
     js_status = status_map.get(draft.status, draft.status)
 
-    # Financial fields from latest posted PortfolioStatement
+    # Financial fields — period-matched, not "latest"
+    from accounting.selectors import get_statement_for_period, format_statement_financials
+
     statement_period = None
     total_income = None
     total_expenses = None
     total_distribution = None
     ending_balance = None
 
-    from accounting.models import PortfolioStatement
-
-    portfolio_pks = draft.owner.portfolios.values_list("pk", flat=True)
-    latest_stmt = (
-        PortfolioStatement.objects.filter(
-            portfolio_id__in=portfolio_pks, status="2"
-        )
-        .order_by("-period_end")
-        .first()
-    )
-    if latest_stmt:
-        statement_period = (
-            f"{latest_stmt.period_start.strftime('%b %d')} – "
-            f"{latest_stmt.period_end.strftime('%b %d, %Y')}"
-        )
-        total_income = float(latest_stmt.total_income)
-        total_expenses = float(latest_stmt.total_expenses)
-        total_distribution = float(latest_stmt.total_distribution)
-        ending_balance = float(latest_stmt.ending_balance)
+    if draft.period_start and draft.period_end:
+        for p in draft.owner.portfolios.filter(is_active=True):
+            try:
+                stmt = get_statement_for_period(p, draft.period_start, draft.period_end)
+                if stmt:
+                    fin = format_statement_financials(stmt)
+                    statement_period = fin["statement_period"]
+                    total_income = float(fin["total_income"])
+                    total_expenses = float(fin["total_expenses"])
+                    total_distribution = float(fin["total_distribution"])
+                    ending_balance = float(fin["ending_balance"])
+                    break
+            except ValueError:
+                break
 
     # Extract HTML fragments from body_html JSON (monthly_owner_notes)
     financials_html = None
