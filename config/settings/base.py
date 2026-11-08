@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "accounting",
     "automations",
     "leasing",
+    "utilities",
 ]
 
 MIDDLEWARE = [
