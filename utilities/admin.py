@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ExtractionRun, PropertyUtility, UtilityProposal
+from .models import ExtractionRun, PropertyUtility, UnitNote, UtilityProposal
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):
@@ -44,3 +44,12 @@ class PropertyUtilityAdmin(ReadOnlyAdmin):
     ]
     list_filter = ["utility_type", "responsibility"]
     search_fields = ["provider"]
+
+
+@admin.register(UnitNote)
+class UnitNoteAdmin(ReadOnlyAdmin):
+    list_display = [
+        "pk", "unit", "utility_type", "text", "created_by", "created_at",
+    ]
+    list_filter = ["utility_type"]
+    search_fields = ["text"]

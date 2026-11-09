@@ -221,3 +221,32 @@ class PropertyUtility(models.Model):
             f"{self.get_utility_type_display()} @ unit {self.unit_id} "
             f"-> {self.responsibility}"
         )
+
+
+class UnitNote(models.Model):
+    """Free-text note attached to a unit, optionally scoped to a utility type."""
+
+    unit = models.ForeignKey(
+        "core.Unit",
+        on_delete=models.PROTECT,
+        related_name="utility_notes",
+    )
+    utility_type = models.CharField(
+        max_length=20, choices=UTILITY_TYPE_CHOICES, blank=True,
+    )
+    text = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        tag = self.utility_type or "general"
+        return f"Note on unit {self.unit_id} [{tag}] @ {self.created_at}"
