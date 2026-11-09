@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from utilities.services import (
     build_source_lookup,
     build_user_prompt,
+    check_payer_phrase,
     check_quote,
     collapse_ws,
     compute_fingerprint,
@@ -309,6 +310,51 @@ class DetectConflictsTests(SimpleTestCase):
         self.assertTrue(result[0]["has_conflict"])
         self.assertIn("note 10", result[0]["conflict_note"])
         self.assertIn("listing", result[1]["conflict_note"])
+
+    def test_preserves_existing_payer_note(self):
+        """detect_conflicts appends cross-source note; does not overwrite payer note."""
+        proposals = [
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 10,
+             "has_conflict": True,
+             "conflict_note": "Quote says tenant/resident pays but row says owner"},
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "tenant", "source_type": "note",
+             "source_note_id": 20,
+             "has_conflict": False, "conflict_note": ""},
+        ]
+        result = detect_conflicts(proposals)
+        # First proposal keeps payer note AND gets cross-source note
+        self.assertIn(
+            "Quote says tenant/resident pays but row says owner",
+            result[0]["conflict_note"],
+        )
+        self.assertIn("note 10", result[0]["conflict_note"])
+        self.assertIn("note 20", result[0]["conflict_note"])
+        # Second proposal gets the cross-source note
+        self.assertTrue(result[1]["has_conflict"])
+        self.assertIn("note 10", result[1]["conflict_note"])
+
+    def test_no_duplicate_note_text(self):
+        """detect_conflicts does not append the same note text twice."""
+        note_text = "water @ unit 1: note 10: owner vs note 20: tenant"
+        proposals = [
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 10,
+             "has_conflict": True,
+             "conflict_note": note_text},
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "tenant", "source_type": "note",
+             "source_note_id": 20,
+             "has_conflict": False, "conflict_note": ""},
+        ]
+        result = detect_conflicts(proposals)
+        # The cross-source note is a superset that contains "note 10" and "note 20"
+        # but it should not duplicate existing text if already present
+        count = result[0]["conflict_note"].count(note_text)
+        self.assertEqual(count, 1)
 
 
 class BuildUserPromptTests(SimpleTestCase):
@@ -754,6 +800,202 @@ class ExtractJsonObjectTests(SimpleTestCase):
     def test_fences_without_language_tag(self):
         text = '```\n{"key": "value"}\n```'
         self.assertEqual(extract_json_object(text), '{"key": "value"}')
+
+
+class CheckPayerPhraseTests(SimpleTestCase):
+    """Tests for the payer-phrase guard."""
+
+    # -- Core tests --
+
+    def test_hendersonville_owner_flagged(self):
+        """Exact prod quote: TENANT PAYS but responsibility=owner → flagged."""
+        quote = (
+            "WATER - TENANT PAYS - HENDERSONVILLE WATER/SEWER "
+            "(There is only one master meter for the property, water is "
+            "under the owner's name, and we send the monthly bill to "
+            "the tenant)"
+        )
+        conflict, note = check_payer_phrase(quote, "owner")
+        self.assertTrue(conflict)
+        self.assertIn("tenant", note.lower())
+        self.assertIn("owner", note.lower())
+
+    def test_correct_tenant_not_flagged(self):
+        """Same Hendersonville quote with correct responsibility=tenant."""
+        quote = (
+            "WATER - TENANT PAYS - HENDERSONVILLE WATER/SEWER "
+            "(There is only one master meter for the property, water is "
+            "under the owner's name, and we send the monthly bill to "
+            "the tenant)"
+        )
+        conflict, note = check_payer_phrase(quote, "tenant")
+        self.assertFalse(conflict)
+
+    def test_owner_pays_with_tenant_responsibility_flagged(self):
+        quote = "GAS - OWNER PAYS - Piedmont Natural Gas"
+        conflict, note = check_payer_phrase(quote, "tenant")
+        self.assertTrue(conflict)
+        self.assertIn("owner", note.lower())
+
+    def test_no_payer_phrases_not_flagged(self):
+        """No explicit payer phrase → inconclusive → no flag."""
+        quote = "ELECTRIC: Duke Energy"
+        conflict, _ = check_payer_phrase(quote, "owner")
+        self.assertFalse(conflict)
+
+    def test_both_parties_mentioned_not_flagged(self):
+        """Both sides mentioned → ambiguous → no flag."""
+        quote = "WATER - TENANT PAYS water bill, OWNER PAYS sewer portion"
+        conflict, _ = check_payer_phrase(quote, "tenant")
+        self.assertFalse(conflict)
+
+    # -- Broadened tenant-side phrase families --
+
+    def test_resident_pays(self):
+        conflict, _ = check_payer_phrase("WATER - RESIDENT PAYS", "owner")
+        self.assertTrue(conflict)
+
+    def test_paid_by_tenant(self):
+        conflict, _ = check_payer_phrase("Water is paid by the tenant", "owner")
+        self.assertTrue(conflict)
+
+    def test_tenants_responsibility(self):
+        conflict, _ = check_payer_phrase(
+            "Water is tenant's responsibility", "owner",
+        )
+        self.assertTrue(conflict)
+
+    def test_tenant_to_pay(self):
+        conflict, _ = check_payer_phrase("WATER - tenant to pay", "owner")
+        self.assertTrue(conflict)
+
+    # -- Broadened owner-side phrase families --
+
+    def test_paid_by_owner(self):
+        conflict, _ = check_payer_phrase("Trash is paid by the owner", "tenant")
+        self.assertTrue(conflict)
+
+    def test_owners_responsibility(self):
+        conflict, _ = check_payer_phrase(
+            "Sewer is owner's responsibility", "tenant",
+        )
+        self.assertTrue(conflict)
+
+    def test_owner_to_pay(self):
+        conflict, _ = check_payer_phrase("WATER - owner to pay", "tenant")
+        self.assertTrue(conflict)
+
+    def test_landlord_provides(self):
+        conflict, _ = check_payer_phrase(
+            "Internet - landlord provides", "tenant",
+        )
+        self.assertTrue(conflict)
+
+    # -- Progressive / future forms --
+
+    def test_asheville_owner_paying_not_flagged(self):
+        """Exact prod quote: both sides match → inconclusive → no flag."""
+        quote = (
+            "City water - CITY OF ASHEVILLE - lease should say tenant "
+            "pays, but for right now, owner is paying until submeters "
+            "installed."
+        )
+        conflict, _ = check_payer_phrase(quote, "owner")
+        self.assertFalse(conflict)
+
+    def test_asheville_tenant_not_flagged(self):
+        """Same prod quote with responsibility=tenant → both match → no flag."""
+        quote = (
+            "City water - CITY OF ASHEVILLE - lease should say tenant "
+            "pays, but for right now, owner is paying until submeters "
+            "installed."
+        )
+        conflict, _ = check_payer_phrase(quote, "tenant")
+        self.assertFalse(conflict)
+
+    def test_tenant_is_paying_flags_owner(self):
+        conflict, _ = check_payer_phrase("tenant is paying", "owner")
+        self.assertTrue(conflict)
+
+    def test_owner_will_pay_flags_tenant(self):
+        conflict, _ = check_payer_phrase("owner will pay", "tenant")
+        self.assertTrue(conflict)
+
+
+class PayerMismatchIntegrationTests(SimpleTestCase):
+    """Integration: payer guard wired through validate_and_build_proposals."""
+
+    def test_payer_mismatch_flagged_through_validation(self):
+        """Hendersonville quote with responsibility=owner → flagged proposal."""
+        quote = (
+            "WATER - TENANT PAYS - HENDERSONVILLE WATER/SEWER "
+            "(There is only one master meter for the property, water is "
+            "under the owner's name, and we send the monthly bill to "
+            "the tenant)"
+        )
+        notes = [{
+            "note_id": 10,
+            "unit_id": 50,
+            "level": "unit",
+            "date_posted": "2024-01-15",
+            "converted_text": quote,
+            "source_text_hash": compute_source_text_hash(quote),
+        }]
+        source_info = build_source_lookup(notes, [])
+        model_rows = [{
+            "utility_type": "water",
+            "responsibility": "owner",
+            "basis": "stated",
+            "provider": "HENDERSONVILLE WATER/SEWER",
+            "evidence_quote": quote,
+            "source": "note",
+            "note_id": 10,
+            "unit_id": 50,
+            "source_date": "2024-01-15",
+            "arrangement": (
+                "water is under the owner's name, and we send the "
+                "monthly bill to the tenant"
+            ),
+            "extras": None,
+        }]
+        proposals, counters = validate_and_build_proposals(
+            model_rows, source_info, [50], property_id=11,
+        )
+        self.assertEqual(len(proposals), 1)
+        self.assertTrue(proposals[0]["has_conflict"])
+        self.assertNotEqual(proposals[0]["conflict_note"], "")
+        self.assertEqual(len(proposals[0]["fingerprint"]), 64)
+
+    def test_correct_row_not_flagged_through_validation(self):
+        """Correct responsibility=tenant with TENANT PAYS → no flag."""
+        quote = "WATER - TENANT PAYS - City Water"
+        notes = [{
+            "note_id": 10,
+            "unit_id": 50,
+            "level": "unit",
+            "date_posted": "2024-01-15",
+            "converted_text": quote,
+            "source_text_hash": compute_source_text_hash(quote),
+        }]
+        source_info = build_source_lookup(notes, [])
+        model_rows = [{
+            "utility_type": "water",
+            "responsibility": "tenant",
+            "basis": "stated",
+            "provider": "City Water",
+            "evidence_quote": quote,
+            "source": "note",
+            "note_id": 10,
+            "unit_id": 50,
+            "source_date": "2024-01-15",
+            "arrangement": None,
+            "extras": None,
+        }]
+        proposals, _ = validate_and_build_proposals(
+            model_rows, source_info, [50], property_id=11,
+        )
+        self.assertEqual(len(proposals), 1)
+        self.assertFalse(proposals[0]["has_conflict"])
 
 
 # ==========================================================================

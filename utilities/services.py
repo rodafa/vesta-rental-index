@@ -51,6 +51,36 @@ _UTILITY_WORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+_TENANT_PAYER_RE = re.compile(
+    r"\b(?:"
+    r"(?:tenant|resident)\s+pays"
+    r"|(?:tenant|resident)\s+(?:(?:is|are|will\s+be|currently)\s+)*paying"
+    r"|(?:tenant|resident)\s+will\s+pay"
+    r"|(?:tenant|resident)\s+responsible"
+    r"|(?:tenant|resident)\s+is\s+responsible"
+    r"|paid\s+by\s+(?:the\s+)?(?:tenant|resident)"
+    r"|(?:tenant|resident)'?s\s+responsibility"
+    r"|(?:tenant|resident)\s+to\s+pay"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_OWNER_PAYER_RE = re.compile(
+    r"\b(?:"
+    r"(?:owner|landlord)\s+pays"
+    r"|(?:owner|landlord)\s+(?:(?:is|are|will\s+be|currently)\s+)*paying"
+    r"|(?:owner|landlord)\s+will\s+pay"
+    r"|(?:owner|landlord)\s+responsible"
+    r"|(?:owner|landlord)\s+is\s+responsible"
+    r"|landlord\s+covers"
+    r"|landlord\s+provides"
+    r"|paid\s+by\s+(?:the\s+)?(?:owner|landlord)"
+    r"|(?:owner|landlord)'?s\s+responsibility"
+    r"|(?:owner|landlord)\s+to\s+pay"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 # -- Note filter helpers ---------------------------------------------------
 
@@ -329,7 +359,12 @@ def detect_conflicts(proposals: list[dict]) -> list[dict]:
             note = f"{utype} @ unit {unit_id}: " + " vs ".join(parts)
             for p in group:
                 p["has_conflict"] = True
-                p["conflict_note"] = note
+                existing = p.get("conflict_note") or ""
+                if note not in existing:
+                    if existing:
+                        p["conflict_note"] = existing + "; " + note
+                    else:
+                        p["conflict_note"] = note
 
     return proposals
 
@@ -546,6 +581,25 @@ RULES:
     lines separated by a newline: line 1 is the utility-specific line
     (e.g. "ELECTRIC: Duke Energy"), line 2 is the catch-all line. Each
     line must be an exact verbatim substring of the source text.
+13. Create a row ONLY for the utility named by the line's own label
+    (WATER, SEWER, ELECTRIC, etc.). A provider name that mentions another
+    utility (e.g. "HENDERSONVILLE WATER/SEWER") does not create a row for
+    that other utility. If the source text has a separate labeled line for
+    that other utility, it will get its own row from that line.
+14. Responsibility comes from any of these sources:
+    (a) explicit payer words such as "tenant pays", "owner pays",
+        "landlord covers", "resident pays", "included in rent";
+    (b) a labeled field whose value names the party, e.g.
+        "WATER: TENANT" or "ELECTRIC - DUKE ENERGY - TENANT PAYS";
+    (c) the Landlord / Resident / N/A table columns defined in rule 3;
+    (d) explicit not-applicable statements such as "NO GAS/OIL" or
+        "N/A" as defined in rule 4.
+    Rules 3 and 4 still apply unchanged.
+    What must NOT set responsibility: wording about whose NAME an account
+    or meter is in, who is billed, master meters, reimbursement
+    arrangements, or bill pass-through. Put such wording in "arrangement"
+    and do NOT let it change responsibility. If none of (a)-(d) is
+    present, use "unknown".
 
 Return ONLY a JSON object with no markdown fences, no commentary:
 {
@@ -674,6 +728,32 @@ def build_source_lookup(
         "valid_note_ids": valid_note_ids,
         "valid_listing_unit_ids": valid_listing_unit_ids,
     }
+
+
+# -- Payer-phrase guard ----------------------------------------------------
+
+def check_payer_phrase(evidence_quote: str, responsibility: str) -> tuple[bool, str]:
+    """
+    Check if explicit payer phrases in the evidence_quote contradict
+    the assigned responsibility.
+
+    Returns (has_conflict, conflict_note). Only flags when one side has
+    explicit payer phrases and the other does not, and the responsibility
+    names the wrong party. Both-match or neither-match is inconclusive.
+    """
+    tenant_match = bool(_TENANT_PAYER_RE.search(evidence_quote))
+    owner_match = bool(_OWNER_PAYER_RE.search(evidence_quote))
+
+    # Both match or neither → inconclusive
+    if tenant_match == owner_match:
+        return False, ""
+
+    if tenant_match and responsibility == "owner":
+        return True, "Quote says tenant/resident pays but row says owner"
+    if owner_match and responsibility == "tenant":
+        return True, "Quote says owner/landlord pays but row says tenant"
+
+    return False, ""
 
 
 # -- Row validation and proposal building ----------------------------------
@@ -856,6 +936,11 @@ def validate_and_build_proposals(
             arrangement = ""
             counters["arrangement_cleared"] += 1
 
+        # -- Payer-phrase guard --
+        payer_conflict, payer_note = check_payer_phrase(
+            evidence_quote, responsibility,
+        )
+
         # -- Extras verification (oil/propane only) --
         if utility_type in ("oil", "propane") and extras_raw:
             extras = verify_extras_values(extras_raw, source_text)
@@ -911,8 +996,8 @@ def validate_and_build_proposals(
                 "source_date": source_date,
                 "source_text_hash": source_text_hash,
                 "fingerprint": fp,
-                "has_conflict": False,
-                "conflict_note": "",
+                "has_conflict": payer_conflict,
+                "conflict_note": payer_note,
             })
 
     return proposals, counters
