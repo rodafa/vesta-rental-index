@@ -46,4 +46,6 @@ urlpatterns = [
     path("dashboard/leasing-notes/", include("leasing.dashboard_urls")),
     # Leasing — RentEngine webhook receiver
     path("api/webhooks/", include("leasing.urls")),
+    # Utilities grid
+    path("dashboard/utilities/", include("utilities.urls")),
 ]

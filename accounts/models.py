@@ -16,7 +16,7 @@ class User(AbstractUser):
     REQUIRED_FIELDS = ["email", "role"]
 
     ROLE_PRODUCT_ACCESS = {
-        Role.ADMIN: {"leasing", "maintenance", "monthly_owner_notes", "owner_distributions", "reporting"},
+        Role.ADMIN: {"leasing", "maintenance", "monthly_owner_notes", "owner_distributions", "reporting", "utilities"},
         Role.LEASING: {"leasing"},
         Role.MAINTENANCE: {"maintenance"},
         Role.ACCOUNTING: {"owner_distributions"},

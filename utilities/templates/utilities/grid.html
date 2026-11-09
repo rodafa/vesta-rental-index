@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Utilities Grid — Vesta</title>
+<style>
+  :root {
+    --navy:#1E3D58; --navy-700:#18324a;
+    --sky:#6EA5CD; --sky-soft:#e3eef6;
+    --green:#39B54A; --green-soft:#e4f5e7;
+    --grey-bg:#EFF5F9; --orange:#D67011; --orange-soft:#fbeadb;
+    --red:#C0392B; --red-soft:#f9e4e1;
+    --ink:#1E3D58; --ink-soft:#5b7185; --ink-faint:#93a4b3;
+    --line:#d6e1ea; --line-soft:#e8eef4; --white:#fff;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --r:8px; --r-sm:6px;
+    --shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+
+  /* ---------- Topbar ---------- */
+  .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:20px;}
+  .topbar h1{font-size:16px;font-weight:700;letter-spacing:.02em;}
+  .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
+  .spacer{margin-left:auto;}
+  .topbar a.nav-link{color:#fff;font-size:13px;text-decoration:none;opacity:.8;}
+  .topbar a.nav-link:hover{opacity:1;}
+
+  .search-form{display:flex;align-items:center;gap:6px;}
+  .search-input{font:inherit;font-size:13px;padding:6px 10px;border:1px solid rgba(255,255,255,.28);border-radius:var(--r-sm);background:rgba(255,255,255,.08);color:#fff;width:200px;}
+  .search-input::placeholder{color:rgba(255,255,255,.5);}
+  .search-input:focus{outline:none;border-color:var(--sky);}
+
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;text-decoration:none;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-onnavy{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.28);}
+  .btn-onnavy:hover{background:rgba(255,255,255,.16);}
+  .btn-quiet{background:var(--white);color:var(--ink);border-color:var(--line);}
+  .btn-quiet:hover{background:var(--grey-bg);border-color:var(--sky);}
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:#2f9d3e;}
+
+  /* ---------- Layout ---------- */
+  .page{display:flex;min-height:calc(100vh - 64px);}
+  .main{flex:1;min-width:0;padding:20px 22px;}
+  .panel{width:400px;flex:0 0 400px;background:var(--white);border-left:1px solid var(--line);overflow-y:auto;max-height:calc(100vh - 64px);position:sticky;top:64px;}
+
+  /* ---------- Messages ---------- */
+  .msg{padding:10px 16px;border-radius:var(--r-sm);font-size:13px;font-weight:600;margin-bottom:16px;}
+  .msg-error{background:var(--orange-soft);color:var(--orange);border:1px solid var(--orange);}
+  .msg-success{background:var(--green-soft);color:var(--green);border:1px solid var(--green);}
+
+  /* ---------- Tiles ---------- */
+  .tiles{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+  .tile{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:12px 18px;box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;min-width:160px;}
+  .tile-num{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .tile-label{font-size:12px;color:var(--ink-soft);line-height:1.3;}
+  .tile-complete .tile-num{color:var(--green);}
+  .tile-review .tile-num{color:var(--orange);}
+  .tile-gap .tile-num{color:var(--red);}
+  .tile-oil .tile-num{color:var(--ink);}
+
+  /* ---------- Toolbar ---------- */
+  .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+  .filter-chips{display:flex;gap:6px;}
+  .chip{font-family:var(--sans);font-size:12px;font-weight:600;color:var(--ink-soft);background:var(--white);border:1px solid var(--line);padding:5px 12px;border-radius:20px;cursor:pointer;text-decoration:none;transition:all .14s;}
+  .chip:hover{border-color:var(--sky);}
+  .chip.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+
+  /* ---------- Grid table ---------- */
+  .grid-wrap{overflow-x:auto;}
+  .grid-table{width:100%;border-collapse:collapse;background:var(--white);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);font-size:13px;}
+  .grid-table th{text-align:left;padding:8px 10px;font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--line);background:var(--grey-bg);white-space:nowrap;}
+  .grid-table td{padding:0;border-bottom:1px solid var(--line-soft);vertical-align:middle;}
+  .grid-table tr:last-child td{border-bottom:none;}
+  .grid-table tr:hover td{background:rgba(110,165,205,.04);}
+  .grid-table .col-addr{padding:8px 10px;font-weight:600;color:var(--navy);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+  .grid-table .col-unit{padding:8px 10px;white-space:nowrap;}
+  .grid-table .col-occ{padding:8px 10px;white-space:nowrap;font-size:12px;color:var(--ink-soft);}
+  .grid-table .col-notes{padding:8px 10px;max-width:160px;}
+
+  /* Cell links */
+  .cell{text-align:center;min-width:72px;}
+  .cell a{display:block;padding:8px 6px;text-decoration:none;font-size:12px;font-weight:600;line-height:1.2;transition:opacity .12s;}
+  .cell a:hover{opacity:.75;}
+  .cell a:focus-visible{outline:2px solid var(--sky);outline-offset:-2px;border-radius:2px;}
+
+  /* Cell status colors */
+  .cell-ok{background:var(--green-soft);}
+  .cell-ok a{color:#1f7a2b;}
+  .cell-na{background:var(--grey-bg);}
+  .cell-na a{color:var(--ink-faint);}
+  .cell-pend{background:var(--orange-soft);}
+  .cell-pend a{color:#8a4609;}
+  .cell-miss{background:var(--red-soft);}
+  .cell-miss a{color:var(--red);}
+
+  /* Status icons (text-based for accessibility) */
+  .icon-ok::before{content:"\2713 ";/* checkmark */}
+  .icon-na::before{content:"\2014 ";/* em dash */}
+  .icon-pend::before{content:"\25CB ";/* circle */}
+  .icon-miss::before{content:"\2717 ";/* ballot x */}
+  .flag{color:var(--orange);font-weight:700;margin-left:2px;}
+
+  /* Notes column */
+  .notes-link{display:block;padding:8px 10px;text-decoration:none;color:var(--ink-soft);font-size:12px;line-height:1.3;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .notes-link:hover{color:var(--navy);}
+  .notes-count{font-size:11px;color:var(--ink-faint);margin-left:4px;}
+
+  .empty{text-align:center;padding:60px 20px;color:var(--ink-faint);font-size:15px;}
+
+  /* ---------- Side panel ---------- */
+  .panel-head{padding:16px 20px;border-bottom:1px solid var(--line);}
+  .panel-head h2{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:2px;}
+  .panel-head .panel-addr{font-size:12px;color:var(--ink-soft);}
+  .panel-close{float:right;background:none;border:none;font-size:18px;color:var(--ink-faint);cursor:pointer;padding:0 4px;line-height:1;}
+  .panel-close:hover{color:var(--ink);}
+
+  .panel-section{padding:14px 20px;border-bottom:1px solid var(--line-soft);}
+  .panel-section h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin-bottom:10px;}
+
+  .status-chip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .status-chip-ok{background:var(--green-soft);color:#1f7a2b;}
+  .status-chip-na{background:var(--grey-bg);color:var(--ink-faint);}
+  .status-chip-pend{background:var(--orange-soft);color:#8a4609;}
+  .status-chip-miss{background:var(--red-soft);color:var(--red);}
+
+  .proposal-card{background:var(--grey-bg);border:1px solid var(--line-soft);border-radius:var(--r-sm);padding:12px;margin-bottom:10px;font-size:12px;line-height:1.5;}
+  .proposal-card .pf-label{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--ink-faint);letter-spacing:.04em;margin-bottom:2px;}
+  .proposal-card .pf-value{color:var(--ink);margin-bottom:8px;}
+  .proposal-card .pf-quote{font-style:italic;color:var(--ink-soft);border-left:3px solid var(--line);padding-left:10px;margin:8px 0;}
+  .proposal-card .pf-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--ink-faint);}
+  .proposal-card .pf-meta span{background:var(--white);padding:2px 6px;border-radius:4px;border:1px solid var(--line-soft);}
+  .pf-conflict{color:var(--orange);font-weight:600;}
+
+  .note-item{padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:12px;}
+  .note-item:last-child{border-bottom:none;}
+  .note-item .note-meta{font-size:11px;color:var(--ink-faint);margin-bottom:3px;}
+  .note-item .note-tag{display:inline-block;background:var(--sky-soft);color:var(--navy);font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;text-transform:uppercase;margin-left:4px;}
+  .note-item .note-text{color:var(--ink);}
+
+  /* Add note form */
+  .add-note-form{padding:14px 20px;}
+  .add-note-form h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin-bottom:10px;}
+  .add-note-form textarea{width:100%;min-height:80px;resize:vertical;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:13px;color:var(--ink);}
+  .add-note-form textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px var(--sky-soft);}
+  .add-note-form .form-actions{margin-top:8px;display:flex;justify-content:flex-end;}
+  .char-count{font-size:11px;color:var(--ink-faint);margin-top:4px;}
+</style>
+</head>
+<body>
+
+<!-- ============ TOPBAR ============ -->
+<div class="topbar">
+  <h1>Utilities Grid</h1>
+  <div class="topbar-divider"></div>
+  <form class="search-form" method="get" action="">
+    {% if filter != "all" %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
+    <input type="text" name="q" class="search-input" placeholder="Search address..." value="{{ query }}" aria-label="Search by address">
+    <button type="submit" class="btn btn-onnavy">Search</button>
+  </form>
+  <div class="spacer"></div>
+  <a class="nav-link" href="{% url 'utility-grid-csv' %}{% if base_qs %}?{{ base_qs }}{% endif %}" aria-label="Export grid as CSV">Export CSV</a>
+  <div class="topbar-divider"></div>
+  <a class="nav-link" href="{% url 'logout' %}">Log out</a>
+</div>
+
+<!-- ============ PAGE ============ -->
+<div class="page">
+<div class="main">
+
+  {% if messages %}
+  {% for msg in messages %}
+  <div class="msg {% if msg.tags == 'error' %}msg-error{% else %}msg-success{% endif %}" role="{% if msg.tags == 'error' %}alert{% else %}status{% endif %}">{{ msg }}</div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Tiles -->
+  <div class="tiles">
+    <div class="tile tile-complete">
+      <span class="tile-num">{{ tiles.complete }}</span>
+      <span class="tile-label">Units<br>complete</span>
+    </div>
+    <div class="tile tile-review">
+      <span class="tile-num">{{ tiles.needs_review }}</span>
+      <span class="tile-label">Needs<br>review</span>
+    </div>
+    <div class="tile tile-gap">
+      <span class="tile-num">{{ tiles.has_gap }}</span>
+      <span class="tile-label">Has a<br>gap</span>
+    </div>
+    <div class="tile tile-oil">
+      <span class="tile-num">{{ tiles.missing_oil_propane }}</span>
+      <span class="tile-label">Missing<br>oil/propane</span>
+    </div>
+  </div>
+
+  <!-- Toolbar: filter chips -->
+  <div class="toolbar">
+    <div class="filter-chips">
+      <a class="chip {% if filter == 'all' %}active{% endif %}" href="?{% if query %}q={{ query|urlencode }}&{% endif %}">All ({{ total_units }})</a>
+      <a class="chip {% if filter == 'gap' %}active{% endif %}" href="?filter=gap{% if query %}&q={{ query|urlencode }}{% endif %}">Has a gap</a>
+      <a class="chip {% if filter == 'review' %}active{% endif %}" href="?filter=review{% if query %}&q={{ query|urlencode }}{% endif %}">Needs review</a>
+      <a class="chip {% if filter == 'oil_propane' %}active{% endif %}" href="?filter=oil_propane{% if query %}&q={{ query|urlencode }}{% endif %}">Oil/propane missing</a>
+      <a class="chip {% if filter == 'flagged' %}active{% endif %}" href="?filter=flagged{% if query %}&q={{ query|urlencode }}{% endif %}">Flagged</a>
+    </div>
+  </div>
+
+  <!-- Grid table -->
+  {% if rows %}
+  <div class="grid-wrap">
+    <table class="grid-table" aria-label="Utilities grid">
+      <thead>
+        <tr>
+          <th>Address</th>
+          <th>Unit</th>
+          <th>Occupancy</th>
+          {% for col in columns %}<th>{{ col|capfirst }}</th>{% endfor %}
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="col-addr" title="{{ row.address }}">{{ row.address }}</td>
+          <td class="col-unit">{{ row.unit_number }}</td>
+          <td class="col-occ">{{ row.occupancy_text }}</td>
+
+          {% for cell in row.cell_list %}
+          <td class="cell cell-{{ cell.status }}">
+            <a href="?unit={{ row.unit_id }}&utility={{ cell.column }}{% if base_qs %}&{{ base_qs }}{% endif %}"
+               aria-label="{{ cell.column|capfirst }}: {% if cell.status == 'ok' %}Approved — {{ cell.label }}{% elif cell.status == 'na' %}Not applicable{% elif cell.status == 'pend' %}Pending review — {{ cell.label }}{% else %}Missing{% endif %}{% if cell.flag %} (flagged){% endif %}">
+              <span class="icon-{{ cell.status }}" aria-hidden="true"></span>{{ cell.label|default:"Missing" }}{% if cell.flag %}<span class="flag" aria-hidden="true">!</span>{% endif %}
+            </a>
+          </td>
+          {% endfor %}
+
+          <td class="col-notes">
+            {% if row.notes_summary.count %}
+            <a class="notes-link" href="?unit={{ row.unit_id }}{% if base_qs %}&{{ base_qs }}{% endif %}" title="{{ row.notes_summary.latest }}">
+              {{ row.notes_summary.latest|truncatechars:40 }}<span class="notes-count">({{ row.notes_summary.count }})</span>
+            </a>
+            {% else %}
+            <a class="notes-link" href="?unit={{ row.unit_id }}{% if base_qs %}&{{ base_qs }}{% endif %}" style="color:var(--ink-faint);">Add note</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    No units match the current filter{% if query %} and search "{{ query }}"{% endif %}.
+  </div>
+  {% endif %}
+
+</div>
+
+{% if panel %}
+<!-- ============ SIDE PANEL ============ -->
+<aside class="panel" aria-label="{% if panel.utility %}Utility detail panel{% else %}Unit notes panel{% endif %}">
+  <div class="panel-head">
+    <a class="panel-close" href="?{% if base_qs %}{{ base_qs }}{% endif %}" aria-label="Close panel">&times;</a>
+    <h2>{{ panel.utility_display }}</h2>
+    <div class="panel-addr">{{ panel.address }}</div>
+  </div>
+
+  {% if panel.utility %}
+  <!-- Status -->
+  <div class="panel-section">
+    <h3>Status</h3>
+    <span class="status-chip status-chip-{{ panel.cell.status }}">
+      {% if panel.cell.status == "ok" %}Approved{% elif panel.cell.status == "na" %}N/A{% elif panel.cell.status == "pend" %}Pending review{% else %}Missing{% endif %}
+    </span>
+    {% if panel.cell.label %}<span style="margin-left:8px;font-size:13px;font-weight:600;">{{ panel.cell.label }}</span>{% endif %}
+    {% if panel.cell.flag %}<span class="flag" style="margin-left:4px;font-size:14px;" title="Flagged for attention">!</span>{% endif %}
+  </div>
+
+  <!-- Approved detail -->
+  {% if panel.approved %}
+  <div class="panel-section">
+    <h3>Approved record</h3>
+    <div class="proposal-card">
+      <div class="pf-label">Responsibility</div>
+      <div class="pf-value">{{ panel.approved.responsibility_display }}</div>
+      {% if panel.approved.provider %}
+      <div class="pf-label">Provider</div>
+      <div class="pf-value">{{ panel.approved.provider }}</div>
+      {% endif %}
+      {% if panel.approved.arrangement %}
+      <div class="pf-label">Arrangement</div>
+      <div class="pf-value">{{ panel.approved.arrangement }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Pending proposals -->
+  {% if panel.proposals %}
+  <div class="panel-section">
+    <h3>Pending proposals ({{ panel.proposals|length }})</h3>
+    {% for p in panel.proposals %}
+    <div class="proposal-card">
+      <div class="pf-label">Responsibility</div>
+      <div class="pf-value">{{ p.responsibility_display }}{% if p.has_conflict %} <span class="pf-conflict" title="Has conflict">CONFLICT</span>{% endif %}</div>
+
+      {% if p.evidence_quote %}
+      <div class="pf-label">Evidence</div>
+      <div class="pf-quote">{{ p.evidence_quote }}</div>
+      {% endif %}
+
+      {% if p.provider %}
+      <div class="pf-label">Provider</div>
+      <div class="pf-value">{{ p.provider }}</div>
+      {% endif %}
+
+      {% if p.arrangement %}
+      <div class="pf-label">Arrangement</div>
+      <div class="pf-value">{{ p.arrangement }}</div>
+      {% endif %}
+
+      <div class="pf-meta">
+        <span>{{ p.source_type }}</span>
+        <span>{{ p.source_level }}</span>
+        {% if p.source_date %}<span>{{ p.source_date }}</span>{% endif %}
+        <span>basis: {{ p.basis }}</span>
+        <span>verified: {% if p.quote_verified %}yes{% else %}no{% endif %}</span>
+      </div>
+
+      {% if p.conflict_note %}
+      <div style="margin-top:8px;font-size:11px;color:var(--orange);">{{ p.conflict_note }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <!-- Notes -->
+  <div class="panel-section">
+    <h3>Notes{% if panel.notes %} ({{ panel.notes|length }}){% endif %}</h3>
+    {% if panel.notes %}
+      {% for n in panel.notes %}
+      <div class="note-item">
+        <div class="note-meta">{{ n.author }} &middot; {{ n.created_at|date:"M d, Y g:ia" }}{% if n.utility_type %}<span class="note-tag">{{ n.utility_type }}</span>{% endif %}</div>
+        <div class="note-text">{{ n.text }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p style="font-size:12px;color:var(--ink-faint);">No notes yet.</p>
+    {% endif %}
+  </div>
+
+  <!-- Add note form -->
+  <form class="add-note-form" method="post" action="?unit={{ panel.unit_id }}{% if panel.utility %}&utility={{ panel.utility }}{% endif %}{% if base_qs %}&{{ base_qs }}{% endif %}">
+    {% csrf_token %}
+    <h3>Add a note</h3>
+    <input type="hidden" name="unit_id" value="{{ panel.unit_id }}">
+    {% if panel.utility %}
+    <input type="hidden" name="utility_type" value="{{ panel.utility }}">
+    {% else %}
+    <select name="utility_type" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:13px;margin-bottom:8px;">
+      <option value="">General</option>
+      {% for value, label in panel.utility_choices %}
+      <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <textarea name="text" rows="3" maxlength="2000" placeholder="Type a note..." aria-label="Note text" required></textarea>
+    <div class="char-count">Max 2000 characters</div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Add note</button>
+    </div>
+  </form>
+</aside>
+{% endif %}
+
+</div>
+</body>
+</html>

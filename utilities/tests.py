@@ -754,3 +754,557 @@ class ExtractJsonObjectTests(SimpleTestCase):
     def test_fences_without_language_tag(self):
         text = '```\n{"key": "value"}\n```'
         self.assertEqual(extract_json_object(text), '{"key": "value"}')
+
+
+# ==========================================================================
+# Grid pure-function tests
+# ==========================================================================
+
+from datetime import date
+
+from utilities.grid import (
+    GRID_COLUMNS,
+    RESPONSIBILITY_DISPLAY,
+    _natural_sort_key,
+    apply_filter,
+    build_csv_rows,
+    build_grid,
+    compute_cell_status,
+    compute_tile_counts,
+    csv_cell_text,
+    has_gap,
+    is_complete,
+    is_flagged,
+    missing_oil_propane,
+    needs_review,
+    occupancy_text,
+    sanitize_csv_value,
+)
+from utilities.views import _grid_url
+
+
+def _make_proposal(responsibility="tenant", has_conflict=False, basis="stated"):
+    """Helper: build a minimal pending proposal dict."""
+    return {
+        "id": 1,
+        "responsibility": responsibility,
+        "has_conflict": has_conflict,
+        "basis": basis,
+        "provider": "",
+        "arrangement": "",
+    }
+
+
+def _make_approved(responsibility="tenant"):
+    """Helper: build a minimal approved row dict."""
+    return {"responsibility": responsibility, "provider": "", "arrangement": ""}
+
+
+class ComputeCellStatusTests(SimpleTestCase):
+
+    # -- Approved direct --
+
+    def test_ok_tenant(self):
+        result = compute_cell_status("electric", _make_approved("tenant"), None, [], [])
+        self.assertEqual(result, {"status": "ok", "label": "Tenant", "flag": False})
+
+    def test_ok_owner(self):
+        result = compute_cell_status("electric", _make_approved("owner"), None, [], [])
+        self.assertEqual(result, {"status": "ok", "label": "Owner", "flag": False})
+
+    def test_ok_included(self):
+        result = compute_cell_status("water", _make_approved("included_in_rent"), None, [], [])
+        self.assertEqual(result, {"status": "ok", "label": "Included", "flag": False})
+
+    def test_na(self):
+        result = compute_cell_status("gas", _make_approved("not_applicable"), None, [], [])
+        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False})
+
+    # -- Approved alias --
+
+    def test_water_well_approved(self):
+        result = compute_cell_status("water", None, _make_approved("tenant"), [], [])
+        self.assertEqual(result, {"status": "ok", "label": "Well", "flag": False})
+
+    def test_sewer_septic_approved(self):
+        result = compute_cell_status("sewer", None, _make_approved("owner"), [], [])
+        self.assertEqual(result, {"status": "ok", "label": "Septic", "flag": False})
+
+    def test_approved_alias_na(self):
+        result = compute_cell_status("water", None, _make_approved("not_applicable"), [], [])
+        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False})
+
+    # -- Approved beats pending --
+
+    def test_approved_beats_pending(self):
+        result = compute_cell_status(
+            "electric",
+            _make_approved("tenant"),
+            None,
+            [_make_proposal("owner")],
+            [],
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["label"], "Tenant")
+
+    def test_approved_direct_beats_approved_alias(self):
+        result = compute_cell_status(
+            "water",
+            _make_approved("owner"),
+            _make_approved("tenant"),
+            [],
+            [],
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["label"], "Owner")
+
+    # -- Pending direct --
+
+    def test_pend_basic(self):
+        result = compute_cell_status("electric", None, None, [_make_proposal("tenant")], [])
+        self.assertEqual(result, {"status": "pend", "label": "Tenant", "flag": False})
+
+    def test_pend_na_proposal(self):
+        result = compute_cell_status("gas", None, None, [_make_proposal("not_applicable")], [])
+        self.assertEqual(result, {"status": "pend", "label": "N/A", "flag": False})
+
+    def test_pend_flag_conflict(self):
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant", has_conflict=True)], [],
+        )
+        self.assertTrue(result["flag"])
+
+    def test_pend_flag_catch_all(self):
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant", basis="catch_all")], [],
+        )
+        self.assertTrue(result["flag"])
+
+    def test_pend_flag_disagreement(self):
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant"), _make_proposal("owner")], [],
+        )
+        self.assertTrue(result["flag"])
+
+    # -- Pending alias --
+
+    def test_pending_well_alias(self):
+        """Water column satisfied by a pending well proposal shows label 'Well'."""
+        result = compute_cell_status(
+            "water", None, None, [],
+            [_make_proposal("tenant")],
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertEqual(result["label"], "Well")
+
+    def test_pending_septic_alias(self):
+        """Sewer column satisfied by a pending septic proposal shows label 'Septic'."""
+        result = compute_cell_status(
+            "sewer", None, None, [],
+            [_make_proposal("owner")],
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertEqual(result["label"], "Septic")
+
+    # -- Unknown and miss --
+
+    def test_pend_unknown_ignored(self):
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("unknown")], [],
+        )
+        self.assertEqual(result["status"], "miss")
+
+    def test_miss_no_data(self):
+        result = compute_cell_status("electric", None, None, [], [])
+        self.assertEqual(result, {"status": "miss", "label": "", "flag": False})
+
+
+class BuildGridTests(SimpleTestCase):
+
+    def _unit(self, pk, rentvine_id, address, unit_number=""):
+        return {
+            "id": pk,
+            "rentvine_id": rentvine_id,
+            "display_address": address,
+            "unit_number": unit_number,
+        }
+
+    def test_sorting(self):
+        units = [
+            self._unit(2, 200, "Zebra St", "B"),
+            self._unit(1, 100, "Apple Ave", "A"),
+            self._unit(3, 300, "Apple Ave", "C"),
+        ]
+        rows = build_grid(units, {}, {}, {}, {})
+        addresses = [(r["address"], r["unit_number"]) for r in rows]
+        self.assertEqual(addresses, [
+            ("Apple Ave", "A"),
+            ("Apple Ave", "C"),
+            ("Zebra St", "B"),
+        ])
+
+    def test_rentvine_id_none_shows_miss(self):
+        """A unit with rentvine_id=None cannot match proposals, shows miss."""
+        units = [self._unit(1, None, "123 Main St")]
+        proposals = {
+            999: {"electric": [_make_proposal("tenant")]},
+        }
+        rows = build_grid(units, {}, proposals, {}, {})
+        self.assertEqual(rows[0]["cells"]["electric"]["status"], "miss")
+
+    def test_cell_list_populated(self):
+        units = [self._unit(1, 100, "123 Main St")]
+        rows = build_grid(units, {}, {}, {}, {})
+        self.assertEqual(len(rows[0]["cell_list"]), len(GRID_COLUMNS))
+        self.assertEqual(rows[0]["cell_list"][0]["column"], "electric")
+
+
+class FilterPredicateTests(SimpleTestCase):
+
+    def _row(self, **cell_overrides):
+        """Build a row with all-ok cells, then override specified columns."""
+        cells = {}
+        for col in GRID_COLUMNS:
+            cells[col] = {"status": "ok", "label": "Tenant", "flag": False}
+        for col, status_info in cell_overrides.items():
+            cells[col] = status_info
+        return {"cells": cells, "address": "Test", "unit_number": ""}
+
+    def test_is_complete_all_ok(self):
+        self.assertTrue(is_complete(self._row()))
+
+    def test_is_complete_with_na(self):
+        row = self._row(gas={"status": "na", "label": "NA", "flag": False})
+        self.assertTrue(is_complete(row))
+
+    def test_is_complete_fails_with_pend(self):
+        row = self._row(water={"status": "pend", "label": "Tenant", "flag": False})
+        self.assertFalse(is_complete(row))
+
+    def test_has_gap(self):
+        row = self._row(electric={"status": "miss", "label": "", "flag": False})
+        self.assertTrue(has_gap(row))
+
+    def test_no_gap(self):
+        self.assertFalse(has_gap(self._row()))
+
+    def test_needs_review(self):
+        row = self._row(water={"status": "pend", "label": "Tenant", "flag": False})
+        self.assertTrue(needs_review(row))
+
+    def test_no_review_needed(self):
+        self.assertFalse(needs_review(self._row()))
+
+    def test_is_flagged(self):
+        row = self._row(electric={"status": "pend", "label": "Tenant", "flag": True})
+        self.assertTrue(is_flagged(row))
+
+    def test_not_flagged(self):
+        self.assertFalse(is_flagged(self._row()))
+
+    def test_missing_oil_propane_oil(self):
+        row = self._row(oil={"status": "miss", "label": "", "flag": False})
+        self.assertTrue(missing_oil_propane(row))
+
+    def test_missing_oil_propane_propane(self):
+        row = self._row(propane={"status": "miss", "label": "", "flag": False})
+        self.assertTrue(missing_oil_propane(row))
+
+    def test_missing_oil_propane_neither(self):
+        self.assertFalse(missing_oil_propane(self._row()))
+
+
+class TileCountTests(SimpleTestCase):
+
+    def _row(self, **cell_overrides):
+        cells = {}
+        for col in GRID_COLUMNS:
+            cells[col] = {"status": "ok", "label": "Tenant", "flag": False}
+        for col, status_info in cell_overrides.items():
+            cells[col] = status_info
+        return {"cells": cells, "address": "Test", "unit_number": ""}
+
+    def test_all_complete(self):
+        rows = [self._row(), self._row()]
+        tiles = compute_tile_counts(rows)
+        self.assertEqual(tiles["complete"], 2)
+        self.assertEqual(tiles["needs_review"], 0)
+        self.assertEqual(tiles["has_gap"], 0)
+        self.assertEqual(tiles["missing_oil_propane"], 0)
+
+    def test_mixed(self):
+        rows = [
+            self._row(),  # complete
+            self._row(water={"status": "pend", "label": "Tenant", "flag": False}),  # review
+            self._row(electric={"status": "miss", "label": "", "flag": False}),  # gap
+            self._row(oil={"status": "miss", "label": "", "flag": False}),  # oil missing + gap
+        ]
+        tiles = compute_tile_counts(rows)
+        self.assertEqual(tiles["complete"], 1)
+        self.assertEqual(tiles["needs_review"], 1)
+        self.assertEqual(tiles["has_gap"], 2)  # rows 3 and 4
+        self.assertEqual(tiles["missing_oil_propane"], 1)
+
+    def test_na_counts_as_complete(self):
+        """A unit with only ok and na cells counts as complete."""
+        row = self._row(
+            gas={"status": "na", "label": "NA", "flag": False},
+            oil={"status": "na", "label": "NA", "flag": False},
+            propane={"status": "na", "label": "NA", "flag": False},
+        )
+        tiles = compute_tile_counts([row])
+        self.assertEqual(tiles["complete"], 1)
+
+
+class ApplyFilterTests(SimpleTestCase):
+
+    def _row(self, address="123 Main", **cell_overrides):
+        cells = {}
+        for col in GRID_COLUMNS:
+            cells[col] = {"status": "ok", "label": "Tenant", "flag": False}
+        for col, status_info in cell_overrides.items():
+            cells[col] = status_info
+        return {"cells": cells, "address": address, "unit_number": ""}
+
+    def test_all_filter(self):
+        rows = [self._row(), self._row()]
+        self.assertEqual(len(apply_filter(rows, "all")), 2)
+
+    def test_gap_filter(self):
+        rows = [
+            self._row(),
+            self._row(electric={"status": "miss", "label": "", "flag": False}),
+        ]
+        result = apply_filter(rows, "gap")
+        self.assertEqual(len(result), 1)
+
+    def test_review_filter(self):
+        rows = [
+            self._row(),
+            self._row(water={"status": "pend", "label": "Tenant", "flag": False}),
+        ]
+        result = apply_filter(rows, "review")
+        self.assertEqual(len(result), 1)
+
+    def test_oil_propane_filter(self):
+        rows = [
+            self._row(),
+            self._row(propane={"status": "miss", "label": "", "flag": False}),
+        ]
+        result = apply_filter(rows, "oil_propane")
+        self.assertEqual(len(result), 1)
+
+    def test_flagged_filter(self):
+        rows = [
+            self._row(),
+            self._row(electric={"status": "pend", "label": "Tenant", "flag": True}),
+        ]
+        result = apply_filter(rows, "flagged")
+        self.assertEqual(len(result), 1)
+
+    def test_query_filter(self):
+        rows = [
+            self._row(address="123 Main St"),
+            self._row(address="456 Oak Ave"),
+        ]
+        result = apply_filter(rows, "all", query="oak")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["address"], "456 Oak Ave")
+
+    def test_query_and_filter_combined(self):
+        rows = [
+            self._row(address="123 Main", electric={"status": "miss", "label": "", "flag": False}),
+            self._row(address="456 Oak", electric={"status": "miss", "label": "", "flag": False}),
+            self._row(address="789 Main"),
+        ]
+        result = apply_filter(rows, "gap", query="main")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["address"], "123 Main")
+
+
+class CsvCellTextTests(SimpleTestCase):
+
+    def test_ok(self):
+        self.assertEqual(csv_cell_text({"status": "ok", "label": "Tenant", "flag": False}), "Tenant")
+
+    def test_ok_well(self):
+        self.assertEqual(csv_cell_text({"status": "ok", "label": "Well", "flag": False}), "Well")
+
+    def test_na(self):
+        self.assertEqual(csv_cell_text({"status": "na", "label": "NA", "flag": False}), "NA")
+
+    def test_pend_with_label(self):
+        self.assertEqual(
+            csv_cell_text({"status": "pend", "label": "Tenant", "flag": False}),
+            "Needs review: Tenant",
+        )
+
+    def test_pend_no_label(self):
+        self.assertEqual(
+            csv_cell_text({"status": "pend", "label": "", "flag": False}),
+            "Needs review",
+        )
+
+    def test_miss(self):
+        self.assertEqual(csv_cell_text({"status": "miss", "label": "", "flag": False}), "Missing")
+
+
+class SanitizeCsvValueTests(SimpleTestCase):
+
+    def test_normal_value(self):
+        self.assertEqual(sanitize_csv_value("Tenant"), "Tenant")
+
+    def test_equals_prefix(self):
+        self.assertEqual(sanitize_csv_value("=SUM(A1:A10)"), "'=SUM(A1:A10)")
+
+    def test_plus_prefix(self):
+        self.assertEqual(sanitize_csv_value("+cmd"), "'+cmd")
+
+    def test_minus_prefix(self):
+        self.assertEqual(sanitize_csv_value("-cmd"), "'-cmd")
+
+    def test_at_prefix(self):
+        self.assertEqual(sanitize_csv_value("@SUM"), "'@SUM")
+
+    def test_empty_string(self):
+        self.assertEqual(sanitize_csv_value(""), "")
+
+    def test_none(self):
+        self.assertIsNone(sanitize_csv_value(None))
+
+
+class CsvRowBuilderTests(SimpleTestCase):
+    """Test build_csv_rows on real build_grid output."""
+
+    def test_full_row_from_build_grid(self):
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "123 Main St", "unit_number": "A"}]
+        approved = {1: {"electric": {"responsibility": "tenant", "provider": "Duke", "arrangement": ""}}}
+        proposals = {100: {"water": [_make_proposal("owner")]}}
+        notes = {1: {"latest": "Check meter", "count": 1}}
+        occupancy = {1: {"occupied": True, "move_in_date": date(2024, 1, 15)}}
+
+        rows = build_grid(units, approved, proposals, notes, occupancy)
+        csv_rows = build_csv_rows(rows)
+
+        self.assertEqual(len(csv_rows), 1)
+        line = csv_rows[0]
+        self.assertEqual(line[0], "123 Main St")
+        self.assertEqual(line[1], "A")
+        self.assertIn("Jan 15, 2024", line[2])
+        # Electric (index 3) — approved tenant
+        self.assertEqual(line[3], "Tenant")
+        # Water (index 4) — pending owner
+        self.assertEqual(line[4], "Needs review: Owner")
+        # Last column — latest note
+        self.assertEqual(line[-1], "Check meter")
+
+    def test_vacant_occupancy_in_csv(self):
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "456 Oak", "unit_number": ""}]
+        rows = build_grid(units, {}, {}, {}, {})
+        csv_rows = build_csv_rows(rows)
+        self.assertEqual(csv_rows[0][2], "Vacant")
+
+    def test_no_none_in_csv(self):
+        """CSV must never contain the string 'None'."""
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "789 Elm", "unit_number": ""}]
+        occupancy = {1: {"occupied": True, "move_in_date": None}}
+        rows = build_grid(units, {}, {}, {}, occupancy)
+        csv_rows = build_csv_rows(rows)
+        for cell in csv_rows[0]:
+            if cell is not None:
+                self.assertNotIn("None", str(cell))
+
+    def test_formula_injection_sanitized(self):
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "=Evil", "unit_number": ""}]
+        rows = build_grid(units, {}, {}, {}, {})
+        csv_rows = build_csv_rows(rows)
+        self.assertTrue(csv_rows[0][0].startswith("'="))
+
+    def test_latest_note_sanitized(self):
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "X", "unit_number": ""}]
+        notes = {1: {"latest": "=dangerous formula", "count": 1}}
+        rows = build_grid(units, {}, {}, notes, {})
+        csv_rows = build_csv_rows(rows)
+        self.assertEqual(csv_rows[0][-1], "'=dangerous formula")
+
+
+class OccupancyTextTests(SimpleTestCase):
+
+    def test_vacant(self):
+        self.assertEqual(occupancy_text({"occupied": False, "move_in_date": None}), "Vacant")
+
+    def test_occupied_no_date(self):
+        self.assertEqual(occupancy_text({"occupied": True, "move_in_date": None}), "Occupied")
+
+    def test_occupied_with_date(self):
+        result = occupancy_text({"occupied": True, "move_in_date": date(2024, 3, 15)})
+        self.assertEqual(result, "Occupied \u00b7 since Mar 15, 2024")
+
+    def test_empty_dict(self):
+        self.assertEqual(occupancy_text({}), "Vacant")
+
+    def test_build_grid_includes_occupancy_text(self):
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "X", "unit_number": ""}]
+        occ = {1: {"occupied": True, "move_in_date": date(2024, 6, 1)}}
+        rows = build_grid(units, {}, {}, {}, occ)
+        self.assertEqual(rows[0]["occupancy_text"], "Occupied \u00b7 since Jun 1, 2024")
+
+
+class NaturalSortTests(SimpleTestCase):
+
+    def test_numeric_ordering(self):
+        items = ["10", "2", "1", "20", "3"]
+        result = sorted(items, key=_natural_sort_key)
+        self.assertEqual(result, ["1", "2", "3", "10", "20"])
+
+    def test_alphanumeric(self):
+        items = ["Unit 10", "Unit 2", "Unit 1"]
+        result = sorted(items, key=_natural_sort_key)
+        self.assertEqual(result, ["Unit 1", "Unit 2", "Unit 10"])
+
+    def test_empty_string(self):
+        self.assertEqual(_natural_sort_key(""), [""])
+
+    def test_build_grid_natural_sort(self):
+        """build_grid sorts unit_number naturally."""
+        units = [
+            {"id": 1, "rentvine_id": 100, "display_address": "100 Main St", "unit_number": "10"},
+            {"id": 2, "rentvine_id": 200, "display_address": "100 Main St", "unit_number": "2"},
+            {"id": 3, "rentvine_id": 300, "display_address": "100 Main St", "unit_number": "1"},
+        ]
+        rows = build_grid(units, {}, {}, {}, {})
+        numbers = [r["unit_number"] for r in rows]
+        self.assertEqual(numbers, ["1", "2", "10"])
+
+
+class ResponsibilityDisplayTests(SimpleTestCase):
+
+    def test_all_keys_present(self):
+        for key in ("tenant", "owner", "included_in_rent", "not_applicable", "unknown"):
+            self.assertIn(key, RESPONSIBILITY_DISPLAY)
+
+    def test_human_readable(self):
+        self.assertEqual(RESPONSIBILITY_DISPLAY["included_in_rent"], "Included in Rent")
+        self.assertEqual(RESPONSIBILITY_DISPLAY["not_applicable"], "Not Applicable")
+
+
+class GridUrlTests(SimpleTestCase):
+
+    def test_ampersand_in_query(self):
+        url = _grid_url({"q": "a&b"})
+        self.assertIn("q=a%26b", url)
+
+    def test_hash_in_query(self):
+        url = _grid_url({"q": "a#b"})
+        self.assertIn("q=a%23b", url)
+
+    def test_space_in_query(self):
+        url = _grid_url({"q": "a b"})
+        self.assertIn("q=a+b", url)
+
+    def test_empty_params(self):
+        self.assertEqual(_grid_url({}), "/dashboard/utilities/")
