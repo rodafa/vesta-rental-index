@@ -7,6 +7,7 @@ SimpleTestCase only — no database access.
 from django.test import SimpleTestCase
 
 from utilities.services import (
+    REDACTION_MARKER,
     build_source_lookup,
     build_user_prompt,
     check_payer_phrase,
@@ -17,8 +18,9 @@ from utilities.services import (
     convert_note_html,
     detect_conflicts,
     extract_json_object,
+    filter_and_convert_notes,
     has_utility_words,
-    note_is_sendable,
+    redact_security_lines,
     validate_and_build_proposals,
     verify_extras_values,
 )
@@ -55,24 +57,127 @@ class CheckQuoteTests(SimpleTestCase):
         self.assertFalse(check_quote("", "some text"))
 
 
-class NoteIsSendableTests(SimpleTestCase):
-    def test_normal_text(self):
-        self.assertTrue(note_is_sendable("Water is tenant responsibility"))
+class RedactSecurityLinesTests(SimpleTestCase):
+    """Tests for line-level security redaction."""
 
-    def test_lockbox(self):
-        self.assertFalse(note_is_sendable("The lockbox code is 1234"))
+    def test_code_line_removed_utility_kept(self):
+        """A note with a code line and a utility line keeps only the utility."""
+        text = "WATER: Tenant pays\nlockbox code is 1234"
+        redacted, removed = redact_security_lines(text)
+        self.assertEqual(removed, 1)
+        self.assertIn("WATER: Tenant pays", redacted)
+        self.assertNotIn("1234", redacted)
+        self.assertIn(REDACTION_MARKER, redacted)
 
-    def test_door_code(self):
-        self.assertFalse(note_is_sendable("door code: 5678"))
+    def test_door_code_followed_by_bare_code(self):
+        """A 'door code' line + bare-code line → both removed, one marker."""
+        text = "WATER: Tenant\nDoor code: see below\n5678\nELECTRIC: Owner"
+        redacted, removed = redact_security_lines(text)
+        self.assertEqual(removed, 2)
+        self.assertNotIn("5678", redacted)
+        self.assertNotIn("Door code", redacted)
+        self.assertIn("WATER: Tenant", redacted)
+        self.assertIn("ELECTRIC: Owner", redacted)
+        # Only one marker for both removed lines
+        self.assertEqual(redacted.count(REDACTION_MARKER), 1)
 
-    def test_pin(self):
-        self.assertFalse(note_is_sendable("enter pin to access"))
+    def test_no_sensitive_text_byte_identical(self):
+        """A clean note round-trips identically (hash unchanged)."""
+        text = "WATER: Tenant pays\nELECTRIC: Duke Energy"
+        redacted, removed = redact_security_lines(text)
+        self.assertEqual(removed, 0)
+        self.assertEqual(redacted, text)
+        self.assertEqual(
+            compute_source_text_hash(redacted),
+            compute_source_text_hash(text),
+        )
 
-    def test_alarm_code(self):
-        self.assertFalse(note_is_sendable("alarm code is 9999"))
+    def test_only_code_lines_dropped(self):
+        """A note with only security lines → dropped by filter pipeline."""
+        raw_notes = [{
+            "noteID": 1,
+            "note": "<p>lockbox code is 1234</p><p>alarm code is 9999</p>",
+            "datePosted": "2024-01-01",
+        }]
+        converted, dropped, redacted_count = filter_and_convert_notes(
+            raw_notes, "unit", 50,
+        )
+        self.assertEqual(len(converted), 0)
+        self.assertEqual(dropped, 1)
+        self.assertGreater(redacted_count, 0)
 
-    def test_smart_lock(self):
-        self.assertFalse(note_is_sendable("there is a smart lock on the front door"))
+    def test_no_utility_words_after_redaction_dropped(self):
+        """Redaction removes the only utility word → note dropped."""
+        raw_notes = [{
+            "noteID": 2,
+            "note": "<p>door code: 5678</p><p>water meter in basement</p>",
+            "datePosted": "2024-01-01",
+        }]
+        # The utility word "water" + "meter" is in the non-security line,
+        # so this note survives. Build a case where it doesn't:
+        raw_notes_no_util = [{
+            "noteID": 3,
+            "note": "<p>lockbox is on the gate</p><p>Lawn care on Tuesdays</p>",
+            "datePosted": "2024-01-01",
+        }]
+        converted, dropped, _ = filter_and_convert_notes(
+            raw_notes_no_util, "unit", 50,
+        )
+        self.assertEqual(len(converted), 0)
+        self.assertEqual(dropped, 1)
+
+    def test_quote_containing_marker_rejected(self):
+        """check_quote rejects a quote with the redaction marker."""
+        source = "WATER: Tenant\n[line removed]\nELECTRIC: Owner"
+        self.assertFalse(check_quote("[line removed]\nELECTRIC: Owner", source))
+        self.assertFalse(check_quote("[line removed]", source))
+        # Normal quote still works
+        self.assertTrue(check_quote("WATER: Tenant", source))
+
+    def test_consecutive_markers_collapse(self):
+        """Two adjacent security lines produce one marker."""
+        text = "WATER: Tenant\nlockbox is 1234\nalarm code 5678\nELECTRIC: Owner"
+        redacted, removed = redact_security_lines(text)
+        self.assertEqual(removed, 2)
+        self.assertEqual(redacted.count(REDACTION_MARKER), 1)
+        lines = redacted.split("\n")
+        self.assertEqual(lines, [
+            "WATER: Tenant",
+            REDACTION_MARKER,
+            "ELECTRIC: Owner",
+        ])
+
+    def test_table_row_security_word_removed(self):
+        """A pipe-delimited table row with a security word is removed."""
+        text = "Utility | Landlord | Resident\nWater |  | X\nDoor | Code | 1234"
+        redacted, removed = redact_security_lines(text)
+        self.assertEqual(removed, 1)
+        self.assertIn("Water |  | X", redacted)
+        self.assertNotIn("1234", redacted)
+        self.assertNotIn("Door | Code", redacted)
+
+    def test_table_row_no_sensitive_text_kept(self):
+        """A table row without sensitive text is kept byte-identical."""
+        text = "Utility | Landlord | Resident\nWater |  | X\nElectric | X |"
+        redacted, removed = redact_security_lines(text)
+        self.assertEqual(removed, 0)
+        self.assertEqual(redacted, text)
+
+    def test_filter_pipeline_preserves_clean_note(self):
+        """A clean note through the full pipeline has unchanged text and hash."""
+        # </p><p> produces a blank line in the template converter
+        expected_text = "WATER: Tenant pays\n\nELECTRIC: Duke Energy"
+        raw_notes = [{
+            "noteID": 10,
+            "note": "<p>WATER: Tenant pays</p><p>ELECTRIC: Duke Energy</p>",
+            "datePosted": "2024-01-01",
+        }]
+        converted, dropped, redacted_count = filter_and_convert_notes(
+            raw_notes, "unit", 50,
+        )
+        self.assertEqual(len(converted), 1)
+        self.assertEqual(redacted_count, 0)
+        self.assertEqual(converted[0]["converted_text"], expected_text)
 
 
 class HasUtilityWordsTests(SimpleTestCase):
@@ -89,13 +194,17 @@ class HasUtilityWordsTests(SimpleTestCase):
         self.assertFalse(has_utility_words("Lawn care schedule"))
 
     def test_utility_word_boundary(self):
-        # "utilit" in the regex requires a word boundary — matches only
-        # standalone. Full words like "utility" don't match via "utilit\b"
-        # because 'y' follows. But "utility" contains "utilit" + "y" which
-        # hits the word boundary. Actually the regex matches substrings
-        # within word boundaries, so test with the actual matching words.
         self.assertTrue(has_utility_words("Check the gas meter"))
         self.assertTrue(has_utility_words("The heat is electric"))
+
+    def test_utilities_plural(self):
+        self.assertTrue(has_utility_words("TENANT PAYS FOR ALL UTILITIES"))
+
+    def test_utility_singular(self):
+        self.assertTrue(has_utility_words("Utility info"))
+
+    def test_no_utility_words_lawn_care(self):
+        self.assertFalse(has_utility_words("OWNER PAYS FOR LAWN CARE"))
 
 
 class ConvertNoteHtmlTests(SimpleTestCase):

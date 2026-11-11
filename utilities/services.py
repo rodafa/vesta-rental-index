@@ -47,7 +47,7 @@ _SECURITY_RE = re.compile(
 
 _UTILITY_WORD_RE = re.compile(
     r"\b(water|sewer|septic|well|electric|energy|meter"
-    r"|trash|garbage|gas|oil|propane|heat|internet|utilit)\b",
+    r"|trash|garbage|gas|oil|propane|heat|internet|utilit(?:y|ies))\b",
     re.IGNORECASE,
 )
 
@@ -84,19 +84,62 @@ _OWNER_PAYER_RE = re.compile(
 
 # -- Note filter helpers ---------------------------------------------------
 
-def note_is_sendable(plain_text: str) -> bool:
-    """False if the note contains security/access-code information."""
-    return not _SECURITY_RE.search(plain_text)
+REDACTION_MARKER = "[line removed]"
+
+_BARE_CODE_RE = re.compile(r"^[^\s]{1,12}$")
+
+
+def _line_is_security(line: str) -> bool:
+    """True if the line matches _SECURITY_RE as written or with pipes collapsed."""
+    if _SECURITY_RE.search(line):
+        return True
+    # Table rows join cells with " | "; collapse pipes so the regex can
+    # see multi-cell phrases like "Door | Code | 1234" as "Door Code 1234".
+    collapsed = line.replace(" | ", " ")
+    if collapsed != line and _SECURITY_RE.search(collapsed):
+        return True
+    return False
+
+
+def _is_bare_code(line: str) -> bool:
+    """True if line looks like a bare access code (<=12 chars, no spaces, has a digit)."""
+    return bool(_BARE_CODE_RE.match(line)) and any(c.isdigit() for c in line)
+
+
+def redact_security_lines(converted_text: str) -> tuple[str, int]:
+    """
+    Replace lines matching _SECURITY_RE with REDACTION_MARKER.
+
+    Also removes bare-code lines (<=12 chars, no spaces, has a digit) that
+    immediately follow a removed line. Consecutive markers collapse to one.
+
+    Returns (redacted_text, lines_removed_count).
+    """
+    lines = converted_text.split("\n")
+    result = []
+    removed = 0
+    prev_was_removed = False
+
+    for line in lines:
+        if _line_is_security(line):
+            removed += 1
+            if not prev_was_removed:
+                result.append(REDACTION_MARKER)
+            prev_was_removed = True
+        elif prev_was_removed and _is_bare_code(line):
+            removed += 1
+            # Marker already emitted for the preceding removed line
+            prev_was_removed = True
+        else:
+            result.append(line)
+            prev_was_removed = False
+
+    return "\n".join(result), removed
 
 
 def has_utility_words(plain_text: str) -> bool:
     """True if the text mentions utility-related words."""
     return bool(_UTILITY_WORD_RE.search(plain_text))
-
-
-def strip_html_tags(html: str) -> str:
-    """Strip HTML tags and decode entities, returning plain text."""
-    return re.sub(r"<[^>]+>", " ", unescape(html))
 
 
 # -- HTML → text conversion (ported from probe) ----------------------------
@@ -238,6 +281,8 @@ def collapse_ws(s: str) -> str:
 def check_quote(quote: str | None, source_text: str) -> bool:
     """Check if collapsed quote is a substring of collapsed source text."""
     if not quote:
+        return False
+    if REDACTION_MARKER in quote:
         return False
     return collapse_ws(quote) in collapse_ws(source_text)
 
@@ -468,9 +513,9 @@ def filter_and_convert_notes(
     raw_notes: list[dict],
     level: str,
     unit_id: int | None,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, int]:
     """
-    Filter notes (security, utility-word check) and convert HTML to text.
+    Convert HTML notes to text, redact security lines, and filter.
 
     Args:
         raw_notes: list of Rentvine note dicts.
@@ -478,19 +523,37 @@ def filter_and_convert_notes(
         unit_id: the Rentvine unit ID (None for property-level).
 
     Returns:
-        (converted_notes, dropped_count) where converted_notes is a list of
-        dicts with keys: note_id, unit_id, level, date_posted, converted_text,
-        source_text_hash.
+        (converted_notes, dropped_count, lines_redacted) where
+        converted_notes is a list of dicts with keys: note_id, unit_id,
+        level, date_posted, converted_text, source_text_hash.
     """
     dropped = 0
+    lines_redacted = 0
     converted = []
 
     for n in raw_notes:
         nid = int(n.get("noteID", 0))
         note_html = n.get("note", "")
-        plain = strip_html_tags(note_html)
 
-        if not note_is_sendable(plain):
+        # 1. Convert HTML → text first
+        text, fmt, table_flags = convert_note_html(note_html)
+
+        # 2. Redact security lines
+        redacted, removed = redact_security_lines(text)
+        lines_redacted += removed
+
+        if removed:
+            logger.info(
+                "Lines redacted",
+                extra={"note_id": nid, "lines_removed": removed},
+            )
+
+        # 3. If only markers remain, drop as security
+        non_marker = [
+            ln for ln in redacted.split("\n")
+            if ln.strip() and ln.strip() != REDACTION_MARKER
+        ]
+        if not non_marker:
             logger.info(
                 "Note dropped",
                 extra={"note_id": nid, "reason": "security"},
@@ -498,7 +561,8 @@ def filter_and_convert_notes(
             dropped += 1
             continue
 
-        if not has_utility_words(plain):
+        # 4. Utility-word check on redacted text
+        if not has_utility_words(redacted):
             logger.info(
                 "Note dropped",
                 extra={"note_id": nid, "reason": "no_utility_words"},
@@ -506,18 +570,17 @@ def filter_and_convert_notes(
             dropped += 1
             continue
 
-        text, fmt, table_flags = convert_note_html(note_html)
         converted.append({
             "note_id": nid,
             "unit_id": unit_id,
             "level": level,
             "date_posted": n.get("datePosted", None),
-            "converted_text": text,
-            "source_text_hash": compute_source_text_hash(text),
+            "converted_text": redacted,
+            "source_text_hash": compute_source_text_hash(redacted),
         })
 
     converted.sort(key=lambda x: x["date_posted"] or "")
-    return converted, dropped
+    return converted, dropped, lines_redacted
 
 
 # -- Prompt building -------------------------------------------------------
@@ -600,6 +663,8 @@ RULES:
     arrangements, or bill pass-through. Put such wording in "arrangement"
     and do NOT let it change responsibility. If none of (a)-(d) is
     present, use "unknown".
+15. Lines reading "[line removed]" are redaction gaps. Never quote them
+    and never infer anything from them.
 
 Return ONLY a JSON object with no markdown fences, no commentary:
 {
@@ -1044,6 +1109,7 @@ def extract_property_utilities(
         "active_units": 0,
         "notes_sent": 0,
         "notes_dropped": 0,
+        "lines_redacted": 0,
         "input_tokens": 0,
         "output_tokens": 0,
         "created": 0,
@@ -1074,24 +1140,30 @@ def extract_property_utilities(
     # 2. Fetch and filter notes
     all_converted_notes = []
     total_dropped = 0
+    total_lines_redacted = 0
 
     # Unit-level notes
     for uid in active_unit_ids:
         raw = fetch_notes(rv_client, 7, uid)
         time.sleep(0.2)
-        converted, dropped = filter_and_convert_notes(raw, "unit", uid)
+        converted, dropped, redacted = filter_and_convert_notes(raw, "unit", uid)
         all_converted_notes.extend(converted)
         total_dropped += dropped
+        total_lines_redacted += redacted
 
     # Property-level notes
     raw_prop = fetch_notes(rv_client, 6, property_id)
     time.sleep(0.2)
-    converted_prop, dropped_prop = filter_and_convert_notes(raw_prop, "property", None)
+    converted_prop, dropped_prop, redacted_prop = filter_and_convert_notes(
+        raw_prop, "property", None,
+    )
     all_converted_notes.extend(converted_prop)
     total_dropped += dropped_prop
+    total_lines_redacted += redacted_prop
 
     result["notes_sent"] = len(all_converted_notes)
     result["notes_dropped"] = total_dropped
+    result["lines_redacted"] = total_lines_redacted
 
     # 3. Fetch listing descriptions
     listing_descs = []

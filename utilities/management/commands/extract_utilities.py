@@ -102,6 +102,7 @@ class Command(BaseCommand):
             "output_tokens": 0,
             "notes_sent": 0,
             "notes_dropped": 0,
+            "lines_redacted": 0,
             "created": 0,
             "skipped": 0,
             "quote_failed": 0,
@@ -150,6 +151,7 @@ class Command(BaseCommand):
                 totals["output_tokens"] += result["output_tokens"]
                 totals["notes_sent"] += result["notes_sent"]
                 totals["notes_dropped"] += result["notes_dropped"]
+                totals["lines_redacted"] += result["lines_redacted"]
                 totals["quote_failed"] += result["quote_failed"]
                 totals["invalid_ref"] += result["invalid_ref"]
                 totals["invalid_field"] += result["invalid_field"]
@@ -184,6 +186,11 @@ class Command(BaseCommand):
                     f"  Notes: {result['notes_sent']} sent, "
                     f"{result['notes_dropped']} dropped"
                 )
+                if result["lines_redacted"]:
+                    self.stdout.write(
+                        f"  Lines removed (security): "
+                        f"{result['lines_redacted']}"
+                    )
                 self.stdout.write(
                     f"  Tokens: {result['input_tokens']} in, "
                     f"{result['output_tokens']} out"
@@ -268,6 +275,10 @@ class Command(BaseCommand):
             f"  Notes: {totals['notes_sent']} sent, "
             f"{totals['notes_dropped']} dropped"
         )
+        if totals["lines_redacted"]:
+            self.stdout.write(
+                f"  Lines removed (security): {totals['lines_redacted']}"
+            )
         if totals["quote_failed"] or totals["invalid_ref"] or totals["invalid_field"]:
             self.stdout.write(
                 f"  Rows dropped: {totals['quote_failed']} quote failed, "
