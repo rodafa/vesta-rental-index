@@ -19,12 +19,14 @@ from utilities.grid import (
     apply_filter,
     build_csv_rows,
     build_grid,
+    build_provider_display_map,
     compute_tile_counts,
     prepare_panel_proposals,
 )
 from utilities.models import UTILITY_TYPE_CHOICES, UnitNote
 from utilities.selectors import (
     fetch_active_units,
+    fetch_all_provider_strings,
     fetch_approved_utilities,
     fetch_occupancy_map,
     fetch_panel_notes,
@@ -44,7 +46,7 @@ _VALID_UTILITY_TYPES = {c[0] for c in UTILITY_TYPE_CHOICES}
 # ---------------------------------------------------------------------------
 
 def _build_full_grid():
-    """Build the grid from DB data. Returns (all_rows, tile_counts, approved_map)."""
+    """Build the grid from DB data. Returns (all_rows, tile_counts, approved_map, provider_map)."""
     units = fetch_active_units()
     approved = fetch_approved_utilities()
     proposals = fetch_pending_proposals()
@@ -52,7 +54,8 @@ def _build_full_grid():
     occupancy = fetch_occupancy_map()
     rows = build_grid(units, approved, proposals, notes, occupancy)
     tiles = compute_tile_counts(rows)
-    return rows, tiles, approved
+    provider_map = build_provider_display_map(fetch_all_provider_strings())
+    return rows, tiles, approved, provider_map
 
 
 def _grid_url(params):
@@ -91,7 +94,7 @@ def utility_grid(request):
 
 
 def _render_grid(request):
-    all_rows, tiles, approved_map = _build_full_grid()
+    all_rows, tiles, approved_map, provider_map = _build_full_grid()
 
     # Filters
     filter_name = request.GET.get("filter", "all")
@@ -154,21 +157,25 @@ def _render_grid(request):
                             approved_detail = {**approved_detail, "alias_type": alias}
 
                     if approved_detail:
+                        raw_prov = approved_detail.get("provider") or ""
                         approved_detail = {
                             **approved_detail,
                             "responsibility_display": RESPONSIBILITY_DISPLAY.get(
                                 approved_detail["responsibility"],
                                 approved_detail["responsibility"],
                             ),
+                            "provider": provider_map.get(raw_prov, raw_prov),
                         }
 
                     proposals_with_display = []
                     for p in proposals:
+                        raw_prov = p.get("provider") or ""
                         proposals_with_display.append({
                             **p,
                             "responsibility_display": RESPONSIBILITY_DISPLAY.get(
                                 p["responsibility"], p["responsibility"],
                             ),
+                            "provider": provider_map.get(raw_prov, raw_prov),
                         })
 
                     panel = {
@@ -278,7 +285,7 @@ def utility_grid_csv(request):
     if not request.user.can_access("utilities"):
         return HttpResponseForbidden("Access denied.")
 
-    all_rows, _, _ = _build_full_grid()
+    all_rows, _, _, _ = _build_full_grid()
 
     filter_name = request.GET.get("filter", "all")
     if filter_name not in VALID_FILTERS:

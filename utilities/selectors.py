@@ -134,6 +134,25 @@ def fetch_occupancy_map():
     }
 
 
+def fetch_all_provider_strings():
+    """
+    Return every non-empty provider string from pending proposals and
+    approved utilities.  Duplicates included (frequency determines display name).
+    """
+    pending = list(
+        UtilityProposal.objects
+        .filter(status="pending")
+        .exclude(provider="")
+        .values_list("provider", flat=True)
+    )
+    approved = list(
+        PropertyUtility.objects
+        .exclude(provider="")
+        .values_list("provider", flat=True)
+    )
+    return pending + approved
+
+
 def fetch_panel_proposals(rentvine_unit_id, utility_type):
     """
     Fetch pending proposals for the side panel detail view.

@@ -96,6 +96,8 @@
   .cell-pend a{color:#8a4609;}
   .cell-miss{background:var(--red-soft);}
   .cell-miss a{color:var(--red);}
+  .cell-info{background:var(--sky-soft);}
+  .cell-info a{color:#3a7aa8;}
   .cell-blanket a{font-style:italic;}
 
   /* Status icons (text-based for accessibility) */
@@ -103,6 +105,7 @@
   .icon-na::before{content:"\2014 ";/* em dash */}
   .icon-pend::before{content:"\25CB ";/* circle */}
   .icon-miss::before{content:"\2717 ";/* ballot x */}
+  .icon-info::before{content:"\2139 ";/* info i */}
   .flag{color:var(--orange);font-weight:700;margin-left:2px;}
 
   /* Notes column */
@@ -127,6 +130,7 @@
   .status-chip-na{background:var(--grey-bg);color:var(--ink-faint);}
   .status-chip-pend{background:var(--orange-soft);color:#8a4609;}
   .status-chip-miss{background:var(--red-soft);color:var(--red);}
+  .status-chip-info{background:var(--sky-soft);color:#3a7aa8;}
 
   .proposal-card{background:var(--grey-bg);border:1px solid var(--line-soft);border-radius:var(--r-sm);padding:12px;margin-bottom:10px;font-size:12px;line-height:1.5;}
   .proposal-card .pf-label{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--ink-faint);letter-spacing:.04em;margin-bottom:2px;}
@@ -233,7 +237,8 @@
           <td class="cell cell-{{ cell.status }}{% if cell.blanket %} cell-blanket{% endif %}">
             <a href="?unit={{ row.unit_id }}&utility={{ cell.column }}{% if base_qs %}&{{ base_qs }}{% endif %}"
                {% if cell.blanket %}title="From a blanket note — applies to all columns without their own row"{% endif %}
-               aria-label="{{ cell.column|capfirst }}: {% if cell.status == 'ok' %}Approved — {{ cell.label }}{% elif cell.status == 'na' %}Not applicable{% elif cell.status == 'pend' %}Pending review — {{ cell.label }}{% else %}Missing{% endif %}{% if cell.flag %} (flagged){% endif %}">
+               {% if cell.status == 'info' %}title="A source mentions this but not who pays"{% endif %}
+               aria-label="{{ cell.column|capfirst }}: {% if cell.status == 'ok' %}Approved — {{ cell.label }}{% elif cell.status == 'na' %}Not applicable{% elif cell.status == 'pend' %}Pending review — {{ cell.label }}{% elif cell.status == 'info' %}Info only{% else %}Missing{% endif %}{% if cell.flag %} (flagged){% endif %}">
               <span class="icon-{{ cell.status }}" aria-hidden="true"></span>{{ cell.label|default:"Missing" }}{% if cell.flag %}<span class="flag" aria-hidden="true">!</span>{% endif %}
             </a>
           </td>
@@ -275,7 +280,7 @@
   <div class="panel-section">
     <h3>Status</h3>
     <span class="status-chip status-chip-{{ panel.cell.status }}">
-      {% if panel.cell.status == "ok" %}Approved{% elif panel.cell.status == "na" %}N/A{% elif panel.cell.status == "pend" %}Pending review{% else %}Missing{% endif %}
+      {% if panel.cell.status == "ok" %}Approved{% elif panel.cell.status == "na" %}N/A{% elif panel.cell.status == "pend" %}Pending review{% elif panel.cell.status == "info" %}INFO ONLY{% else %}Missing{% endif %}
     </span>
     {% if panel.cell.label %}<span style="margin-left:8px;font-size:13px;font-weight:600;">{{ panel.cell.label }}</span>{% endif %}
     {% if panel.cell.flag %}<span class="flag" style="margin-left:4px;font-size:14px;" title="Flagged for attention">!</span>{% endif %}

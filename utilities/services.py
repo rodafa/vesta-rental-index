@@ -381,21 +381,23 @@ def compute_fingerprint(
 def detect_conflicts(proposals: list[dict]) -> list[dict]:
     """
     Group proposals by (rentvine_unit_id, utility_type). For any group with
-    more than one distinct non-unknown responsibility value, mark all proposals
+    more than one distinct non-unknown conflict class, mark all proposals
     in the group with has_conflict=True and write conflict_note.
 
     Mutates and returns the list.
     """
+    from utilities.grid import conflict_class
+
     groups = defaultdict(list)
     for p in proposals:
         groups[(p["rentvine_unit_id"], p["utility_type"])].append(p)
 
     for (unit_id, utype), group in groups.items():
-        responsibilities = {
-            p["responsibility"] for p in group
+        classes = {
+            conflict_class(p["responsibility"]) for p in group
             if p["responsibility"] != "unknown"
         }
-        if len(responsibilities) > 1:
+        if len(classes) > 1:
             # Build conflict note naming sources and values
             parts = []
             for p in group:
@@ -419,6 +421,48 @@ def _source_description(proposal: dict) -> str:
     if proposal["source_type"] == "note":
         return f"note {proposal['source_note_id']}"
     return f"listing (unit {proposal['rentvine_unit_id']})"
+
+
+def recompute_conflict_for_group(proposals):
+    """
+    Pure function: recompute has_conflict and conflict_note for a group of
+    proposals sharing the same (rentvine_unit_id, utility_type).
+
+    For each proposal:
+    - Split conflict_note on "; ".
+    - Keep pieces starting with "Quote says" (payer-phrase).
+    - Keep other pieces (group-conflict) ONLY if the group still has a real
+      conflict under the new conflict_class rule.
+    - new_has_conflict = any kept payer-phrase pieces OR group still conflicts.
+
+    Returns list of (proposal_pk, new_has_conflict, new_conflict_note) tuples.
+    """
+    from utilities.grid import conflict_class
+
+    # Does the group still have a real conflict?
+    classes = {
+        conflict_class(p["responsibility"]) for p in proposals
+        if p["responsibility"] != "unknown"
+    }
+    group_conflicts = len(classes) > 1
+
+    results = []
+    for p in proposals:
+        old_note = p.get("conflict_note") or ""
+        pieces = [s for s in old_note.split("; ") if s] if old_note else []
+
+        payer_pieces = [s for s in pieces if s.startswith("Quote says")]
+        group_pieces = [s for s in pieces if not s.startswith("Quote says")]
+
+        kept = list(payer_pieces)
+        if group_conflicts:
+            kept.extend(group_pieces)
+
+        new_has_conflict = bool(payer_pieces) or group_conflicts
+        new_note = "; ".join(kept)
+        results.append((p["id"], new_has_conflict, new_note))
+
+    return results
 
 
 # -- Rentvine data fetching ------------------------------------------------

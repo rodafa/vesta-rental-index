@@ -6,6 +6,7 @@ No database access — all functions take plain dicts/lists.
 """
 
 import re
+from collections import defaultdict
 
 # Grid column keys (the 8 utility columns displayed)
 GRID_COLUMNS = ("electric", "water", "sewer", "gas", "oil", "propane", "trash", "internet")
@@ -39,6 +40,23 @@ RESPONSIBILITY_DISPLAY = {
     "unknown": "Unknown",
 }
 
+
+# ---------------------------------------------------------------------------
+# Conflict classification
+# ---------------------------------------------------------------------------
+
+def conflict_class(responsibility):
+    """
+    Map responsibility to a conflict equivalence class.
+
+    "owner" and "included_in_rent" mean the same thing to a tenant,
+    so they are treated as one class for conflict purposes.
+    """
+    if responsibility in ("owner", "included_in_rent"):
+        return "owner_side"
+    return responsibility
+
+
 # ---------------------------------------------------------------------------
 # Blanket-proposal detection
 # ---------------------------------------------------------------------------
@@ -63,6 +81,10 @@ _BLANKET_EXCLUSION_RE = re.compile(
 )
 
 _BLANKET_UTILITY_RE = re.compile(r"\butilit(?:y|ies)\b", re.IGNORECASE)
+
+# A blanket statement ("tenant pays all utilities") does not prove a property
+# has oil or propane.  These columns stay Miss unless a direct row exists.
+BLANKET_EXCLUDED_COLUMNS = frozenset({"oil", "propane"})
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +148,12 @@ def compute_cell_status(
         )
         return {"status": "pend", "label": label, "flag": True, "blanket": True}
 
-    # 6. Miss
+    # 6. Info-only: pending rows exist but ALL are responsibility "unknown"
+    all_pending = list(pending_proposals) + list(alias_pending_proposals)
+    if any(p.get("responsibility") == "unknown" for p in all_pending):
+        return {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+
+    # 7. Miss
     return {"status": "miss", "label": "", "flag": False, "blanket": False}
 
 
@@ -136,8 +163,8 @@ def _compute_flag(proposals):
         return True
     if any(p.get("basis") == "catch_all" for p in proposals):
         return True
-    responsibilities = {p["responsibility"] for p in proposals}
-    if len(responsibilities) > 1:
+    classes = {conflict_class(p["responsibility"]) for p in proposals}
+    if len(classes) > 1:
         return True
     return False
 
@@ -217,9 +244,10 @@ def build_grid(units, approved_map, proposals_map, notes_map, occupancy_map):
             pending = proposals.get(col, [])
             alias_pending = proposals.get(alias_col, []) if alias_col else []
 
+            blanket = [] if col in BLANKET_EXCLUDED_COLUMNS else blanket_rows
             cell = compute_cell_status(
                 col, approved_row, alias_approved_row, pending, alias_pending,
-                blanket_pending=blanket_rows,
+                blanket_pending=blanket,
             )
             cells[col] = cell
             cell_list.append({"column": col, **cell})
@@ -262,7 +290,8 @@ def prepare_panel_proposals(proposals, utility_type):
         if ptype == utility_type or (alias and ptype == alias):
             result.append({**p, "is_blanket": False})
         elif ptype == "other" and is_blanket_proposal(p):
-            result.append({**p, "is_blanket": True})
+            if utility_type not in BLANKET_EXCLUDED_COLUMNS:
+                result.append({**p, "is_blanket": True})
     return result
 
 
@@ -281,8 +310,8 @@ def has_gap(row):
 
 
 def needs_review(row):
-    """True if any column is pend."""
-    return any(c["status"] == "pend" for c in row["cells"].values())
+    """True if any column is pend or info."""
+    return any(c["status"] in ("pend", "info") for c in row["cells"].values())
 
 
 def is_flagged(row):
@@ -359,6 +388,8 @@ def csv_cell_text(cell):
         if cell.get("blanket"):
             text += " (blanket)"
         return text
+    if status == "info":
+        return "Info only"
     return "Missing"
 
 
@@ -384,3 +415,57 @@ def build_csv_rows(rows):
         line.append(sanitize_csv_value(note_text))
         result.append(line)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Provider display name normalisation
+# ---------------------------------------------------------------------------
+
+# Manual alias: casefold form → canonical casefold group key.
+# "Duke" alone should be grouped with "Duke Energy".
+PROVIDER_ALIASES = {"duke": "duke energy"}
+
+
+def build_provider_display_map(provider_strings):
+    """
+    Build a mapping {original_string: display_name} from a list of provider
+    strings (with duplicates — frequency matters).
+
+    Rules:
+    - Collapse internal whitespace in each string.
+    - Group by casefold (after alias resolution).
+    - Display name: the most-frequent variant that is NOT all-uppercase and
+      NOT all-lowercase.  If every variant is all-caps or all-lower, keep the
+      most-frequent variant as-is (never title-case, so FCC stays FCC).
+    """
+    from collections import Counter
+
+    # 1. Collapse whitespace, keep originals
+    collapsed = []
+    for s in provider_strings:
+        c = re.sub(r"\s+", " ", s).strip()
+        if c:
+            collapsed.append(c)
+
+    # 2. Group by casefold (with alias resolution)
+    groups = defaultdict(list)
+    for c in collapsed:
+        key = c.casefold()
+        key = PROVIDER_ALIASES.get(key, key)
+        groups[key].append(c)
+
+    # 3. Pick display name per group
+    display_map = {}
+    for key, variants in groups.items():
+        freq = Counter(variants)
+        # Prefer mixed-case variants
+        mixed = [(v, n) for v, n in freq.items()
+                 if not v.isupper() and not v.islower()]
+        if mixed:
+            best = max(mixed, key=lambda vn: vn[1])[0]
+        else:
+            best = freq.most_common(1)[0][0]
+        for v in freq:
+            display_map[v] = best
+
+    return display_map

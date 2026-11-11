@@ -1114,14 +1114,17 @@ class PayerMismatchIntegrationTests(SimpleTestCase):
 from datetime import date
 
 from utilities.grid import (
+    BLANKET_EXCLUDED_COLUMNS,
     GRID_COLUMNS,
     RESPONSIBILITY_DISPLAY,
     _natural_sort_key,
     apply_filter,
     build_csv_rows,
     build_grid,
+    build_provider_display_map,
     compute_cell_status,
     compute_tile_counts,
+    conflict_class,
     csv_cell_text,
     has_gap,
     is_blanket_proposal,
@@ -1133,6 +1136,7 @@ from utilities.grid import (
     prepare_panel_proposals,
     sanitize_csv_value,
 )
+from utilities.services import recompute_conflict_for_group
 from utilities.views import _grid_url
 
 
@@ -1355,12 +1359,13 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     # -- Unknown and miss --
 
-    def test_pend_unknown_ignored(self):
+    def test_pend_unknown_gives_info(self):
         result = compute_cell_status(
             "electric", None, None,
             [_make_proposal("unknown")], [],
         )
-        self.assertEqual(result["status"], "miss")
+        self.assertEqual(result["status"], "info")
+        self.assertEqual(result["label"], "Info only")
 
     def test_miss_no_data(self):
         result = compute_cell_status("electric", None, None, [], [])
@@ -1486,19 +1491,22 @@ class BuildGridTests(SimpleTestCase):
         self.assertEqual(rows[0]["cell_list"][0]["column"], "electric")
 
     def test_blanket_only_unit(self):
-        """Unit with only a blanket row: all 8 cells pend/Tenant/flagged/blanket."""
+        """Unit with only a blanket row: non-excluded cells pend, oil/propane miss."""
         units = [self._unit(1, 100, "123 Main St")]
         proposals = {100: {"other": [_make_pending_blanket()]}}
         rows = build_grid(units, {}, proposals, {}, {})
         for col in GRID_COLUMNS:
             cell = rows[0]["cells"][col]
-            self.assertEqual(cell["status"], "pend", f"{col} status")
-            self.assertEqual(cell["label"], "Tenant", f"{col} label")
-            self.assertTrue(cell["flag"], f"{col} flag")
-            self.assertTrue(cell["blanket"], f"{col} blanket")
+            if col in BLANKET_EXCLUDED_COLUMNS:
+                self.assertEqual(cell["status"], "miss", f"{col} status")
+            else:
+                self.assertEqual(cell["status"], "pend", f"{col} status")
+                self.assertEqual(cell["label"], "Tenant", f"{col} label")
+                self.assertTrue(cell["flag"], f"{col} flag")
+                self.assertTrue(cell["blanket"], f"{col} blanket")
 
     def test_blanket_plus_direct(self):
-        """Blanket + direct Electric=owner: Electric direct, others blanket."""
+        """Blanket + direct Electric=owner: Electric direct, non-excluded others blanket, oil/propane miss."""
         units = [self._unit(1, 100, "123 Main St")]
         proposals = {100: {
             "other": [_make_pending_blanket()],
@@ -1512,8 +1520,11 @@ class BuildGridTests(SimpleTestCase):
             if col == "electric":
                 continue
             cell = rows[0]["cells"][col]
-            self.assertEqual(cell["label"], "Tenant", f"{col} label")
-            self.assertTrue(cell["blanket"], f"{col} blanket")
+            if col in BLANKET_EXCLUDED_COLUMNS:
+                self.assertEqual(cell["status"], "miss", f"{col} status")
+            else:
+                self.assertEqual(cell["label"], "Tenant", f"{col} label")
+                self.assertTrue(cell["blanket"], f"{col} blanket")
 
 
 class PreparePanelProposalsTests(SimpleTestCase):
@@ -1905,3 +1916,409 @@ class GridUrlTests(SimpleTestCase):
 
     def test_empty_params(self):
         self.assertEqual(_grid_url({}), "/dashboard/utilities/")
+
+
+# ==========================================================================
+# conflict_class tests
+# ==========================================================================
+
+class ConflictClassTests(SimpleTestCase):
+
+    def test_owner_returns_owner_side(self):
+        self.assertEqual(conflict_class("owner"), "owner_side")
+
+    def test_included_in_rent_returns_owner_side(self):
+        self.assertEqual(conflict_class("included_in_rent"), "owner_side")
+
+    def test_owner_equals_included(self):
+        self.assertEqual(conflict_class("owner"), conflict_class("included_in_rent"))
+
+    def test_tenant_returns_tenant(self):
+        self.assertEqual(conflict_class("tenant"), "tenant")
+
+    def test_tenant_differs_from_owner(self):
+        self.assertNotEqual(conflict_class("tenant"), conflict_class("owner"))
+
+    def test_not_applicable(self):
+        self.assertEqual(conflict_class("not_applicable"), "not_applicable")
+
+    def test_unknown(self):
+        self.assertEqual(conflict_class("unknown"), "unknown")
+
+
+# ==========================================================================
+# detect_conflicts with conflict_class (owner vs included_in_rent)
+# ==========================================================================
+
+class DetectConflictsOwnerIncludedTests(SimpleTestCase):
+
+    def test_owner_vs_included_not_conflict(self):
+        proposals = [
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 10, "has_conflict": False, "conflict_note": ""},
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "included_in_rent", "source_type": "note",
+             "source_note_id": 20, "has_conflict": False, "conflict_note": ""},
+        ]
+        result = detect_conflicts(proposals)
+        self.assertFalse(result[0]["has_conflict"])
+        self.assertFalse(result[1]["has_conflict"])
+
+    def test_owner_vs_tenant_is_conflict(self):
+        proposals = [
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 10, "has_conflict": False, "conflict_note": ""},
+            {"rentvine_unit_id": 1, "utility_type": "water",
+             "responsibility": "tenant", "source_type": "note",
+             "source_note_id": 20, "has_conflict": False, "conflict_note": ""},
+        ]
+        result = detect_conflicts(proposals)
+        self.assertTrue(result[0]["has_conflict"])
+        self.assertTrue(result[1]["has_conflict"])
+
+    def test_three_sources_owner_owner_included_not_conflict(self):
+        proposals = [
+            {"rentvine_unit_id": 1, "utility_type": "electric",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 10, "has_conflict": False, "conflict_note": ""},
+            {"rentvine_unit_id": 1, "utility_type": "electric",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 20, "has_conflict": False, "conflict_note": ""},
+            {"rentvine_unit_id": 1, "utility_type": "electric",
+             "responsibility": "included_in_rent", "source_type": "listing_description",
+             "source_note_id": None, "has_conflict": False, "conflict_note": ""},
+        ]
+        result = detect_conflicts(proposals)
+        for p in result:
+            self.assertFalse(p["has_conflict"])
+
+    def test_owner_owner_tenant_is_conflict(self):
+        proposals = [
+            {"rentvine_unit_id": 1, "utility_type": "electric",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 10, "has_conflict": False, "conflict_note": ""},
+            {"rentvine_unit_id": 1, "utility_type": "electric",
+             "responsibility": "owner", "source_type": "note",
+             "source_note_id": 20, "has_conflict": False, "conflict_note": ""},
+            {"rentvine_unit_id": 1, "utility_type": "electric",
+             "responsibility": "tenant", "source_type": "listing_description",
+             "source_note_id": None, "has_conflict": False, "conflict_note": ""},
+        ]
+        result = detect_conflicts(proposals)
+        for p in result:
+            self.assertTrue(p["has_conflict"])
+
+
+# ==========================================================================
+# _compute_flag with conflict_class
+# ==========================================================================
+
+class ComputeFlagConflictClassTests(SimpleTestCase):
+
+    def test_owner_vs_included_no_flag(self):
+        """Two pending proposals: owner and included_in_rent should NOT flag."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("owner"), _make_proposal("included_in_rent")],
+            [],
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertFalse(result["flag"])
+
+    def test_owner_vs_tenant_flags(self):
+        """Two pending proposals: owner and tenant SHOULD flag."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("owner"), _make_proposal("tenant")],
+            [],
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertTrue(result["flag"])
+
+
+# ==========================================================================
+# recompute_conflict_for_group tests
+# ==========================================================================
+
+class RecomputeConflictForGroupTests(SimpleTestCase):
+
+    def test_group_only_conflict_cleared(self):
+        """owner vs included_in_rent group note cleared."""
+        proposals = [
+            {"id": 1, "responsibility": "owner", "has_conflict": True,
+             "conflict_note": "water @ unit 10: note 1: owner vs note 2: included_in_rent"},
+            {"id": 2, "responsibility": "included_in_rent", "has_conflict": True,
+             "conflict_note": "water @ unit 10: note 1: owner vs note 2: included_in_rent"},
+        ]
+        results = recompute_conflict_for_group(proposals)
+        for pk, flag, note in results:
+            self.assertFalse(flag)
+            self.assertEqual(note, "")
+
+    def test_payer_phrase_kept_flag_stays(self):
+        """Payer-phrase note is kept and has_conflict stays True."""
+        proposals = [
+            {"id": 1, "responsibility": "owner", "has_conflict": True,
+             "conflict_note": "Quote says tenant/resident pays but row says owner"},
+        ]
+        results = recompute_conflict_for_group(proposals)
+        pk, flag, note = results[0]
+        self.assertTrue(flag)
+        self.assertEqual(note, "Quote says tenant/resident pays but row says owner")
+
+    def test_mixed_note_keeps_only_payer_piece(self):
+        """Mixed note (payer + group) keeps only payer when group clears."""
+        proposals = [
+            {"id": 1, "responsibility": "owner", "has_conflict": True,
+             "conflict_note": "Quote says tenant/resident pays but row says owner; water @ unit 10: note 1: owner vs note 2: included_in_rent"},
+            {"id": 2, "responsibility": "included_in_rent", "has_conflict": True,
+             "conflict_note": "water @ unit 10: note 1: owner vs note 2: included_in_rent"},
+        ]
+        results = recompute_conflict_for_group(proposals)
+        # Proposal 1: payer piece kept, group piece dropped
+        pk1, flag1, note1 = results[0]
+        self.assertTrue(flag1)
+        self.assertEqual(note1, "Quote says tenant/resident pays but row says owner")
+        # Proposal 2: group piece dropped, no payer piece
+        pk2, flag2, note2 = results[1]
+        self.assertFalse(flag2)
+        self.assertEqual(note2, "")
+
+    def test_real_conflict_stays(self):
+        """owner vs tenant is still a real conflict — kept."""
+        proposals = [
+            {"id": 1, "responsibility": "owner", "has_conflict": True,
+             "conflict_note": "water @ unit 10: note 1: owner vs note 2: tenant"},
+            {"id": 2, "responsibility": "tenant", "has_conflict": True,
+             "conflict_note": "water @ unit 10: note 1: owner vs note 2: tenant"},
+        ]
+        results = recompute_conflict_for_group(proposals)
+        for pk, flag, note in results:
+            self.assertTrue(flag)
+            self.assertIn("owner vs note 2: tenant", note)
+
+    def test_idempotent(self):
+        """Running twice gives the same result."""
+        proposals = [
+            {"id": 1, "responsibility": "owner", "has_conflict": True,
+             "conflict_note": "Quote says tenant/resident pays but row says owner; water @ unit 10: note 1: owner vs note 2: included_in_rent"},
+            {"id": 2, "responsibility": "included_in_rent", "has_conflict": True,
+             "conflict_note": "water @ unit 10: note 1: owner vs note 2: included_in_rent"},
+        ]
+        first = recompute_conflict_for_group(proposals)
+        # Apply first pass results back
+        updated = []
+        for orig, (pk, flag, note) in zip(proposals, first):
+            updated.append({**orig, "has_conflict": flag, "conflict_note": note})
+        second = recompute_conflict_for_group(updated)
+        self.assertEqual(first, second)
+
+
+# ==========================================================================
+# Blanket excluded columns tests
+# ==========================================================================
+
+class BlanketExcludedColumnsTests(SimpleTestCase):
+
+    def test_oil_propane_stay_miss_with_blanket(self):
+        """Oil and propane cells stay miss when only blanket rows exist."""
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "10 Main St", "unit_number": ""}]
+        proposals_map = {100: {"other": [_make_pending_blanket()]}}
+        rows = build_grid(units, {}, proposals_map, {}, {})
+        row = rows[0]
+        self.assertEqual(row["cells"]["oil"]["status"], "miss")
+        self.assertEqual(row["cells"]["propane"]["status"], "miss")
+
+    def test_other_columns_still_fill_from_blanket(self):
+        """The other 6 columns still get pend from blanket."""
+        units = [{"id": 1, "rentvine_id": 100, "display_address": "10 Main St", "unit_number": ""}]
+        proposals_map = {100: {"other": [_make_pending_blanket()]}}
+        rows = build_grid(units, {}, proposals_map, {}, {})
+        row = rows[0]
+        for col in GRID_COLUMNS:
+            if col in BLANKET_EXCLUDED_COLUMNS:
+                self.assertEqual(row["cells"][col]["status"], "miss", f"{col} should be miss")
+            else:
+                self.assertEqual(row["cells"][col]["status"], "pend", f"{col} should be pend")
+
+    def test_panel_oil_drops_blanket(self):
+        """prepare_panel_proposals for oil drops blanket rows."""
+        blanket = _make_blanket()
+        direct = {"utility_type": "oil", "responsibility": "tenant",
+                   "evidence_quote": "Oil: tenant", "has_conflict": False, "basis": "stated"}
+        proposals = [blanket, direct]
+        result = prepare_panel_proposals(proposals, "oil")
+        types = [p["utility_type"] for p in result]
+        self.assertIn("oil", types)
+        self.assertNotIn("other", types)
+
+    def test_panel_electric_keeps_blanket(self):
+        """prepare_panel_proposals for electric keeps blanket rows."""
+        blanket = _make_blanket()
+        proposals = [blanket]
+        result = prepare_panel_proposals(proposals, "electric")
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["is_blanket"])
+
+
+# ==========================================================================
+# Info status tests
+# ==========================================================================
+
+class InfoStatusTests(SimpleTestCase):
+
+    def test_all_unknown_pending_gives_info(self):
+        """All-unknown pending proposals produce info status."""
+        result = compute_cell_status(
+            "propane", None, None,
+            [_make_proposal("unknown")], [],
+        )
+        self.assertEqual(result["status"], "info")
+        self.assertEqual(result["label"], "Info only")
+        self.assertFalse(result["flag"])
+        self.assertFalse(result["blanket"])
+
+    def test_real_row_beats_info(self):
+        """A non-unknown pending proposal beats info."""
+        result = compute_cell_status(
+            "propane", None, None,
+            [_make_proposal("tenant"), _make_proposal("unknown")], [],
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertEqual(result["label"], "Tenant")
+
+    def test_blanket_beats_info(self):
+        """Blanket pending beats info (blanket comes before info in priority)."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("unknown")], [],
+            blanket_pending=[_make_pending_blanket()],
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertTrue(result["blanket"])
+
+    def test_approved_beats_info(self):
+        """Approved row beats info."""
+        result = compute_cell_status(
+            "propane", _make_approved("tenant"), None,
+            [_make_proposal("unknown")], [],
+        )
+        self.assertEqual(result["status"], "ok")
+
+    def test_info_not_has_gap(self):
+        """Info cell is not a gap."""
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+                 for col in GRID_COLUMNS}
+        cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+        row = {"cells": cells}
+        self.assertFalse(has_gap(row))
+
+    def test_info_not_missing_oil_propane(self):
+        """Info cell on propane is not missing_oil_propane."""
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+                 for col in GRID_COLUMNS}
+        cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+        row = {"cells": cells}
+        self.assertFalse(missing_oil_propane(row))
+
+    def test_info_counts_as_needs_review(self):
+        """Info cell counts as needs_review."""
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+                 for col in GRID_COLUMNS}
+        cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+        row = {"cells": cells}
+        self.assertTrue(needs_review(row))
+
+    def test_info_not_complete(self):
+        """Info cell means unit is not complete."""
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+                 for col in GRID_COLUMNS}
+        cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+        row = {"cells": cells}
+        self.assertFalse(is_complete(row))
+
+    def test_csv_text_info(self):
+        """CSV text for info cell is 'Info only'."""
+        cell = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+        self.assertEqual(csv_cell_text(cell), "Info only")
+
+    def test_info_from_alias_unknown(self):
+        """Unknown proposals via alias still produce info."""
+        result = compute_cell_status(
+            "water", None, None,
+            [], [_make_proposal("unknown")],
+        )
+        self.assertEqual(result["status"], "info")
+
+
+# ==========================================================================
+# Provider display map tests
+# ==========================================================================
+
+class ProviderDisplayMapTests(SimpleTestCase):
+
+    def test_three_casings_collapse(self):
+        """Three casings of City of Asheville collapse to mixed-case variant."""
+        providers = (
+            ["City of Asheville"] * 72
+            + ["CITY OF ASHEVILLE"] * 45
+            + ["city of asheville"] * 2
+        )
+        m = build_provider_display_map(providers)
+        self.assertEqual(m["CITY OF ASHEVILLE"], "City of Asheville")
+        self.assertEqual(m["city of asheville"], "City of Asheville")
+        self.assertEqual(m["City of Asheville"], "City of Asheville")
+
+    def test_all_caps_only_stays(self):
+        """All-caps-only group stays as-is (never title-cased)."""
+        providers = ["FCC ENVIRONMENTAL"] * 10
+        m = build_provider_display_map(providers)
+        self.assertEqual(m["FCC ENVIRONMENTAL"], "FCC ENVIRONMENTAL")
+
+    def test_duke_alias(self):
+        """'Duke' maps to the 'Duke Energy' group via alias."""
+        providers = (
+            ["Duke Energy"] * 57
+            + ["DUKE ENERGY"] * 42
+            + ["Duke"] * 10
+        )
+        m = build_provider_display_map(providers)
+        self.assertEqual(m["Duke Energy"], "Duke Energy")
+        self.assertEqual(m["DUKE ENERGY"], "Duke Energy")
+        self.assertEqual(m["Duke"], "Duke Energy")
+
+    def test_whitespace_collapse(self):
+        """Internal whitespace is collapsed before grouping."""
+        providers = ["  City   of   Asheville  "] * 5 + ["City of Asheville"] * 10
+        m = build_provider_display_map(providers)
+        self.assertEqual(m["City of Asheville"], "City of Asheville")
+        self.assertEqual(m["City of Asheville"], "City of Asheville")
+
+    def test_hoa_stays_uppercase(self):
+        """All-caps 'HOA' stays 'HOA'."""
+        providers = ["HOA"] * 5
+        m = build_provider_display_map(providers)
+        self.assertEqual(m["HOA"], "HOA")
+
+    def test_empty_strings_excluded(self):
+        """Empty strings produce no entries."""
+        m = build_provider_display_map(["", "  ", "Duke Energy"])
+        self.assertNotIn("", m)
+        self.assertEqual(m["Duke Energy"], "Duke Energy")
+
+    def test_realistic_full_set(self):
+        """Full realistic frequency set confirms correct display names."""
+        providers = (
+            ["CITY OF ASHEVILLE"] * 45
+            + ["City of Asheville"] * 72
+            + ["city of asheville"] * 2
+            + ["Duke Energy"] * 57
+            + ["DUKE ENERGY"] * 42
+            + ["Duke"] * 10
+        )
+        m = build_provider_display_map(providers)
+        self.assertEqual(m["CITY OF ASHEVILLE"], "City of Asheville")
+        self.assertEqual(m["DUKE ENERGY"], "Duke Energy")
+        self.assertEqual(m["Duke"], "Duke Energy")
