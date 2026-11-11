@@ -1164,6 +1164,28 @@ def _make_blanket(quote="TENANT PAYS FOR ALL UTILITIES", responsibility="tenant"
     }
 
 
+def _make_pending_blanket(quote="TENANT PAYS FOR ALL UTILITIES", responsibility="tenant"):
+    """Helper: blanket proposal shaped like fetch_pending_proposals output.
+
+    Must mirror the dict keys in fetch_pending_proposals — no utility_type key;
+    the type is only the outer map key in the proposals_map.
+    """
+    return {
+        "id": 1,
+        "responsibility": responsibility,
+        "has_conflict": False,
+        "basis": "stated",
+        "provider": "",
+        "arrangement": "",
+        "evidence_quote": quote,
+        "source_type": "note",
+        "source_level": "unit",
+        "source_date": None,
+        "quote_verified": False,
+        "conflict_note": "",
+    }
+
+
 class IsBlanketProposalTests(SimpleTestCase):
 
     def test_tenant_pays_all_utilities(self):
@@ -1466,7 +1488,7 @@ class BuildGridTests(SimpleTestCase):
     def test_blanket_only_unit(self):
         """Unit with only a blanket row: all 8 cells pend/Tenant/flagged/blanket."""
         units = [self._unit(1, 100, "123 Main St")]
-        proposals = {100: {"other": [_make_blanket()]}}
+        proposals = {100: {"other": [_make_pending_blanket()]}}
         rows = build_grid(units, {}, proposals, {}, {})
         for col in GRID_COLUMNS:
             cell = rows[0]["cells"][col]
@@ -1479,7 +1501,7 @@ class BuildGridTests(SimpleTestCase):
         """Blanket + direct Electric=owner: Electric direct, others blanket."""
         units = [self._unit(1, 100, "123 Main St")]
         proposals = {100: {
-            "other": [_make_blanket()],
+            "other": [_make_pending_blanket()],
             "electric": [_make_proposal("owner")],
         }}
         rows = build_grid(units, {}, proposals, {}, {})

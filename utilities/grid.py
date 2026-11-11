@@ -204,7 +204,7 @@ def build_grid(units, approved_map, proposals_map, notes_map, occupancy_map):
 
         approved = approved_map.get(unit_id, {})
         proposals = proposals_map.get(rentvine_id, {}) if rentvine_id else {}
-        blanket_rows = [p for p in proposals.get("other", []) if is_blanket_proposal(p)]
+        blanket_rows = [p for p in proposals.get("other", []) if is_blanket_proposal({**p, "utility_type": "other"})]
 
         cells = {}
         cell_list = []
