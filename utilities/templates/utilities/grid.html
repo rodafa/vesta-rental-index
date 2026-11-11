@@ -98,7 +98,7 @@
   .cell-miss a{color:var(--red);}
   .cell-info{background:var(--sky-soft);}
   .cell-info a{color:#3a7aa8;}
-  .cell-blanket a{font-style:italic;}
+  .cell-blanket a, .cell-inferred a{font-style:italic;}
 
   /* Status icons (text-based for accessibility) */
   .icon-ok::before{content:"\2713 ";/* checkmark */}
@@ -234,10 +234,9 @@
           <td class="col-occ">{{ row.occupancy_text }}</td>
 
           {% for cell in row.cell_list %}
-          <td class="cell cell-{{ cell.status }}{% if cell.blanket %} cell-blanket{% endif %}">
+          <td class="cell cell-{{ cell.status }}{% if cell.blanket %} cell-blanket{% elif cell.inferred %} cell-inferred{% endif %}">
             <a href="?unit={{ row.unit_id }}&utility={{ cell.column }}{% if base_qs %}&{{ base_qs }}{% endif %}"
-               {% if cell.blanket %}title="From a blanket note — applies to all columns without their own row"{% endif %}
-               {% if cell.status == 'info' %}title="A source mentions this but not who pays"{% endif %}
+               {% if cell.inferred %}title="Inferred from an 'all other utilities' line"{% elif cell.status == 'info' %}title="A source mentions this but not who pays"{% endif %}
                aria-label="{{ cell.column|capfirst }}: {% if cell.status == 'ok' %}Approved — {{ cell.label }}{% elif cell.status == 'na' %}Not applicable{% elif cell.status == 'pend' %}Pending review — {{ cell.label }}{% elif cell.status == 'info' %}Info only{% else %}Missing{% endif %}{% if cell.flag %} (flagged){% endif %}">
               <span class="icon-{{ cell.status }}" aria-hidden="true"></span>{{ cell.label|default:"Missing" }}{% if cell.flag %}<span class="flag" aria-hidden="true">!</span>{% endif %}
             </a>
@@ -301,6 +300,9 @@
       <div class="pf-label">Arrangement</div>
       <div class="pf-value">{{ panel.approved.arrangement }}</div>
       {% endif %}
+      {% if panel.approved.approved_by_name %}
+      <div style="font-size:11px;color:var(--ink-faint);margin-top:4px;">Approved by {{ panel.approved.approved_by_name }}{% if panel.approved.approved_at %} on {{ panel.approved.approved_at|date:"M d, Y" }}{% endif %}</div>
+      {% endif %}
     </div>
   </div>
   {% endif %}
@@ -344,10 +346,74 @@
       {% if p.conflict_note %}
       <div style="margin-top:8px;font-size:11px;color:var(--orange);">{{ p.conflict_note }}</div>
       {% endif %}
+
+      <!-- Approve / Reject actions -->
+      <div style="margin-top:10px;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;">
+        {% if p.responsibility == "unknown" %}
+        <span style="font-size:11px;color:var(--ink-faint);font-style:italic;">Cannot approve unknown payer — use Change to set the answer.</span>
+        {% else %}
+        <form method="post" action="?unit={{ panel.unit_id }}&utility={{ panel.utility }}{% if base_qs %}&{{ base_qs }}{% endif %}" style="margin:0;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="approve">
+          <input type="hidden" name="proposal_id" value="{{ p.id }}">
+          <button type="submit" class="btn btn-primary" style="padding:5px 12px;font-size:11px;">Approve</button>
+        </form>
+        {% endif %}
+        <details style="font-size:11px;">
+          <summary style="cursor:pointer;color:var(--red);font-weight:600;">Reject</summary>
+          <form method="post" action="?unit={{ panel.unit_id }}&utility={{ panel.utility }}{% if base_qs %}&{{ base_qs }}{% endif %}" style="margin-top:4px;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="reject">
+            <input type="hidden" name="proposal_id" value="{{ p.id }}">
+            <input type="text" name="review_note" placeholder="Reason (optional, max 500)" maxlength="500" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:11px;margin-bottom:4px;">
+            <button type="submit" class="btn btn-quiet" style="padding:4px 10px;font-size:11px;color:var(--red);border-color:var(--red);">Confirm reject</button>
+          </form>
+        </details>
+      </div>
     </div>
     {% endfor %}
   </div>
   {% endif %}
+
+  <!-- Set or change answer form -->
+  <div class="panel-section">
+    <h3>Set or change answer</h3>
+    <form method="post" action="?unit={{ panel.unit_id }}&utility={{ panel.utility }}{% if base_qs %}&{{ base_qs }}{% endif %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="change">
+      <input type="hidden" name="unit_id" value="{{ panel.unit_id }}">
+      <input type="hidden" name="column" value="{{ panel.utility }}">
+      <div style="margin-bottom:6px;">
+        <label style="font-size:11px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px;">Type</label>
+        <select name="utility_type" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:12px;">
+          {% for t in panel.allowed_types %}<option value="{{ t }}"{% if panel.approved and panel.approved.utility_type == t %} selected{% endif %}>{{ t|capfirst }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="margin-bottom:6px;">
+        <label style="font-size:11px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px;">Responsibility</label>
+        <select name="responsibility" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:12px;">
+          {% for r in panel.responsibilities %}<option value="{{ r }}"{% if panel.approved and panel.approved.responsibility == r %} selected{% endif %}>{{ r }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="margin-bottom:6px;">
+        <label style="font-size:11px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px;">Provider (optional)</label>
+        <input type="text" name="provider" value="{% if panel.approved %}{{ panel.approved.provider }}{% endif %}" maxlength="200" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:12px;">
+      </div>
+      {% if panel.is_oil_propane %}
+      <div style="margin-bottom:6px;">
+        <label style="font-size:11px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px;">Tank size (optional)</label>
+        <input type="text" name="tank_size" value="" maxlength="100" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:12px;">
+      </div>
+      <div style="margin-bottom:6px;">
+        <label style="font-size:11px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px;">Tank location (optional)</label>
+        <input type="text" name="tank_location" value="" maxlength="100" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:var(--r-sm);font:inherit;font-size:12px;">
+      </div>
+      {% endif %}
+      <div style="margin-top:8px;display:flex;justify-content:flex-end;">
+        <button type="submit" class="btn btn-quiet" style="padding:6px 14px;font-size:12px;">Save answer</button>
+      </div>
+    </form>
+  </div>
   {% endif %}
 
   <!-- Notes -->
@@ -368,6 +434,7 @@
   <!-- Add note form -->
   <form class="add-note-form" method="post" action="?unit={{ panel.unit_id }}{% if panel.utility %}&utility={{ panel.utility }}{% endif %}{% if base_qs %}&{{ base_qs }}{% endif %}">
     {% csrf_token %}
+    <input type="hidden" name="action" value="add_note">
     <h3>Add a note</h3>
     <input type="hidden" name="unit_id" value="{{ panel.unit_id }}">
     {% if panel.utility %}

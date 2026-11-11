@@ -13,7 +13,9 @@ from django.views.decorators.http import require_GET, require_http_methods
 from core.models import Unit
 from utilities.grid import (
     ALIAS_MAP,
+    ALLOWED_TYPES_FOR_COLUMN,
     GRID_COLUMNS,
+    MANUAL_RESPONSIBILITIES,
     RESPONSIBILITY_DISPLAY,
     VALID_FILTERS,
     apply_filter,
@@ -22,8 +24,15 @@ from utilities.grid import (
     build_provider_display_map,
     compute_tile_counts,
     prepare_panel_proposals,
+    validate_manual_answer,
 )
 from utilities.models import UTILITY_TYPE_CHOICES, UnitNote
+from utilities.review_services import (
+    ReviewError,
+    approve_proposal,
+    reject_proposal,
+    save_manual_answer,
+)
 from utilities.selectors import (
     fetch_active_units,
     fetch_all_provider_strings,
@@ -84,12 +93,22 @@ def _preserve_get_params(request):
 @require_http_methods(["GET", "POST"])
 @login_required
 def utility_grid(request):
-    """GET: render the grid. POST: add a note then redirect."""
+    """GET: render the grid. POST: dispatch to the appropriate action handler."""
     if not request.user.can_access("utilities"):
         return HttpResponseForbidden("Access denied.")
 
     if request.method == "POST":
-        return _add_note(request)
+        action = request.POST.get("action", "")
+        if action == "approve":
+            return _handle_approve(request)
+        if action == "reject":
+            return _handle_reject(request)
+        if action == "change":
+            return _handle_change(request)
+        if action == "add_note":
+            return _add_note(request)
+        messages.error(request, "Unknown action.")
+        return HttpResponseRedirect(_grid_url(_preserve_get_params(request)))
     return _render_grid(request)
 
 
@@ -189,6 +208,10 @@ def _render_grid(request):
                         "proposals": proposals_with_display,
                         "notes": notes,
                         "approved": approved_detail,
+                        "allowed_types": ALLOWED_TYPES_FOR_COLUMN.get(panel_utility, ()),
+                        "responsibilities": MANUAL_RESPONSIBILITIES,
+                        "responsibility_labels": RESPONSIBILITY_DISPLAY,
+                        "is_oil_propane": panel_utility in ("oil", "propane"),
                     }
                 else:
                     # Unit-level panel (all notes)
@@ -215,6 +238,81 @@ def _render_grid(request):
         "total_units": len(all_rows),
         "base_qs": base_qs,
     })
+
+
+# ---------------------------------------------------------------------------
+# Approve / Reject / Change (POST handlers)
+# ---------------------------------------------------------------------------
+
+def _handle_approve(request):
+    params = _preserve_get_params(request)
+    proposal_id_str = request.POST.get("proposal_id", "")
+    try:
+        proposal_id = int(proposal_id_str)
+    except (ValueError, TypeError):
+        messages.error(request, "Invalid proposal.")
+        return HttpResponseRedirect(_grid_url(params))
+
+    try:
+        msg = approve_proposal(proposal_id, request.user)
+        messages.success(request, msg)
+    except ReviewError as e:
+        messages.error(request, str(e))
+
+    return HttpResponseRedirect(_grid_url(params))
+
+
+def _handle_reject(request):
+    params = _preserve_get_params(request)
+    proposal_id_str = request.POST.get("proposal_id", "")
+    review_note = request.POST.get("review_note", "")
+    try:
+        proposal_id = int(proposal_id_str)
+    except (ValueError, TypeError):
+        messages.error(request, "Invalid proposal.")
+        return HttpResponseRedirect(_grid_url(params))
+
+    try:
+        msg = reject_proposal(proposal_id, request.user, review_note)
+        messages.success(request, msg)
+    except ReviewError as e:
+        messages.error(request, str(e))
+
+    return HttpResponseRedirect(_grid_url(params))
+
+
+def _handle_change(request):
+    params = _preserve_get_params(request)
+    unit_id_str = request.POST.get("unit_id", "")
+    column = request.POST.get("column", "").strip()
+    utility_type = request.POST.get("utility_type", "").strip()
+    responsibility = request.POST.get("responsibility", "").strip()
+    provider = request.POST.get("provider", "").strip()
+    extras = {
+        "tank_size": request.POST.get("tank_size", ""),
+        "tank_location": request.POST.get("tank_location", ""),
+    }
+
+    try:
+        unit_id = int(unit_id_str)
+    except (ValueError, TypeError):
+        messages.error(request, "Invalid unit.")
+        return HttpResponseRedirect(_grid_url(params))
+
+    ok, err, cleaned = validate_manual_answer(
+        column, utility_type, responsibility, provider, extras,
+    )
+    if not ok:
+        messages.error(request, err)
+        return HttpResponseRedirect(_grid_url(params))
+
+    try:
+        msg = save_manual_answer(unit_id, column, cleaned, request.user)
+        messages.success(request, msg)
+    except ReviewError as e:
+        messages.error(request, str(e))
+
+    return HttpResponseRedirect(_grid_url(params))
 
 
 # ---------------------------------------------------------------------------

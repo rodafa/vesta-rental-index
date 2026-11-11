@@ -1114,14 +1114,20 @@ class PayerMismatchIntegrationTests(SimpleTestCase):
 from datetime import date
 
 from utilities.grid import (
+    ALLOWED_TYPES_FOR_COLUMN,
     BLANKET_EXCLUDED_COLUMNS,
     GRID_COLUMNS,
+    MANUAL_RESPONSIBILITIES,
     RESPONSIBILITY_DISPLAY,
     _natural_sort_key,
     apply_filter,
+    approved_rows_to_replace,
+    blanket_columns_to_fill,
     build_csv_rows,
     build_grid,
     build_provider_display_map,
+    check_approve_proposal,
+    column_group,
     compute_cell_status,
     compute_tile_counts,
     conflict_class,
@@ -1135,6 +1141,9 @@ from utilities.grid import (
     occupancy_text,
     prepare_panel_proposals,
     sanitize_csv_value,
+    siblings_to_supersede,
+    validate_manual_answer,
+    validate_reject,
 )
 from utilities.services import recompute_conflict_for_group
 from utilities.views import _grid_url
@@ -1254,33 +1263,33 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_ok_tenant(self):
         result = compute_cell_status("electric", _make_approved("tenant"), None, [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Tenant", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "ok", "label": "Tenant", "flag": False, "blanket": False, "inferred": False})
 
     def test_ok_owner(self):
         result = compute_cell_status("electric", _make_approved("owner"), None, [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Owner", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "ok", "label": "Owner", "flag": False, "blanket": False, "inferred": False})
 
     def test_ok_included(self):
         result = compute_cell_status("water", _make_approved("included_in_rent"), None, [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Included", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "ok", "label": "Included", "flag": False, "blanket": False, "inferred": False})
 
     def test_na(self):
         result = compute_cell_status("gas", _make_approved("not_applicable"), None, [], [])
-        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False, "inferred": False})
 
     # -- Approved alias --
 
     def test_water_well_approved(self):
         result = compute_cell_status("water", None, _make_approved("tenant"), [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Well", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "ok", "label": "Well", "flag": False, "blanket": False, "inferred": False})
 
     def test_sewer_septic_approved(self):
         result = compute_cell_status("sewer", None, _make_approved("owner"), [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Septic", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "ok", "label": "Septic", "flag": False, "blanket": False, "inferred": False})
 
     def test_approved_alias_na(self):
         result = compute_cell_status("water", None, _make_approved("not_applicable"), [], [])
-        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False, "inferred": False})
 
     # -- Approved beats pending --
 
@@ -1310,11 +1319,11 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_pend_basic(self):
         result = compute_cell_status("electric", None, None, [_make_proposal("tenant")], [])
-        self.assertEqual(result, {"status": "pend", "label": "Tenant", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "pend", "label": "Tenant", "flag": False, "blanket": False, "inferred": False})
 
     def test_pend_na_proposal(self):
         result = compute_cell_status("gas", None, None, [_make_proposal("not_applicable")], [])
-        self.assertEqual(result, {"status": "pend", "label": "N/A", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "pend", "label": "N/A", "flag": False, "blanket": False, "inferred": False})
 
     def test_pend_flag_conflict(self):
         result = compute_cell_status(
@@ -1323,12 +1332,14 @@ class ComputeCellStatusTests(SimpleTestCase):
         )
         self.assertTrue(result["flag"])
 
-    def test_pend_flag_catch_all(self):
+    def test_pend_catch_all_inferred_not_flagged(self):
+        """A sole catch_all proposal is inferred, not flagged (flag split)."""
         result = compute_cell_status(
             "electric", None, None,
             [_make_proposal("tenant", basis="catch_all")], [],
         )
-        self.assertTrue(result["flag"])
+        self.assertFalse(result["flag"])
+        self.assertTrue(result["inferred"])
 
     def test_pend_flag_disagreement(self):
         result = compute_cell_status(
@@ -1369,7 +1380,7 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_miss_no_data(self):
         result = compute_cell_status("electric", None, None, [], [])
-        self.assertEqual(result, {"status": "miss", "label": "", "flag": False, "blanket": False})
+        self.assertEqual(result, {"status": "miss", "label": "", "flag": False, "blanket": False, "inferred": False})
 
     # -- Blanket priority --
 
@@ -1425,8 +1436,9 @@ class BlanketCellTests(SimpleTestCase):
         )
         self.assertEqual(result["status"], "pend")
         self.assertEqual(result["label"], "Tenant")
-        self.assertTrue(result["flag"])
+        self.assertFalse(result["flag"])
         self.assertTrue(result["blanket"])
+        self.assertTrue(result["inferred"])
 
     def test_non_blanket_has_blanket_false(self):
         ok = compute_cell_status("electric", _make_approved("tenant"), None, [], [])
@@ -1438,7 +1450,8 @@ class BlanketCellTests(SimpleTestCase):
         miss = compute_cell_status("electric", None, None, [], [])
         self.assertFalse(miss["blanket"])
 
-    def test_disagreeing_blankets_flagged(self):
+    def test_disagreeing_blankets_inferred_not_flagged(self):
+        """Disagreeing blankets are inferred, not flagged (flag split)."""
         blanket = [
             _make_blanket(responsibility="tenant"),
             _make_blanket("Owner pays all utilities", responsibility="owner"),
@@ -1447,7 +1460,8 @@ class BlanketCellTests(SimpleTestCase):
             "electric", None, None, [], [],
             blanket_pending=blanket,
         )
-        self.assertTrue(result["flag"])
+        self.assertFalse(result["flag"])
+        self.assertTrue(result["inferred"])
         self.assertTrue(result["blanket"])
 
 
@@ -1502,8 +1516,9 @@ class BuildGridTests(SimpleTestCase):
             else:
                 self.assertEqual(cell["status"], "pend", f"{col} status")
                 self.assertEqual(cell["label"], "Tenant", f"{col} label")
-                self.assertTrue(cell["flag"], f"{col} flag")
+                self.assertFalse(cell["flag"], f"{col} flag (blanket → not flagged)")
                 self.assertTrue(cell["blanket"], f"{col} blanket")
+                self.assertTrue(cell["inferred"], f"{col} inferred")
 
     def test_blanket_plus_direct(self):
         """Blanket + direct Electric=owner: Electric direct, non-excluded others blanket, oil/propane miss."""
@@ -1756,7 +1771,7 @@ class CsvCellTextTests(SimpleTestCase):
 
     def test_blanket_cell_suffix(self):
         self.assertEqual(
-            csv_cell_text({"status": "pend", "label": "Tenant", "flag": True, "blanket": True}),
+            csv_cell_text({"status": "pend", "label": "Tenant", "flag": False, "blanket": True, "inferred": True}),
             "Needs review: Tenant (blanket)",
         )
 
@@ -2209,7 +2224,7 @@ class InfoStatusTests(SimpleTestCase):
 
     def test_info_not_has_gap(self):
         """Info cell is not a gap."""
-        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False, "inferred": False}
                  for col in GRID_COLUMNS}
         cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
         row = {"cells": cells}
@@ -2217,7 +2232,7 @@ class InfoStatusTests(SimpleTestCase):
 
     def test_info_not_missing_oil_propane(self):
         """Info cell on propane is not missing_oil_propane."""
-        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False, "inferred": False}
                  for col in GRID_COLUMNS}
         cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
         row = {"cells": cells}
@@ -2225,7 +2240,7 @@ class InfoStatusTests(SimpleTestCase):
 
     def test_info_counts_as_needs_review(self):
         """Info cell counts as needs_review."""
-        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False, "inferred": False}
                  for col in GRID_COLUMNS}
         cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
         row = {"cells": cells}
@@ -2233,7 +2248,7 @@ class InfoStatusTests(SimpleTestCase):
 
     def test_info_not_complete(self):
         """Info cell means unit is not complete."""
-        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False}
+        cells = {col: {"status": "ok", "label": "Tenant", "flag": False, "blanket": False, "inferred": False}
                  for col in GRID_COLUMNS}
         cells["propane"] = {"status": "info", "label": "Info only", "flag": False, "blanket": False}
         row = {"cells": cells}
@@ -2322,3 +2337,421 @@ class ProviderDisplayMapTests(SimpleTestCase):
         self.assertEqual(m["CITY OF ASHEVILLE"], "City of Asheville")
         self.assertEqual(m["DUKE ENERGY"], "Duke Energy")
         self.assertEqual(m["Duke"], "Duke Energy")
+
+
+# ==========================================================================
+# Column group tests
+# ==========================================================================
+
+class ColumnGroupTests(SimpleTestCase):
+
+    def test_water_and_well_same_group(self):
+        self.assertEqual(column_group("water"), column_group("well"))
+
+    def test_sewer_and_septic_same_group(self):
+        self.assertEqual(column_group("sewer"), column_group("septic"))
+
+    def test_electric_is_own_group(self):
+        self.assertEqual(column_group("electric"), "electric")
+
+    def test_unknown_type_returns_itself(self):
+        self.assertEqual(column_group("mystery"), "mystery")
+
+    def test_all_grid_columns_have_groups(self):
+        for col in GRID_COLUMNS:
+            self.assertIsNotNone(column_group(col))
+
+
+# ==========================================================================
+# Siblings to supersede tests
+# ==========================================================================
+
+class SiblingsToSupersedeTests(SimpleTestCase):
+
+    def test_water_supersedes_well(self):
+        chosen = {"id": 1, "utility_type": "water"}
+        pending = [
+            {"id": 1, "utility_type": "water"},
+            {"id": 2, "utility_type": "well"},
+            {"id": 3, "utility_type": "electric"},
+        ]
+        self.assertEqual(siblings_to_supersede(chosen, pending), [2])
+
+    def test_well_supersedes_water(self):
+        chosen = {"id": 2, "utility_type": "well"}
+        pending = [
+            {"id": 1, "utility_type": "water"},
+            {"id": 2, "utility_type": "well"},
+        ]
+        self.assertEqual(siblings_to_supersede(chosen, pending), [1])
+
+    def test_sewer_supersedes_septic(self):
+        chosen = {"id": 1, "utility_type": "sewer"}
+        pending = [
+            {"id": 1, "utility_type": "sewer"},
+            {"id": 2, "utility_type": "septic"},
+        ]
+        self.assertEqual(siblings_to_supersede(chosen, pending), [2])
+
+    def test_no_siblings_different_group(self):
+        chosen = {"id": 1, "utility_type": "electric"}
+        pending = [
+            {"id": 1, "utility_type": "electric"},
+            {"id": 2, "utility_type": "gas"},
+        ]
+        self.assertEqual(siblings_to_supersede(chosen, pending), [])
+
+    def test_never_includes_self(self):
+        chosen = {"id": 1, "utility_type": "water"}
+        pending = [{"id": 1, "utility_type": "water"}]
+        self.assertEqual(siblings_to_supersede(chosen, pending), [])
+
+    def test_empty_pending(self):
+        chosen = {"id": 1, "utility_type": "water"}
+        self.assertEqual(siblings_to_supersede(chosen, []), [])
+
+
+# ==========================================================================
+# Approved rows to replace tests
+# ==========================================================================
+
+class ApprovedRowsToReplaceTests(SimpleTestCase):
+
+    def test_saving_water_replaces_well(self):
+        self.assertEqual(approved_rows_to_replace(["well", "electric"], "water"), ["well"])
+
+    def test_saving_well_replaces_water(self):
+        self.assertEqual(approved_rows_to_replace(["water", "gas"], "well"), ["water"])
+
+    def test_saving_sewer_replaces_septic(self):
+        self.assertEqual(approved_rows_to_replace(["septic"], "sewer"), ["septic"])
+
+    def test_saving_electric_replaces_nothing(self):
+        self.assertEqual(approved_rows_to_replace(["water", "gas"], "electric"), [])
+
+    def test_same_type_not_replaced(self):
+        """Saving water when water exists does not list water (update, not replace)."""
+        self.assertEqual(approved_rows_to_replace(["water"], "water"), [])
+
+    def test_empty_approved(self):
+        self.assertEqual(approved_rows_to_replace([], "water"), [])
+
+
+# ==========================================================================
+# Check approve proposal tests
+# ==========================================================================
+
+class CheckApproveProposalTests(SimpleTestCase):
+
+    def test_pending_tenant_ok(self):
+        ok, err = check_approve_proposal({"status": "pending", "responsibility": "tenant"})
+        self.assertTrue(ok)
+        self.assertEqual(err, "")
+
+    def test_pending_owner_ok(self):
+        ok, err = check_approve_proposal({"status": "pending", "responsibility": "owner"})
+        self.assertTrue(ok)
+
+    def test_pending_unknown_rejected(self):
+        ok, err = check_approve_proposal({"status": "pending", "responsibility": "unknown"})
+        self.assertFalse(ok)
+        self.assertIn("unknown", err.lower())
+
+    def test_approved_status_rejected(self):
+        ok, err = check_approve_proposal({"status": "approved", "responsibility": "tenant"})
+        self.assertFalse(ok)
+        self.assertIn("no longer pending", err.lower())
+
+    def test_rejected_status_rejected(self):
+        ok, err = check_approve_proposal({"status": "rejected", "responsibility": "tenant"})
+        self.assertFalse(ok)
+
+    def test_included_in_rent_ok(self):
+        ok, err = check_approve_proposal({"status": "pending", "responsibility": "included_in_rent"})
+        self.assertTrue(ok)
+
+    def test_not_applicable_ok(self):
+        ok, err = check_approve_proposal({"status": "pending", "responsibility": "not_applicable"})
+        self.assertTrue(ok)
+
+
+# ==========================================================================
+# Validate reject tests
+# ==========================================================================
+
+class ValidateRejectTests(SimpleTestCase):
+
+    def test_empty_note_ok(self):
+        ok, err = validate_reject("")
+        self.assertTrue(ok)
+
+    def test_none_note_ok(self):
+        ok, err = validate_reject(None)
+        self.assertTrue(ok)
+
+    def test_short_note_ok(self):
+        ok, err = validate_reject("Looks wrong, re-extract.")
+        self.assertTrue(ok)
+
+    def test_500_chars_ok(self):
+        ok, err = validate_reject("x" * 500)
+        self.assertTrue(ok)
+
+    def test_501_chars_rejected(self):
+        ok, err = validate_reject("x" * 501)
+        self.assertFalse(ok)
+        self.assertIn("500", err)
+
+    def test_whitespace_trimmed(self):
+        ok, err = validate_reject("   note   ")
+        self.assertTrue(ok)
+
+
+# ==========================================================================
+# Validate manual answer tests
+# ==========================================================================
+
+class ValidateManualAnswerTests(SimpleTestCase):
+
+    def test_valid_electric(self):
+        ok, err, cleaned = validate_manual_answer(
+            "electric", "electric", "tenant", "Duke Energy", {},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["utility_type"], "electric")
+        self.assertEqual(cleaned["responsibility"], "tenant")
+        self.assertEqual(cleaned["provider"], "Duke Energy")
+        self.assertEqual(cleaned["extras"], {})
+
+    def test_water_allows_well(self):
+        ok, err, cleaned = validate_manual_answer(
+            "water", "well", "owner", "", {},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["utility_type"], "well")
+
+    def test_sewer_allows_septic(self):
+        ok, err, cleaned = validate_manual_answer(
+            "sewer", "septic", "tenant", "", {},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["utility_type"], "septic")
+
+    def test_invalid_column(self):
+        ok, err, cleaned = validate_manual_answer(
+            "mystery", "mystery", "tenant", "", {},
+        )
+        self.assertFalse(ok)
+        self.assertIn("Invalid column", err)
+
+    def test_invalid_type_for_column(self):
+        ok, err, cleaned = validate_manual_answer(
+            "electric", "water", "tenant", "", {},
+        )
+        self.assertFalse(ok)
+        self.assertIn("Invalid type", err)
+
+    def test_invalid_responsibility(self):
+        ok, err, cleaned = validate_manual_answer(
+            "electric", "electric", "unknown", "", {},
+        )
+        self.assertFalse(ok)
+        self.assertIn("Invalid responsibility", err)
+
+    def test_provider_too_long(self):
+        ok, err, cleaned = validate_manual_answer(
+            "electric", "electric", "tenant", "x" * 201, {},
+        )
+        self.assertFalse(ok)
+        self.assertIn("200", err)
+
+    def test_oil_extras_valid(self):
+        ok, err, cleaned = validate_manual_answer(
+            "oil", "oil", "owner", "Blossman",
+            {"tank_size": "275 gal", "tank_location": "basement"},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["extras"]["tank_size"], "275 gal")
+        self.assertEqual(cleaned["extras"]["tank_location"], "basement")
+
+    def test_oil_extras_too_long(self):
+        ok, err, cleaned = validate_manual_answer(
+            "oil", "oil", "owner", "",
+            {"tank_size": "x" * 101, "tank_location": ""},
+        )
+        self.assertFalse(ok)
+        self.assertIn("100", err)
+
+    def test_non_oil_ignores_extras(self):
+        ok, err, cleaned = validate_manual_answer(
+            "electric", "electric", "tenant", "",
+            {"tank_size": "275 gal"},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["extras"], {})
+
+    def test_not_applicable_responsibility(self):
+        ok, err, cleaned = validate_manual_answer(
+            "gas", "gas", "not_applicable", "", {},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["responsibility"], "not_applicable")
+
+    def test_empty_provider_ok(self):
+        ok, err, cleaned = validate_manual_answer(
+            "trash", "trash", "tenant", "", {},
+        )
+        self.assertTrue(ok)
+        self.assertEqual(cleaned["provider"], "")
+
+
+# ==========================================================================
+# Blanket columns to fill tests
+# ==========================================================================
+
+class BlanketColumnsToFillTests(SimpleTestCase):
+
+    def test_empty_unit_fills_six(self):
+        """Empty unit fills all 6 non-excluded columns."""
+        cols = blanket_columns_to_fill({}, {}, "tenant")
+        self.assertEqual(len(cols), 6)
+        self.assertNotIn("oil", cols)
+        self.assertNotIn("propane", cols)
+
+    def test_approved_column_skipped(self):
+        """Column with approved row is skipped."""
+        approved = {"electric": {}}
+        cols = blanket_columns_to_fill(approved, {}, "tenant")
+        self.assertNotIn("electric", cols)
+
+    def test_approved_alias_skips_group(self):
+        """Approved well skips the water column."""
+        approved = {"well": {}}
+        cols = blanket_columns_to_fill(approved, {}, "tenant")
+        self.assertNotIn("water", cols)
+
+    def test_pending_non_unknown_skips(self):
+        """Column with pending non-unknown proposal is skipped."""
+        pending = {"electric": [{"responsibility": "tenant"}]}
+        cols = blanket_columns_to_fill({}, pending, "tenant")
+        self.assertNotIn("electric", cols)
+
+    def test_pending_unknown_does_not_skip(self):
+        """Column with only unknown pending is NOT skipped."""
+        pending = {"electric": [{"responsibility": "unknown"}]}
+        cols = blanket_columns_to_fill({}, pending, "tenant")
+        self.assertIn("electric", cols)
+
+    def test_fully_approved_unit(self):
+        """Fully approved unit fills nothing."""
+        approved = {col: {} for col in GRID_COLUMNS}
+        cols = blanket_columns_to_fill(approved, {}, "tenant")
+        self.assertEqual(cols, [])
+
+
+# ==========================================================================
+# Flag split tests
+# ==========================================================================
+
+class FlagSplitTests(SimpleTestCase):
+
+    def test_real_conflict_flagged(self):
+        """A proposal with has_conflict=True produces flag=True."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant", has_conflict=True)], [],
+        )
+        self.assertTrue(result["flag"])
+        self.assertFalse(result["inferred"])
+
+    def test_disagreement_flagged(self):
+        """Two proposals with different responsibilities produce flag=True."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant"), _make_proposal("owner")], [],
+        )
+        self.assertTrue(result["flag"])
+
+    def test_catch_all_inferred_not_flagged(self):
+        """A single catch_all proposal: flag=False, inferred=True."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant", basis="catch_all")], [],
+        )
+        self.assertFalse(result["flag"])
+        self.assertTrue(result["inferred"])
+
+    def test_blanket_inferred_not_flagged(self):
+        """A blanket cell: flag=False, inferred=True."""
+        result = compute_cell_status(
+            "electric", None, None, [], [],
+            blanket_pending=[_make_blanket()],
+        )
+        self.assertFalse(result["flag"])
+        self.assertTrue(result["inferred"])
+        self.assertTrue(result["blanket"])
+
+    def test_plain_stated_neither(self):
+        """A single stated proposal: flag=False, inferred=False."""
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("tenant", basis="stated")], [],
+        )
+        self.assertFalse(result["flag"])
+        self.assertFalse(result["inferred"])
+
+    def test_approved_no_inferred(self):
+        """Approved cells never have inferred=True."""
+        result = compute_cell_status("electric", _make_approved("tenant"), None, [], [])
+        self.assertFalse(result["inferred"])
+
+    def test_miss_no_inferred(self):
+        """Miss cells have inferred=False."""
+        result = compute_cell_status("electric", None, None, [], [])
+        self.assertFalse(result["inferred"])
+
+    def test_csv_inferred_suffix(self):
+        """CSV text for an inferred (catch_all) cell gets (inferred) suffix."""
+        cell = {"status": "pend", "label": "Tenant", "flag": False,
+                "blanket": False, "inferred": True}
+        self.assertEqual(csv_cell_text(cell), "Needs review: Tenant (inferred)")
+
+    def test_csv_blanket_beats_inferred(self):
+        """CSV text for blanket+inferred uses (blanket), not (inferred)."""
+        cell = {"status": "pend", "label": "Tenant", "flag": False,
+                "blanket": True, "inferred": True}
+        self.assertEqual(csv_cell_text(cell), "Needs review: Tenant (blanket)")
+
+
+# ==========================================================================
+# Operations role tests
+# ==========================================================================
+
+from accounts.models import User
+
+
+class OperationsRoleTests(SimpleTestCase):
+
+    def test_operations_can_access_utilities(self):
+        self.assertIn("utilities", User.ROLE_PRODUCT_ACCESS[User.Role.OPERATIONS])
+
+    def test_operations_cannot_access_leasing(self):
+        self.assertNotIn("leasing", User.ROLE_PRODUCT_ACCESS[User.Role.OPERATIONS])
+
+    def test_operations_cannot_access_maintenance(self):
+        self.assertNotIn("maintenance", User.ROLE_PRODUCT_ACCESS[User.Role.OPERATIONS])
+
+    def test_operations_only_has_utilities(self):
+        self.assertEqual(User.ROLE_PRODUCT_ACCESS[User.Role.OPERATIONS], {"utilities"})
+
+    def test_leasing_cannot_access_utilities(self):
+        self.assertNotIn("utilities", User.ROLE_PRODUCT_ACCESS[User.Role.LEASING])
+
+    def test_maintenance_cannot_access_utilities(self):
+        self.assertNotIn("utilities", User.ROLE_PRODUCT_ACCESS[User.Role.MAINTENANCE])
+
+    def test_accounting_cannot_access_utilities(self):
+        self.assertNotIn("utilities", User.ROLE_PRODUCT_ACCESS[User.Role.ACCOUNTING])
+
+    def test_admin_can_access_utilities(self):
+        self.assertIn("utilities", User.ROLE_PRODUCT_ACCESS[User.Role.ADMIN])

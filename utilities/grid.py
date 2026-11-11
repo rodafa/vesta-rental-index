@@ -88,6 +88,184 @@ BLANKET_EXCLUDED_COLUMNS = frozenset({"oil", "propane"})
 
 
 # ---------------------------------------------------------------------------
+# Column groups (for supersede logic)
+# ---------------------------------------------------------------------------
+
+COLUMN_GROUPS = {
+    "water": "water_well", "well": "water_well",
+    "sewer": "sewer_septic", "septic": "sewer_septic",
+    "electric": "electric", "gas": "gas",
+    "oil": "oil", "propane": "propane",
+    "trash": "trash", "internet": "internet",
+    "other": "other",
+}
+
+
+def column_group(utility_type):
+    """Return the column group key for a utility type."""
+    return COLUMN_GROUPS.get(utility_type, utility_type)
+
+
+def siblings_to_supersede(chosen, pending_rows):
+    """
+    Return the ids of OTHER pending rows in the same column group as chosen.
+
+    Args:
+        chosen: dict with "id" and "utility_type".
+        pending_rows: list of dicts with "id" and "utility_type".
+
+    Never includes the chosen id. Never includes rows from a different group.
+    """
+    group = column_group(chosen["utility_type"])
+    return [
+        r["id"] for r in pending_rows
+        if r["id"] != chosen["id"] and column_group(r["utility_type"]) == group
+    ]
+
+
+def approved_rows_to_replace(approved_types, utility_type):
+    """
+    Return the approved utility types in the same column group OTHER than
+    the one being saved.
+
+    Args:
+        approved_types: iterable of utility_type strings the unit has approved.
+        utility_type: the type being saved now.
+
+    E.g. saving "water" when "well" is approved returns ["well"].
+    """
+    group = column_group(utility_type)
+    return [t for t in approved_types if t != utility_type and column_group(t) == group]
+
+
+# ---------------------------------------------------------------------------
+# Approval / reject / manual-answer decision functions (pure, no Django)
+# ---------------------------------------------------------------------------
+
+def check_approve_proposal(proposal_dict):
+    """
+    Decide if a proposal can be approved.
+    Returns (ok, error_message).
+    """
+    if proposal_dict.get("status") != "pending":
+        return False, "Proposal is no longer pending."
+    if proposal_dict.get("responsibility") == "unknown":
+        return False, "Cannot approve an unknown-payer row. Use Change to set the answer."
+    return True, ""
+
+
+ALLOWED_TYPES_FOR_COLUMN = {
+    "water": ("water", "well"),
+    "sewer": ("sewer", "septic"),
+    "electric": ("electric",),
+    "gas": ("gas",),
+    "oil": ("oil",),
+    "propane": ("propane",),
+    "trash": ("trash",),
+    "internet": ("internet",),
+}
+
+MANUAL_RESPONSIBILITIES = ("tenant", "owner", "included_in_rent", "not_applicable")
+
+
+def validate_reject(review_note):
+    """Validate a reject action. Returns (ok, error_message)."""
+    note = review_note.strip() if review_note else ""
+    if len(note) > 500:
+        return False, "Reject note must be 500 characters or fewer."
+    return True, ""
+
+
+def validate_manual_answer(column, utility_type, responsibility, provider, extras):
+    """
+    Validate a manual answer form submission.
+    Returns (ok, error_message, cleaned_data).
+    """
+    # Validate column
+    if column not in ALLOWED_TYPES_FOR_COLUMN:
+        return False, "Invalid column.", {}
+
+    # Validate utility_type for this column
+    utility_type = (utility_type or "").strip()
+    if utility_type not in ALLOWED_TYPES_FOR_COLUMN[column]:
+        allowed = ", ".join(ALLOWED_TYPES_FOR_COLUMN[column])
+        return False, f"Invalid type for this column. Allowed: {allowed}.", {}
+
+    # Validate responsibility
+    responsibility = (responsibility or "").strip()
+    if responsibility not in MANUAL_RESPONSIBILITIES:
+        return False, "Invalid responsibility.", {}
+
+    # Validate provider
+    provider = (provider or "").strip()
+    if len(provider) > 200:
+        return False, "Provider must be 200 characters or fewer.", {}
+
+    # Validate extras (oil/propane only)
+    cleaned_extras = {}
+    if utility_type in ("oil", "propane"):
+        tank_size = (extras.get("tank_size") or "").strip()
+        tank_location = (extras.get("tank_location") or "").strip()
+        if len(tank_size) > 100:
+            return False, "Tank size must be 100 characters or fewer.", {}
+        if len(tank_location) > 100:
+            return False, "Tank location must be 100 characters or fewer.", {}
+        if tank_size:
+            cleaned_extras["tank_size"] = tank_size
+        if tank_location:
+            cleaned_extras["tank_location"] = tank_location
+
+    return True, "", {
+        "utility_type": utility_type,
+        "responsibility": responsibility,
+        "provider": provider,
+        "extras": cleaned_extras,
+    }
+
+
+def blanket_columns_to_fill(approved_map, pending_proposals_map, responsibility):
+    """
+    Given a blanket proposal's responsibility, return the list of column
+    utility_types to fill.
+
+    Only the 6 non-excluded columns.  Skips columns that already have an
+    approved row in the column group, or that have a pending non-unknown
+    proposal in the column group.
+
+    Args:
+        approved_map: {utility_type: row_dict} for the unit.
+        pending_proposals_map: {utility_type: [proposal_dicts]} for the unit.
+        responsibility: the blanket responsibility string.
+
+    Returns list of utility_type strings (grid column names).
+    """
+    approved_groups = {column_group(t) for t in approved_map}
+    result = []
+    for col in GRID_COLUMNS:
+        if col in BLANKET_EXCLUDED_COLUMNS:
+            continue
+        grp = column_group(col)
+        # Skip if any type in this group is already approved
+        if grp in approved_groups:
+            continue
+        # Check for pending non-unknown proposals in the column group
+        has_pending = False
+        # Check the column itself and its alias
+        types_in_group = [t for t, g in COLUMN_GROUPS.items() if g == grp]
+        for t in types_in_group:
+            for p in pending_proposals_map.get(t, []):
+                if p.get("responsibility") != "unknown":
+                    has_pending = True
+                    break
+            if has_pending:
+                break
+        if has_pending:
+            continue
+        result.append(col)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Cell status
 # ---------------------------------------------------------------------------
 
@@ -106,38 +284,40 @@ def compute_cell_status(
     Priority: approved direct > approved alias > pending direct > pending alias
     > pending blanket > miss.
 
-    Returns {"status": "ok"|"na"|"pend"|"miss", "label": str, "flag": bool,
-    "blanket": bool}.
+    Returns {"status": str, "label": str, "flag": bool, "blanket": bool,
+    "inferred": bool}.
     """
+    _base = {"flag": False, "blanket": False, "inferred": False}
+
     # 1. Approved direct type
     if approved_row is not None:
         resp = approved_row["responsibility"]
         if resp == "not_applicable":
-            return {"status": "na", "label": "NA", "flag": False, "blanket": False}
-        return {"status": "ok", "label": _OK_LABELS.get(resp, resp), "flag": False, "blanket": False}
+            return {**_base, "status": "na", "label": "NA"}
+        return {**_base, "status": "ok", "label": _OK_LABELS.get(resp, resp)}
 
     # 2. Approved alias type
     if alias_approved_row is not None:
         resp = alias_approved_row["responsibility"]
         if resp == "not_applicable":
-            return {"status": "na", "label": "NA", "flag": False, "blanket": False}
+            return {**_base, "status": "na", "label": "NA"}
         alias_type = ALIAS_MAP.get(utility_type, "")
-        return {"status": "ok", "label": _ALIAS_LABELS.get(alias_type, alias_type), "flag": False, "blanket": False}
+        return {**_base, "status": "ok", "label": _ALIAS_LABELS.get(alias_type, alias_type)}
 
     # 3. Pending direct type (exclude unknown — counts as no information)
     relevant = [p for p in pending_proposals if p.get("responsibility") != "unknown"]
     if relevant:
         label = _PEND_LABELS.get(relevant[0]["responsibility"], relevant[0]["responsibility"])
-        flag = _compute_flag(relevant)
-        return {"status": "pend", "label": label, "flag": flag, "blanket": False}
+        flag, inferred = _compute_flag(relevant)
+        return {**_base, "status": "pend", "label": label, "flag": flag, "inferred": inferred}
 
     # 4. Pending alias type
     alias_relevant = [p for p in alias_pending_proposals if p.get("responsibility") != "unknown"]
     if alias_relevant:
         alias_type = ALIAS_MAP.get(utility_type, "")
         label = _ALIAS_LABELS.get(alias_type, alias_type)
-        flag = _compute_flag(alias_relevant)
-        return {"status": "pend", "label": label, "flag": flag, "blanket": False}
+        flag, inferred = _compute_flag(alias_relevant)
+        return {**_base, "status": "pend", "label": label, "flag": flag, "inferred": inferred}
 
     # 5. Pending blanket
     blanket_relevant = [p for p in blanket_pending if p.get("responsibility") != "unknown"]
@@ -146,27 +326,31 @@ def compute_cell_status(
             blanket_relevant[0]["responsibility"],
             blanket_relevant[0]["responsibility"],
         )
-        return {"status": "pend", "label": label, "flag": True, "blanket": True}
+        return {**_base, "status": "pend", "label": label, "flag": False, "blanket": True, "inferred": True}
 
     # 6. Info-only: pending rows exist but ALL are responsibility "unknown"
     all_pending = list(pending_proposals) + list(alias_pending_proposals)
     if any(p.get("responsibility") == "unknown" for p in all_pending):
-        return {"status": "info", "label": "Info only", "flag": False, "blanket": False}
+        return {**_base, "status": "info", "label": "Info only"}
 
     # 7. Miss
-    return {"status": "miss", "label": "", "flag": False, "blanket": False}
+    return {**_base, "status": "miss", "label": ""}
 
 
 def _compute_flag(proposals):
-    """True if proposals have a conflict, catch-all basis, or disagree on responsibility."""
-    if any(p.get("has_conflict") for p in proposals):
-        return True
-    if any(p.get("basis") == "catch_all" for p in proposals):
-        return True
+    """
+    Compute flag and inferred for a set of pending proposals.
+
+    Returns (flag: bool, inferred: bool).
+    flag = True only for real conflicts (has_conflict or disagreeing conflict_class).
+    inferred = True when any proposal has basis "catch_all".
+    """
+    has_real_conflict = any(p.get("has_conflict") for p in proposals)
     classes = {conflict_class(p["responsibility"]) for p in proposals}
-    if len(classes) > 1:
-        return True
-    return False
+    classes_disagree = len(classes) > 1
+    flag = has_real_conflict or classes_disagree
+    inferred = any(p.get("basis") == "catch_all" for p in proposals)
+    return flag, inferred
 
 
 def is_blanket_proposal(p):
@@ -387,6 +571,8 @@ def csv_cell_text(cell):
         text = f"Needs review: {label}" if label else "Needs review"
         if cell.get("blanket"):
             text += " (blanket)"
+        elif cell.get("inferred"):
+            text += " (inferred)"
         return text
     if status == "info":
         return "Info only"

@@ -38,14 +38,19 @@ def fetch_active_units():
 def fetch_approved_utilities():
     """
     Return {unit_id: {utility_type: {"responsibility": str, ...}}}.
-    Single query over PropertyUtility.
+    Single query over PropertyUtility with approved_by preloaded.
     """
     result = defaultdict(dict)
-    for pu in PropertyUtility.objects.all():
+    for pu in PropertyUtility.objects.select_related("approved_by").all():
+        approved_by_name = ""
+        if pu.approved_by:
+            approved_by_name = pu.approved_by.get_full_name() or pu.approved_by.username
         result[pu.unit_id][pu.utility_type] = {
             "responsibility": pu.responsibility,
             "provider": pu.provider,
             "arrangement": pu.arrangement,
+            "approved_by_name": approved_by_name,
+            "approved_at": pu.approved_at,
         }
     return dict(result)
 

@@ -10,6 +10,7 @@ class User(AbstractUser):
         LEASING = "leasing", "Leasing"
         MAINTENANCE = "maintenance", "Maintenance"
         ACCOUNTING = "accounting", "Accounting"
+        OPERATIONS = "operations", "Operations"
 
     role = models.CharField(max_length=20, choices=Role.choices)
 
@@ -20,6 +21,7 @@ class User(AbstractUser):
         Role.LEASING: {"leasing"},
         Role.MAINTENANCE: {"maintenance"},
         Role.ACCOUNTING: {"owner_distributions"},
+        Role.OPERATIONS: {"utilities"},
     }
 
     def can_access(self, product: str) -> bool:
