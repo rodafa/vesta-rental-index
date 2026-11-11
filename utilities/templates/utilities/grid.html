@@ -96,6 +96,7 @@
   .cell-pend a{color:#8a4609;}
   .cell-miss{background:var(--red-soft);}
   .cell-miss a{color:var(--red);}
+  .cell-blanket a{font-style:italic;}
 
   /* Status icons (text-based for accessibility) */
   .icon-ok::before{content:"\2713 ";/* checkmark */}
@@ -229,8 +230,9 @@
           <td class="col-occ">{{ row.occupancy_text }}</td>
 
           {% for cell in row.cell_list %}
-          <td class="cell cell-{{ cell.status }}">
+          <td class="cell cell-{{ cell.status }}{% if cell.blanket %} cell-blanket{% endif %}">
             <a href="?unit={{ row.unit_id }}&utility={{ cell.column }}{% if base_qs %}&{{ base_qs }}{% endif %}"
+               {% if cell.blanket %}title="From a blanket note — applies to all columns without their own row"{% endif %}
                aria-label="{{ cell.column|capfirst }}: {% if cell.status == 'ok' %}Approved — {{ cell.label }}{% elif cell.status == 'na' %}Not applicable{% elif cell.status == 'pend' %}Pending review — {{ cell.label }}{% else %}Missing{% endif %}{% if cell.flag %} (flagged){% endif %}">
               <span class="icon-{{ cell.status }}" aria-hidden="true"></span>{{ cell.label|default:"Missing" }}{% if cell.flag %}<span class="flag" aria-hidden="true">!</span>{% endif %}
             </a>
@@ -306,6 +308,10 @@
     <div class="proposal-card">
       <div class="pf-label">Responsibility</div>
       <div class="pf-value">{{ p.responsibility_display }}{% if p.has_conflict %} <span class="pf-conflict" title="Has conflict">CONFLICT</span>{% endif %}</div>
+
+      {% if p.is_blanket %}
+      <div style="font-size:11px;color:var(--orange);font-style:italic;margin-bottom:8px;">Blanket statement — applies to every column without its own specific row.</div>
+      {% endif %}
 
       {% if p.evidence_quote %}
       <div class="pf-label">Evidence</div>

@@ -147,6 +147,7 @@ def fetch_panel_proposals(rentvine_unit_id, utility_type):
     alias = ALIAS_MAP.get(utility_type)
     if alias:
         types.append(alias)
+    types.append("other")
 
     return [
         {

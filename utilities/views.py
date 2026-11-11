@@ -20,6 +20,7 @@ from utilities.grid import (
     build_csv_rows,
     build_grid,
     compute_tile_counts,
+    prepare_panel_proposals,
 )
 from utilities.models import UTILITY_TYPE_CHOICES, UnitNote
 from utilities.selectors import (
@@ -134,8 +135,11 @@ def _render_grid(request):
                 if panel_utility:
                     # Cell-level panel
                     cell = unit_row["cells"].get(panel_utility)
-                    proposals = fetch_panel_proposals(
+                    raw_proposals = fetch_panel_proposals(
                         unit_row["rentvine_id"], panel_utility,
+                    )
+                    proposals = prepare_panel_proposals(
+                        raw_proposals, panel_utility,
                     )
                     notes = fetch_panel_notes(panel_unit_id, panel_utility)
 

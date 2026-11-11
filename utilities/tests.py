@@ -1124,11 +1124,13 @@ from utilities.grid import (
     compute_tile_counts,
     csv_cell_text,
     has_gap,
+    is_blanket_proposal,
     is_complete,
     is_flagged,
     missing_oil_propane,
     needs_review,
     occupancy_text,
+    prepare_panel_proposals,
     sanitize_csv_value,
 )
 from utilities.views import _grid_url
@@ -1151,39 +1153,108 @@ def _make_approved(responsibility="tenant"):
     return {"responsibility": responsibility, "provider": "", "arrangement": ""}
 
 
+def _make_blanket(quote="TENANT PAYS FOR ALL UTILITIES", responsibility="tenant"):
+    """Helper: build a minimal blanket-style proposal dict."""
+    return {
+        "utility_type": "other",
+        "responsibility": responsibility,
+        "evidence_quote": quote,
+        "has_conflict": False,
+        "basis": "stated",
+    }
+
+
+class IsBlanketProposalTests(SimpleTestCase):
+
+    def test_tenant_pays_all_utilities(self):
+        self.assertTrue(is_blanket_proposal(_make_blanket(
+            "TENANT PAYS FOR ALL UTILITIES",
+        )))
+
+    def test_tenant_responsible_for_utilities(self):
+        self.assertTrue(is_blanket_proposal(_make_blanket(
+            "Tenant responsible for utilities",
+        )))
+
+    def test_except_exclusion(self):
+        self.assertFalse(is_blanket_proposal(_make_blanket(
+            "Tenant pays all utilities except water",
+        )))
+
+    def test_specific_utility_word(self):
+        self.assertFalse(is_blanket_proposal(_make_blanket(
+            "Tenant pays water and electric utilities",
+        )))
+
+    def test_no_utility_word(self):
+        self.assertFalse(is_blanket_proposal(_make_blanket(
+            "Tenant pays for lawn care",
+        )))
+
+    def test_unknown_responsibility(self):
+        self.assertFalse(is_blanket_proposal(_make_blanket(
+            "TENANT PAYS FOR ALL UTILITIES", responsibility="unknown",
+        )))
+
+    def test_not_applicable_responsibility(self):
+        self.assertFalse(is_blanket_proposal(_make_blanket(
+            "TENANT PAYS FOR ALL UTILITIES", responsibility="not_applicable",
+        )))
+
+    def test_non_other_type(self):
+        p = _make_blanket("TENANT PAYS FOR ALL UTILITIES")
+        p["utility_type"] = "water"
+        self.assertFalse(is_blanket_proposal(p))
+
+    def test_contribution_does_not_trigger_but(self):
+        self.assertTrue(is_blanket_proposal(_make_blanket(
+            "Tenant responsible for utilities, contribution to be arranged",
+        )))
+
+    def test_toil_does_not_trigger_oil(self):
+        self.assertTrue(is_blanket_proposal(_make_blanket(
+            "Tenant pays all utilities, no toil",
+        )))
+
+    def test_but_exclusion(self):
+        self.assertFalse(is_blanket_proposal(_make_blanket(
+            "Tenant pays all utilities but water",
+        )))
+
+
 class ComputeCellStatusTests(SimpleTestCase):
 
     # -- Approved direct --
 
     def test_ok_tenant(self):
         result = compute_cell_status("electric", _make_approved("tenant"), None, [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Tenant", "flag": False})
+        self.assertEqual(result, {"status": "ok", "label": "Tenant", "flag": False, "blanket": False})
 
     def test_ok_owner(self):
         result = compute_cell_status("electric", _make_approved("owner"), None, [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Owner", "flag": False})
+        self.assertEqual(result, {"status": "ok", "label": "Owner", "flag": False, "blanket": False})
 
     def test_ok_included(self):
         result = compute_cell_status("water", _make_approved("included_in_rent"), None, [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Included", "flag": False})
+        self.assertEqual(result, {"status": "ok", "label": "Included", "flag": False, "blanket": False})
 
     def test_na(self):
         result = compute_cell_status("gas", _make_approved("not_applicable"), None, [], [])
-        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False})
+        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False})
 
     # -- Approved alias --
 
     def test_water_well_approved(self):
         result = compute_cell_status("water", None, _make_approved("tenant"), [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Well", "flag": False})
+        self.assertEqual(result, {"status": "ok", "label": "Well", "flag": False, "blanket": False})
 
     def test_sewer_septic_approved(self):
         result = compute_cell_status("sewer", None, _make_approved("owner"), [], [])
-        self.assertEqual(result, {"status": "ok", "label": "Septic", "flag": False})
+        self.assertEqual(result, {"status": "ok", "label": "Septic", "flag": False, "blanket": False})
 
     def test_approved_alias_na(self):
         result = compute_cell_status("water", None, _make_approved("not_applicable"), [], [])
-        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False})
+        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False})
 
     # -- Approved beats pending --
 
@@ -1213,11 +1284,11 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_pend_basic(self):
         result = compute_cell_status("electric", None, None, [_make_proposal("tenant")], [])
-        self.assertEqual(result, {"status": "pend", "label": "Tenant", "flag": False})
+        self.assertEqual(result, {"status": "pend", "label": "Tenant", "flag": False, "blanket": False})
 
     def test_pend_na_proposal(self):
         result = compute_cell_status("gas", None, None, [_make_proposal("not_applicable")], [])
-        self.assertEqual(result, {"status": "pend", "label": "N/A", "flag": False})
+        self.assertEqual(result, {"status": "pend", "label": "N/A", "flag": False, "blanket": False})
 
     def test_pend_flag_conflict(self):
         result = compute_cell_status(
@@ -1271,7 +1342,86 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_miss_no_data(self):
         result = compute_cell_status("electric", None, None, [], [])
-        self.assertEqual(result, {"status": "miss", "label": "", "flag": False})
+        self.assertEqual(result, {"status": "miss", "label": "", "flag": False, "blanket": False})
+
+    # -- Blanket priority --
+
+    def test_pending_direct_beats_blanket(self):
+        blanket = [_make_blanket()]
+        result = compute_cell_status(
+            "electric", None, None,
+            [_make_proposal("owner")], [],
+            blanket_pending=blanket,
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertEqual(result["label"], "Owner")
+        self.assertFalse(result["blanket"])
+
+    def test_blanket_beats_miss(self):
+        blanket = [_make_blanket()]
+        result = compute_cell_status(
+            "electric", None, None, [], [],
+            blanket_pending=blanket,
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertEqual(result["label"], "Tenant")
+        self.assertTrue(result["blanket"])
+
+    def test_approved_direct_beats_blanket(self):
+        blanket = [_make_blanket()]
+        result = compute_cell_status(
+            "electric", _make_approved("owner"), None, [], [],
+            blanket_pending=blanket,
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["label"], "Owner")
+        self.assertFalse(result["blanket"])
+
+    def test_approved_alias_beats_blanket(self):
+        blanket = [_make_blanket()]
+        result = compute_cell_status(
+            "water", None, _make_approved("tenant"), [], [],
+            blanket_pending=blanket,
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["label"], "Well")
+        self.assertFalse(result["blanket"])
+
+
+class BlanketCellTests(SimpleTestCase):
+
+    def test_blanket_cell_properties(self):
+        blanket = [_make_blanket()]
+        result = compute_cell_status(
+            "electric", None, None, [], [],
+            blanket_pending=blanket,
+        )
+        self.assertEqual(result["status"], "pend")
+        self.assertEqual(result["label"], "Tenant")
+        self.assertTrue(result["flag"])
+        self.assertTrue(result["blanket"])
+
+    def test_non_blanket_has_blanket_false(self):
+        ok = compute_cell_status("electric", _make_approved("tenant"), None, [], [])
+        self.assertFalse(ok["blanket"])
+
+        pend = compute_cell_status("electric", None, None, [_make_proposal("tenant")], [])
+        self.assertFalse(pend["blanket"])
+
+        miss = compute_cell_status("electric", None, None, [], [])
+        self.assertFalse(miss["blanket"])
+
+    def test_disagreeing_blankets_flagged(self):
+        blanket = [
+            _make_blanket(responsibility="tenant"),
+            _make_blanket("Owner pays all utilities", responsibility="owner"),
+        ]
+        result = compute_cell_status(
+            "electric", None, None, [], [],
+            blanket_pending=blanket,
+        )
+        self.assertTrue(result["flag"])
+        self.assertTrue(result["blanket"])
 
 
 class BuildGridTests(SimpleTestCase):
@@ -1312,6 +1462,74 @@ class BuildGridTests(SimpleTestCase):
         rows = build_grid(units, {}, {}, {}, {})
         self.assertEqual(len(rows[0]["cell_list"]), len(GRID_COLUMNS))
         self.assertEqual(rows[0]["cell_list"][0]["column"], "electric")
+
+    def test_blanket_only_unit(self):
+        """Unit with only a blanket row: all 8 cells pend/Tenant/flagged/blanket."""
+        units = [self._unit(1, 100, "123 Main St")]
+        proposals = {100: {"other": [_make_blanket()]}}
+        rows = build_grid(units, {}, proposals, {}, {})
+        for col in GRID_COLUMNS:
+            cell = rows[0]["cells"][col]
+            self.assertEqual(cell["status"], "pend", f"{col} status")
+            self.assertEqual(cell["label"], "Tenant", f"{col} label")
+            self.assertTrue(cell["flag"], f"{col} flag")
+            self.assertTrue(cell["blanket"], f"{col} blanket")
+
+    def test_blanket_plus_direct(self):
+        """Blanket + direct Electric=owner: Electric direct, others blanket."""
+        units = [self._unit(1, 100, "123 Main St")]
+        proposals = {100: {
+            "other": [_make_blanket()],
+            "electric": [_make_proposal("owner")],
+        }}
+        rows = build_grid(units, {}, proposals, {}, {})
+        electric = rows[0]["cells"]["electric"]
+        self.assertEqual(electric["label"], "Owner")
+        self.assertFalse(electric["blanket"])
+        for col in GRID_COLUMNS:
+            if col == "electric":
+                continue
+            cell = rows[0]["cells"][col]
+            self.assertEqual(cell["label"], "Tenant", f"{col} label")
+            self.assertTrue(cell["blanket"], f"{col} blanket")
+
+
+class PreparePanelProposalsTests(SimpleTestCase):
+
+    def test_column_proposal_passes_through(self):
+        p = {
+            "utility_type": "electric", "responsibility": "tenant",
+            "evidence_quote": "ELECTRIC: Tenant", "has_conflict": False,
+            "basis": "stated",
+        }
+        result = prepare_panel_proposals([p], "electric")
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0]["is_blanket"])
+
+    def test_blanket_other_row_kept(self):
+        p = _make_blanket()
+        result = prepare_panel_proposals([p], "electric")
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0]["is_blanket"])
+
+    def test_non_blanket_other_dropped(self):
+        p = {
+            "utility_type": "other", "responsibility": "tenant",
+            "evidence_quote": "Tenant pays for lawn care",
+            "has_conflict": False, "basis": "stated",
+        }
+        result = prepare_panel_proposals([p], "electric")
+        self.assertEqual(len(result), 0)
+
+    def test_alias_proposal_passes_through(self):
+        p = {
+            "utility_type": "well", "responsibility": "tenant",
+            "evidence_quote": "Well water", "has_conflict": False,
+            "basis": "stated",
+        }
+        result = prepare_panel_proposals([p], "water")
+        self.assertEqual(len(result), 1)
+        self.assertFalse(result[0]["is_blanket"])
 
 
 class FilterPredicateTests(SimpleTestCase):
@@ -1502,6 +1720,12 @@ class CsvCellTextTests(SimpleTestCase):
 
     def test_miss(self):
         self.assertEqual(csv_cell_text({"status": "miss", "label": "", "flag": False}), "Missing")
+
+    def test_blanket_cell_suffix(self):
+        self.assertEqual(
+            csv_cell_text({"status": "pend", "label": "Tenant", "flag": True, "blanket": True}),
+            "Needs review: Tenant (blanket)",
+        )
 
 
 class SanitizeCsvValueTests(SimpleTestCase):

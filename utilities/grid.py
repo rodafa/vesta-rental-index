@@ -39,6 +39,31 @@ RESPONSIBILITY_DISPLAY = {
     "unknown": "Unknown",
 }
 
+# ---------------------------------------------------------------------------
+# Blanket-proposal detection
+# ---------------------------------------------------------------------------
+
+SPECIFIC_UTILITY_WORDS = frozenset({
+    "water", "sewer", "septic", "well", "electric", "gas",
+    "oil", "propane", "trash", "garbage", "internet",
+})
+
+BLANKET_EXCLUSION_PHRASES = frozenset({
+    "except", "excluding", "other than", "besides", "but",
+})
+
+_SPECIFIC_UTILITY_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in sorted(SPECIFIC_UTILITY_WORDS)) + r")\b",
+    re.IGNORECASE,
+)
+
+_BLANKET_EXCLUSION_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(p) for p in sorted(BLANKET_EXCLUSION_PHRASES)) + r")\b",
+    re.IGNORECASE,
+)
+
+_BLANKET_UTILITY_RE = re.compile(r"\butilit(?:y|ies)\b", re.IGNORECASE)
+
 
 # ---------------------------------------------------------------------------
 # Cell status
@@ -50,35 +75,39 @@ def compute_cell_status(
     alias_approved_row,
     pending_proposals,
     alias_pending_proposals,
+    *,
+    blanket_pending=(),
 ):
     """
     Determine the status of a single grid cell.
 
-    Priority: approved direct > approved alias > pending direct > pending alias > miss.
+    Priority: approved direct > approved alias > pending direct > pending alias
+    > pending blanket > miss.
 
-    Returns {"status": "ok"|"na"|"pend"|"miss", "label": str, "flag": bool}.
+    Returns {"status": "ok"|"na"|"pend"|"miss", "label": str, "flag": bool,
+    "blanket": bool}.
     """
     # 1. Approved direct type
     if approved_row is not None:
         resp = approved_row["responsibility"]
         if resp == "not_applicable":
-            return {"status": "na", "label": "NA", "flag": False}
-        return {"status": "ok", "label": _OK_LABELS.get(resp, resp), "flag": False}
+            return {"status": "na", "label": "NA", "flag": False, "blanket": False}
+        return {"status": "ok", "label": _OK_LABELS.get(resp, resp), "flag": False, "blanket": False}
 
     # 2. Approved alias type
     if alias_approved_row is not None:
         resp = alias_approved_row["responsibility"]
         if resp == "not_applicable":
-            return {"status": "na", "label": "NA", "flag": False}
+            return {"status": "na", "label": "NA", "flag": False, "blanket": False}
         alias_type = ALIAS_MAP.get(utility_type, "")
-        return {"status": "ok", "label": _ALIAS_LABELS.get(alias_type, alias_type), "flag": False}
+        return {"status": "ok", "label": _ALIAS_LABELS.get(alias_type, alias_type), "flag": False, "blanket": False}
 
     # 3. Pending direct type (exclude unknown — counts as no information)
     relevant = [p for p in pending_proposals if p.get("responsibility") != "unknown"]
     if relevant:
         label = _PEND_LABELS.get(relevant[0]["responsibility"], relevant[0]["responsibility"])
         flag = _compute_flag(relevant)
-        return {"status": "pend", "label": label, "flag": flag}
+        return {"status": "pend", "label": label, "flag": flag, "blanket": False}
 
     # 4. Pending alias type
     alias_relevant = [p for p in alias_pending_proposals if p.get("responsibility") != "unknown"]
@@ -86,10 +115,19 @@ def compute_cell_status(
         alias_type = ALIAS_MAP.get(utility_type, "")
         label = _ALIAS_LABELS.get(alias_type, alias_type)
         flag = _compute_flag(alias_relevant)
-        return {"status": "pend", "label": label, "flag": flag}
+        return {"status": "pend", "label": label, "flag": flag, "blanket": False}
 
-    # 5. Miss
-    return {"status": "miss", "label": "", "flag": False}
+    # 5. Pending blanket
+    blanket_relevant = [p for p in blanket_pending if p.get("responsibility") != "unknown"]
+    if blanket_relevant:
+        label = _PEND_LABELS.get(
+            blanket_relevant[0]["responsibility"],
+            blanket_relevant[0]["responsibility"],
+        )
+        return {"status": "pend", "label": label, "flag": True, "blanket": True}
+
+    # 6. Miss
+    return {"status": "miss", "label": "", "flag": False, "blanket": False}
 
 
 def _compute_flag(proposals):
@@ -102,6 +140,26 @@ def _compute_flag(proposals):
     if len(responsibilities) > 1:
         return True
     return False
+
+
+def is_blanket_proposal(p):
+    """
+    True if a proposal is a blanket utility statement (type "other" with a
+    general "utility/utilities" quote that names no specific utility and
+    contains no exclusion phrases).
+    """
+    if p.get("utility_type") != "other":
+        return False
+    if p.get("responsibility") not in ("tenant", "owner", "included_in_rent"):
+        return False
+    quote = p.get("evidence_quote", "")
+    if not _BLANKET_UTILITY_RE.search(quote):
+        return False
+    if _SPECIFIC_UTILITY_RE.search(quote):
+        return False
+    if _BLANKET_EXCLUSION_RE.search(quote):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +204,7 @@ def build_grid(units, approved_map, proposals_map, notes_map, occupancy_map):
 
         approved = approved_map.get(unit_id, {})
         proposals = proposals_map.get(rentvine_id, {}) if rentvine_id else {}
+        blanket_rows = [p for p in proposals.get("other", []) if is_blanket_proposal(p)]
 
         cells = {}
         cell_list = []
@@ -160,6 +219,7 @@ def build_grid(units, approved_map, proposals_map, notes_map, occupancy_map):
 
             cell = compute_cell_status(
                 col, approved_row, alias_approved_row, pending, alias_pending,
+                blanket_pending=blanket_rows,
             )
             cells[col] = cell
             cell_list.append({"column": col, **cell})
@@ -179,6 +239,31 @@ def build_grid(units, approved_map, proposals_map, notes_map, occupancy_map):
 
     rows.sort(key=lambda r: (_natural_sort_key(r["address"]), _natural_sort_key(r["unit_number"])))
     return rows
+
+
+def prepare_panel_proposals(proposals, utility_type):
+    """
+    Filter and annotate proposals for the side panel.
+
+    Keeps column-specific and alias proposals (is_blanket=False),
+    keeps blanket "other" proposals (is_blanket=True),
+    drops non-blanket "other" proposals.
+
+    Args:
+        proposals: list of proposal dicts from the selector.
+        utility_type: the clicked column name (e.g. "electric").
+
+    Returns list of proposal dicts with added "is_blanket" key.
+    """
+    alias = ALIAS_MAP.get(utility_type)
+    result = []
+    for p in proposals:
+        ptype = p.get("utility_type", "")
+        if ptype == utility_type or (alias and ptype == alias):
+            result.append({**p, "is_blanket": False})
+        elif ptype == "other" and is_blanket_proposal(p):
+            result.append({**p, "is_blanket": True})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +355,10 @@ def csv_cell_text(cell):
     if status == "na":
         return "NA"
     if status == "pend":
-        return f"Needs review: {label}" if label else "Needs review"
+        text = f"Needs review: {label}" if label else "Needs review"
+        if cell.get("blanket"):
+            text += " (blanket)"
+        return text
     return "Missing"
 
 
