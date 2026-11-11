@@ -22,6 +22,7 @@ from utilities.grid import (
     build_csv_rows,
     build_grid,
     build_provider_display_map,
+    check_mark_na,
     compute_tile_counts,
     prepare_panel_proposals,
     validate_manual_answer,
@@ -30,6 +31,7 @@ from utilities.models import UTILITY_TYPE_CHOICES, UnitNote
 from utilities.review_services import (
     ReviewError,
     approve_proposal,
+    mark_na,
     reject_proposal,
     save_manual_answer,
 )
@@ -107,6 +109,10 @@ def utility_grid(request):
             return _handle_change(request)
         if action == "add_note":
             return _add_note(request)
+        if action == "mark_na":
+            return _handle_mark_na(request)
+        if action == "mark_oil_propane_na":
+            return _handle_oil_propane_na(request)
         messages.error(request, "Unknown action.")
         return HttpResponseRedirect(_grid_url(_preserve_get_params(request)))
     return _render_grid(request)
@@ -197,6 +203,12 @@ def _render_grid(request):
                             "provider": provider_map.get(raw_prov, raw_prov),
                         })
 
+                    # Compute can_mark_na for cells not already resolved
+                    can_mark_na_flag = False
+                    if cell and cell["status"] not in ("ok", "na"):
+                        ok_na, _ = check_mark_na(panel_utility, raw_proposals)
+                        can_mark_na_flag = ok_na
+
                     panel = {
                         "unit_id": panel_unit_id,
                         "utility": panel_utility,
@@ -212,10 +224,13 @@ def _render_grid(request):
                         "responsibilities": MANUAL_RESPONSIBILITIES,
                         "responsibility_labels": RESPONSIBILITY_DISPLAY,
                         "is_oil_propane": panel_utility in ("oil", "propane"),
+                        "can_mark_na": can_mark_na_flag,
                     }
                 else:
                     # Unit-level panel (all notes)
                     notes = fetch_panel_notes(panel_unit_id)
+                    oil_status = unit_row["cells"]["oil"]["status"]
+                    propane_status = unit_row["cells"]["propane"]["status"]
                     panel = {
                         "unit_id": panel_unit_id,
                         "utility": "",
@@ -226,6 +241,10 @@ def _render_grid(request):
                         "notes": notes,
                         "approved": None,
                         "utility_choices": UTILITY_TYPE_CHOICES,
+                        "oil_propane_show_na": (
+                            oil_status in ("miss", "info")
+                            or propane_status in ("miss", "info")
+                        ),
                     }
 
     return render(request, "utilities/grid.html", {
@@ -307,8 +326,65 @@ def _handle_change(request):
         return HttpResponseRedirect(_grid_url(params))
 
     try:
-        msg = save_manual_answer(unit_id, column, cleaned, request.user)
+        msg = save_manual_answer(unit_id, cleaned, request.user)
         messages.success(request, msg)
+    except ReviewError as e:
+        messages.error(request, str(e))
+
+    return HttpResponseRedirect(_grid_url(params))
+
+
+# ---------------------------------------------------------------------------
+# Mark N/A (POST handlers)
+# ---------------------------------------------------------------------------
+
+def _handle_mark_na(request):
+    params = _preserve_get_params(request)
+    unit_id_str = request.POST.get("unit_id", "")
+    column = request.POST.get("column", "").strip()
+
+    try:
+        unit_id = int(unit_id_str)
+    except (ValueError, TypeError):
+        messages.error(request, "Invalid unit.")
+        return HttpResponseRedirect(_grid_url(params))
+
+    if column not in ALLOWED_TYPES_FOR_COLUMN:
+        messages.error(request, "Invalid column.")
+        return HttpResponseRedirect(_grid_url(params))
+
+    try:
+        results = mark_na(unit_id, [column], request.user)
+        action, msg = results[column]
+        if action == "written":
+            messages.success(request, msg)
+        else:
+            messages.error(request, msg)
+    except ReviewError as e:
+        messages.error(request, str(e))
+
+    return HttpResponseRedirect(_grid_url(params))
+
+
+def _handle_oil_propane_na(request):
+    params = _preserve_get_params(request)
+    unit_id_str = request.POST.get("unit_id", "")
+
+    try:
+        unit_id = int(unit_id_str)
+    except (ValueError, TypeError):
+        messages.error(request, "Invalid unit.")
+        return HttpResponseRedirect(_grid_url(params))
+
+    try:
+        results = mark_na(unit_id, ["oil", "propane"], request.user)
+        parts = [msg for _, (_, msg) in sorted(results.items())]
+        any_written = any(a == "written" for a, _ in results.values())
+        combined = " ".join(parts)
+        if any_written:
+            messages.success(request, combined)
+        else:
+            messages.error(request, combined)
     except ReviewError as e:
         messages.error(request, str(e))
 

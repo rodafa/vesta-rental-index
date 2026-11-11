@@ -12,13 +12,12 @@ from django.utils import timezone
 
 from core.models import Unit
 from utilities.grid import (
-    BLANKET_EXCLUDED_COLUMNS,
-    GRID_COLUMNS,
     approved_rows_to_replace,
     blanket_columns_to_fill,
     check_approve_proposal,
-    column_group,
+    decide_mark_na,
     is_blanket_proposal,
+    pending_ids_in_group,
     siblings_to_supersede,
     validate_reject,
 )
@@ -278,13 +277,74 @@ def reject_proposal(proposal_id, user, review_note=""):
     return "Proposal rejected."
 
 
-def save_manual_answer(unit_id, column, cleaned_data, user):
+def _write_approved_and_supersede(
+    unit, utility_type, responsibility, provider, extras, user, now,
+    *, review_note="Superseded by manual answer",
+):
+    """
+    Shared writer: replace/upsert an approved row and supersede pending
+    proposals in the same column group.
+
+    Must be called inside an existing transaction.atomic block.
+
+    Steps:
+    1. Delete approved rows in the same column group that have a different type.
+    2. Upsert PropertyUtility for the given type.
+    3. Supersede all pending proposals in the column group.
+    """
+    # 1. Replace other types in the same group
+    approved_types = list(
+        PropertyUtility.objects
+        .filter(unit=unit)
+        .values_list("utility_type", flat=True)
+    )
+    to_replace = approved_rows_to_replace(approved_types, utility_type)
+    if to_replace:
+        PropertyUtility.objects.filter(
+            unit=unit, utility_type__in=to_replace,
+        ).delete()
+
+    # 2. Upsert
+    PropertyUtility.objects.update_or_create(
+        unit=unit,
+        utility_type=utility_type,
+        defaults={
+            "responsibility": responsibility,
+            "provider": provider,
+            "arrangement": "",
+            "extras": extras,
+            "approved_from": None,
+            "approved_by": user,
+            "approved_at": now,
+        },
+    )
+
+    # 3. Supersede pending proposals in the column group
+    if unit.rentvine_id:
+        pending = list(
+            UtilityProposal.objects
+            .filter(
+                rentvine_unit_id=unit.rentvine_id,
+                status="pending",
+            )
+            .values("id", "utility_type")
+        )
+        supersede_ids = pending_ids_in_group(utility_type, pending)
+        if supersede_ids:
+            UtilityProposal.objects.filter(pk__in=supersede_ids).update(
+                status="superseded",
+                reviewed_by=user,
+                reviewed_at=now,
+                review_note=review_note,
+            )
+
+
+def save_manual_answer(unit_id, cleaned_data, user):
     """
     Save a manual answer (Change) for a cell.
 
     Args:
         unit_id: the grid unit pk (core.Unit.pk).
-        column: the grid column name (e.g. "electric").
         cleaned_data: dict from validate_manual_answer with utility_type,
                       responsibility, provider, extras.
         user: the request user.
@@ -300,54 +360,13 @@ def save_manual_answer(unit_id, column, cleaned_data, user):
     now = timezone.now()
 
     with transaction.atomic():
-        # Remove other-type approved rows in the same column group
-        approved_types = list(
-            PropertyUtility.objects
-            .filter(unit=unit)
-            .values_list("utility_type", flat=True)
+        _write_approved_and_supersede(
+            unit, utype,
+            cleaned_data["responsibility"],
+            cleaned_data["provider"],
+            cleaned_data["extras"],
+            user, now,
         )
-        to_replace = approved_rows_to_replace(approved_types, utype)
-        if to_replace:
-            PropertyUtility.objects.filter(unit=unit, utility_type__in=to_replace).delete()
-
-        # Upsert PropertyUtility
-        PropertyUtility.objects.update_or_create(
-            unit=unit,
-            utility_type=utype,
-            defaults={
-                "responsibility": cleaned_data["responsibility"],
-                "provider": cleaned_data["provider"],
-                "arrangement": "",
-                "extras": cleaned_data["extras"],
-                "approved_from": None,
-                "approved_by": user,
-                "approved_at": now,
-            },
-        )
-
-        # Supersede all pending proposals in the same column group
-        if unit.rentvine_id:
-            pending = list(
-                UtilityProposal.objects
-                .filter(
-                    rentvine_unit_id=unit.rentvine_id,
-                    status="pending",
-                )
-                .values("id", "utility_type")
-            )
-            # Use a synthetic "chosen" with id=0 so nothing is excluded
-            group_key = column_group(utype)
-            supersede_ids = [
-                r["id"] for r in pending
-                if column_group(r["utility_type"]) == group_key
-            ]
-            if supersede_ids:
-                UtilityProposal.objects.filter(pk__in=supersede_ids).update(
-                    status="superseded",
-                    reviewed_by=user,
-                    reviewed_at=now,
-                    review_note="Superseded by manual answer",
-                )
 
     logger.info(
         "manual_answer_saved",
@@ -360,3 +379,73 @@ def save_manual_answer(unit_id, column, cleaned_data, user):
     )
 
     return f"Answer saved for {utype}."
+
+
+def mark_na(unit_id, columns, user):
+    """
+    Mark one or more columns as N/A (not applicable) for a unit.
+
+    Pure decision via decide_mark_na, then DB writes for columns that pass.
+    Runs inside a single transaction with select_for_update on the Unit.
+
+    Args:
+        unit_id: the grid unit pk (core.Unit.pk).
+        columns: list of column names (e.g. ["oil", "propane"]).
+        user: the request user.
+
+    Returns {column: (action, message)} where action is
+    "written", "skipped", or "blocked".
+    Raises ReviewError if the unit is not found.
+    """
+    now = timezone.now()
+
+    with transaction.atomic():
+        unit = (
+            Unit.objects
+            .select_for_update()
+            .filter(pk=unit_id, is_active=True)
+            .first()
+        )
+        if not unit:
+            raise ReviewError("Unit not found or inactive.")
+
+        # Gather data for the pure decision
+        approved_types = list(
+            PropertyUtility.objects
+            .filter(unit=unit)
+            .values_list("utility_type", flat=True)
+        )
+        pending = []
+        if unit.rentvine_id:
+            pending = list(
+                UtilityProposal.objects
+                .filter(
+                    rentvine_unit_id=unit.rentvine_id,
+                    status="pending",
+                )
+                .values("id", "utility_type", "responsibility")
+            )
+
+        # Pure decision
+        results = decide_mark_na(columns, approved_types, pending)
+
+        # Write for each "written" column
+        for col, (action, _msg) in results.items():
+            if action != "written":
+                continue
+            _write_approved_and_supersede(
+                unit, col,
+                "not_applicable", "", {},
+                user, now,
+                review_note="Superseded by N/A mark",
+            )
+            logger.info(
+                "mark_na",
+                extra={
+                    "user_id": user.pk,
+                    "unit_id": unit.pk,
+                    "utility_type": col,
+                },
+            )
+
+    return results

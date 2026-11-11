@@ -106,6 +106,22 @@ def column_group(utility_type):
     return COLUMN_GROUPS.get(utility_type, utility_type)
 
 
+def pending_ids_in_group(utility_type, pending_rows):
+    """
+    Return ALL ids from pending_rows whose utility_type is in the same
+    column group as utility_type.  No exclusion — every match is returned.
+
+    Args:
+        utility_type: the reference type.
+        pending_rows: list of dicts with "id" and "utility_type".
+    """
+    group = column_group(utility_type)
+    return [
+        r["id"] for r in pending_rows
+        if column_group(r["utility_type"]) == group
+    ]
+
+
 def siblings_to_supersede(chosen, pending_rows):
     """
     Return the ids of OTHER pending rows in the same column group as chosen.
@@ -116,10 +132,9 @@ def siblings_to_supersede(chosen, pending_rows):
 
     Never includes the chosen id. Never includes rows from a different group.
     """
-    group = column_group(chosen["utility_type"])
     return [
-        r["id"] for r in pending_rows
-        if r["id"] != chosen["id"] and column_group(r["utility_type"]) == group
+        pid for pid in pending_ids_in_group(chosen["utility_type"], pending_rows)
+        if pid != chosen["id"]
     ]
 
 
@@ -223,6 +238,60 @@ def validate_manual_answer(column, utility_type, responsibility, provider, extra
     }
 
 
+def check_mark_na(column, pending_proposals):
+    """
+    Guard for Mark N/A.  Returns (ok, error_message).
+
+    Considers only pending proposals whose utility_type belongs to the
+    column's group (direct + alias types).  Ignores "other" type rows
+    (blanket) and "unknown" responsibility rows.
+
+    Args:
+        column: grid column name (e.g. "water").
+        pending_proposals: list of dicts with "utility_type" and
+            "responsibility" (all pending proposals for the unit).
+    """
+    grp = column_group(column)
+    blocking = [
+        p for p in pending_proposals
+        if p.get("utility_type") != "other"
+        and column_group(p.get("utility_type", "")) == grp
+        and p.get("responsibility") != "unknown"
+    ]
+    if blocking:
+        return False, f"This property has pending info for {column}. Review it instead."
+    return True, ""
+
+
+def decide_mark_na(columns, approved_types, pending_proposals):
+    """
+    Pure decision for Mark N/A on one or more columns.
+
+    Args:
+        columns: list of column names (e.g. ["oil", "propane"]).
+        approved_types: iterable of utility_type strings already approved.
+        pending_proposals: list of dicts with "id", "utility_type",
+            "responsibility" (all pending proposals for the unit).
+
+    Returns {column: (action, message)} where action is
+    "written", "skipped", or "blocked".
+    """
+    approved_groups = {column_group(t) for t in approved_types}
+    result = {}
+    for col in columns:
+        col_cap = col.capitalize()
+        grp = column_group(col)
+        if grp in approved_groups:
+            result[col] = ("skipped", f"{col_cap}: already has an approved answer.")
+            continue
+        ok, err = check_mark_na(col, pending_proposals)
+        if not ok:
+            result[col] = ("blocked", f"{col_cap}: has pending info — review it instead.")
+            continue
+        result[col] = ("written", f"{col_cap}: marked N/A.")
+    return result
+
+
 def blanket_columns_to_fill(approved_map, pending_proposals_map, responsibility):
     """
     Given a blanket proposal's responsibility, return the list of column
@@ -293,14 +362,14 @@ def compute_cell_status(
     if approved_row is not None:
         resp = approved_row["responsibility"]
         if resp == "not_applicable":
-            return {**_base, "status": "na", "label": "NA"}
+            return {**_base, "status": "na", "label": "N/A"}
         return {**_base, "status": "ok", "label": _OK_LABELS.get(resp, resp)}
 
     # 2. Approved alias type
     if alias_approved_row is not None:
         resp = alias_approved_row["responsibility"]
         if resp == "not_applicable":
-            return {**_base, "status": "na", "label": "NA"}
+            return {**_base, "status": "na", "label": "N/A"}
         alias_type = ALIAS_MAP.get(utility_type, "")
         return {**_base, "status": "ok", "label": _ALIAS_LABELS.get(alias_type, alias_type)}
 
@@ -521,7 +590,7 @@ def compute_tile_counts(rows):
         "complete": sum(1 for r in rows if is_complete(r)),
         "needs_review": sum(1 for r in rows if needs_review(r)),
         "has_gap": sum(1 for r in rows if has_gap(r)),
-        "missing_oil_propane": sum(1 for r in rows if missing_oil_propane(r)),
+        "oil_propane_unconfirmed": sum(1 for r in rows if missing_oil_propane(r)),
     }
 
 
@@ -566,7 +635,7 @@ def csv_cell_text(cell):
     if status == "ok":
         return label
     if status == "na":
-        return "NA"
+        return "N/A"
     if status == "pend":
         text = f"Needs review: {label}" if label else "Needs review"
         if cell.get("blanket"):

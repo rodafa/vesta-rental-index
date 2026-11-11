@@ -1127,11 +1127,13 @@ from utilities.grid import (
     build_grid,
     build_provider_display_map,
     check_approve_proposal,
+    check_mark_na,
     column_group,
     compute_cell_status,
     compute_tile_counts,
     conflict_class,
     csv_cell_text,
+    decide_mark_na,
     has_gap,
     is_blanket_proposal,
     is_complete,
@@ -1139,6 +1141,7 @@ from utilities.grid import (
     missing_oil_propane,
     needs_review,
     occupancy_text,
+    pending_ids_in_group,
     prepare_panel_proposals,
     sanitize_csv_value,
     siblings_to_supersede,
@@ -1275,7 +1278,7 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_na(self):
         result = compute_cell_status("gas", _make_approved("not_applicable"), None, [], [])
-        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False, "inferred": False})
+        self.assertEqual(result, {"status": "na", "label": "N/A", "flag": False, "blanket": False, "inferred": False})
 
     # -- Approved alias --
 
@@ -1289,7 +1292,7 @@ class ComputeCellStatusTests(SimpleTestCase):
 
     def test_approved_alias_na(self):
         result = compute_cell_status("water", None, _make_approved("not_applicable"), [], [])
-        self.assertEqual(result, {"status": "na", "label": "NA", "flag": False, "blanket": False, "inferred": False})
+        self.assertEqual(result, {"status": "na", "label": "N/A", "flag": False, "blanket": False, "inferred": False})
 
     # -- Approved beats pending --
 
@@ -1595,7 +1598,7 @@ class FilterPredicateTests(SimpleTestCase):
         self.assertTrue(is_complete(self._row()))
 
     def test_is_complete_with_na(self):
-        row = self._row(gas={"status": "na", "label": "NA", "flag": False})
+        row = self._row(gas={"status": "na", "label": "N/A", "flag": False})
         self.assertTrue(is_complete(row))
 
     def test_is_complete_fails_with_pend(self):
@@ -1651,7 +1654,7 @@ class TileCountTests(SimpleTestCase):
         self.assertEqual(tiles["complete"], 2)
         self.assertEqual(tiles["needs_review"], 0)
         self.assertEqual(tiles["has_gap"], 0)
-        self.assertEqual(tiles["missing_oil_propane"], 0)
+        self.assertEqual(tiles["oil_propane_unconfirmed"], 0)
 
     def test_mixed(self):
         rows = [
@@ -1664,14 +1667,14 @@ class TileCountTests(SimpleTestCase):
         self.assertEqual(tiles["complete"], 1)
         self.assertEqual(tiles["needs_review"], 1)
         self.assertEqual(tiles["has_gap"], 2)  # rows 3 and 4
-        self.assertEqual(tiles["missing_oil_propane"], 1)
+        self.assertEqual(tiles["oil_propane_unconfirmed"], 1)
 
     def test_na_counts_as_complete(self):
         """A unit with only ok and na cells counts as complete."""
         row = self._row(
-            gas={"status": "na", "label": "NA", "flag": False},
-            oil={"status": "na", "label": "NA", "flag": False},
-            propane={"status": "na", "label": "NA", "flag": False},
+            gas={"status": "na", "label": "N/A", "flag": False},
+            oil={"status": "na", "label": "N/A", "flag": False},
+            propane={"status": "na", "label": "N/A", "flag": False},
         )
         tiles = compute_tile_counts([row])
         self.assertEqual(tiles["complete"], 1)
@@ -1752,7 +1755,7 @@ class CsvCellTextTests(SimpleTestCase):
         self.assertEqual(csv_cell_text({"status": "ok", "label": "Well", "flag": False}), "Well")
 
     def test_na(self):
-        self.assertEqual(csv_cell_text({"status": "na", "label": "NA", "flag": False}), "NA")
+        self.assertEqual(csv_cell_text({"status": "na", "label": "N/A", "flag": False}), "N/A")
 
     def test_pend_with_label(self):
         self.assertEqual(
@@ -2755,3 +2758,207 @@ class OperationsRoleTests(SimpleTestCase):
 
     def test_admin_can_access_utilities(self):
         self.assertIn("utilities", User.ROLE_PRODUCT_ACCESS[User.Role.ADMIN])
+
+
+# ==========================================================================
+# pending_ids_in_group tests
+# ==========================================================================
+
+class PendingIdsInGroupTests(SimpleTestCase):
+
+    def test_water_returns_water_and_well(self):
+        pending = [
+            {"id": 1, "utility_type": "water"},
+            {"id": 2, "utility_type": "well"},
+            {"id": 3, "utility_type": "electric"},
+        ]
+        result = pending_ids_in_group("water", pending)
+        self.assertEqual(sorted(result), [1, 2])
+
+    def test_electric_returns_only_electric(self):
+        pending = [
+            {"id": 1, "utility_type": "electric"},
+            {"id": 2, "utility_type": "gas"},
+        ]
+        self.assertEqual(pending_ids_in_group("electric", pending), [1])
+
+    def test_empty_list(self):
+        self.assertEqual(pending_ids_in_group("water", []), [])
+
+    def test_no_matches(self):
+        pending = [{"id": 1, "utility_type": "gas"}]
+        self.assertEqual(pending_ids_in_group("water", pending), [])
+
+    def test_sewer_returns_sewer_and_septic(self):
+        pending = [
+            {"id": 1, "utility_type": "sewer"},
+            {"id": 2, "utility_type": "septic"},
+        ]
+        result = pending_ids_in_group("sewer", pending)
+        self.assertEqual(sorted(result), [1, 2])
+
+
+# ==========================================================================
+# check_mark_na tests
+# ==========================================================================
+
+class CheckMarkNaTests(SimpleTestCase):
+
+    def test_pending_tenant_blocks(self):
+        pending = [{"utility_type": "electric", "responsibility": "tenant"}]
+        ok, msg = check_mark_na("electric", pending)
+        self.assertFalse(ok)
+        self.assertIn("pending info", msg.lower())
+
+    def test_pending_owner_blocks(self):
+        pending = [{"utility_type": "oil", "responsibility": "owner"}]
+        ok, _ = check_mark_na("oil", pending)
+        self.assertFalse(ok)
+
+    def test_pending_unknown_does_not_block(self):
+        pending = [{"utility_type": "electric", "responsibility": "unknown"}]
+        ok, _ = check_mark_na("electric", pending)
+        self.assertTrue(ok)
+
+    def test_pending_blanket_other_does_not_block(self):
+        """A pending 'other' (blanket) row with tenant responsibility does not block."""
+        pending = [{"utility_type": "other", "responsibility": "tenant"}]
+        ok, _ = check_mark_na("oil", pending)
+        self.assertTrue(ok)
+
+    def test_pending_from_different_column_does_not_block(self):
+        pending = [{"utility_type": "gas", "responsibility": "tenant"}]
+        ok, _ = check_mark_na("electric", pending)
+        self.assertTrue(ok)
+
+    def test_pending_alias_well_blocks_water(self):
+        """A pending well proposal blocks marking water as N/A."""
+        pending = [{"utility_type": "well", "responsibility": "tenant"}]
+        ok, _ = check_mark_na("water", pending)
+        self.assertFalse(ok)
+
+    def test_empty_pending_allows(self):
+        ok, _ = check_mark_na("oil", [])
+        self.assertTrue(ok)
+
+    def test_included_in_rent_blocks(self):
+        pending = [{"utility_type": "propane", "responsibility": "included_in_rent"}]
+        ok, _ = check_mark_na("propane", pending)
+        self.assertFalse(ok)
+
+
+# ==========================================================================
+# decide_mark_na tests
+# ==========================================================================
+
+class DecideMarkNaTests(SimpleTestCase):
+
+    def test_both_clean_both_written(self):
+        result = decide_mark_na(["oil", "propane"], [], [])
+        self.assertEqual(result["oil"][0], "written")
+        self.assertEqual(result["propane"][0], "written")
+
+    def test_already_approved_skipped(self):
+        result = decide_mark_na(["oil", "propane"], ["oil"], [])
+        self.assertEqual(result["oil"][0], "skipped")
+        self.assertIn("approved", result["oil"][1].lower())
+        self.assertEqual(result["propane"][0], "written")
+
+    def test_approved_alias_skips_group(self):
+        """Approved well means water group is already approved → skip."""
+        result = decide_mark_na(["water"], ["well"], [])
+        self.assertEqual(result["water"][0], "skipped")
+
+    def test_pending_blocked(self):
+        pending = [{"utility_type": "oil", "responsibility": "tenant"}]
+        result = decide_mark_na(["oil", "propane"], [], pending)
+        self.assertEqual(result["oil"][0], "blocked")
+        self.assertIn("pending", result["oil"][1].lower())
+        self.assertEqual(result["propane"][0], "written")
+
+    def test_mixed_approved_and_pending(self):
+        """Oil approved, propane has pending → oil skipped, propane blocked."""
+        pending = [{"utility_type": "propane", "responsibility": "owner"}]
+        result = decide_mark_na(["oil", "propane"], ["oil"], pending)
+        self.assertEqual(result["oil"][0], "skipped")
+        self.assertEqual(result["propane"][0], "blocked")
+
+    def test_blanket_does_not_block(self):
+        """Pending blanket ('other') does not block oil or propane."""
+        pending = [{"utility_type": "other", "responsibility": "tenant"}]
+        result = decide_mark_na(["oil", "propane"], [], pending)
+        self.assertEqual(result["oil"][0], "written")
+        self.assertEqual(result["propane"][0], "written")
+
+    def test_message_includes_column_name(self):
+        result = decide_mark_na(["oil"], [], [])
+        self.assertIn("Oil", result["oil"][1])
+
+    def test_single_column(self):
+        result = decide_mark_na(["electric"], [], [])
+        self.assertEqual(result["electric"][0], "written")
+        self.assertIn("Electric", result["electric"][1])
+
+
+# ==========================================================================
+# N/A label tests
+# ==========================================================================
+
+class NaLabelTests(SimpleTestCase):
+
+    def test_approved_na_label_is_slash(self):
+        """Approved not_applicable cell has label 'N/A', not 'NA'."""
+        result = compute_cell_status("gas", _make_approved("not_applicable"), None, [], [])
+        self.assertEqual(result["label"], "N/A")
+
+    def test_approved_alias_na_label_is_slash(self):
+        result = compute_cell_status("water", None, _make_approved("not_applicable"), [], [])
+        self.assertEqual(result["label"], "N/A")
+
+    def test_csv_na_is_slash(self):
+        self.assertEqual(csv_cell_text({"status": "na", "label": "N/A", "flag": False}), "N/A")
+
+
+# ==========================================================================
+# Oil/propane tile rename tests
+# ==========================================================================
+
+class OilPropaneTileRenameTests(SimpleTestCase):
+
+    def _row(self, **cell_overrides):
+        cells = {}
+        for col in GRID_COLUMNS:
+            cells[col] = {"status": "ok", "label": "Tenant", "flag": False}
+        for col, status_info in cell_overrides.items():
+            cells[col] = status_info
+        return {"cells": cells, "address": "Test", "unit_number": ""}
+
+    def test_tile_key_is_oil_propane_unconfirmed(self):
+        """Tile key is 'oil_propane_unconfirmed', not 'missing_oil_propane'."""
+        rows = [self._row(oil={"status": "miss", "label": "", "flag": False})]
+        tiles = compute_tile_counts(rows)
+        self.assertIn("oil_propane_unconfirmed", tiles)
+        self.assertNotIn("missing_oil_propane", tiles)
+
+    def test_count_matches_definition(self):
+        """Count equals number of rows where oil or propane is miss."""
+        rows = [
+            self._row(),  # all ok
+            self._row(oil={"status": "miss", "label": "", "flag": False}),
+            self._row(propane={"status": "miss", "label": "", "flag": False}),
+            self._row(
+                oil={"status": "miss", "label": "", "flag": False},
+                propane={"status": "miss", "label": "", "flag": False},
+            ),
+        ]
+        tiles = compute_tile_counts(rows)
+        self.assertEqual(tiles["oil_propane_unconfirmed"], 3)
+
+    def test_na_not_counted(self):
+        """N/A oil and propane cells do NOT count as unconfirmed."""
+        rows = [self._row(
+            oil={"status": "na", "label": "N/A", "flag": False},
+            propane={"status": "na", "label": "N/A", "flag": False},
+        )]
+        tiles = compute_tile_counts(rows)
+        self.assertEqual(tiles["oil_propane_unconfirmed"], 0)

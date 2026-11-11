@@ -197,8 +197,8 @@
       <span class="tile-label">Has a<br>gap</span>
     </div>
     <div class="tile tile-oil">
-      <span class="tile-num">{{ tiles.missing_oil_propane }}</span>
-      <span class="tile-label">Missing<br>oil/propane</span>
+      <span class="tile-num">{{ tiles.oil_propane_unconfirmed }}</span>
+      <span class="tile-label">Oil/propane<br>not confirmed</span>
     </div>
   </div>
 
@@ -208,7 +208,7 @@
       <a class="chip {% if filter == 'all' %}active{% endif %}" href="?{% if query %}q={{ query|urlencode }}&{% endif %}">All ({{ total_units }})</a>
       <a class="chip {% if filter == 'gap' %}active{% endif %}" href="?filter=gap{% if query %}&q={{ query|urlencode }}{% endif %}">Has a gap</a>
       <a class="chip {% if filter == 'review' %}active{% endif %}" href="?filter=review{% if query %}&q={{ query|urlencode }}{% endif %}">Needs review</a>
-      <a class="chip {% if filter == 'oil_propane' %}active{% endif %}" href="?filter=oil_propane{% if query %}&q={{ query|urlencode }}{% endif %}">Oil/propane missing</a>
+      <a class="chip {% if filter == 'oil_propane' %}active{% endif %}" href="?filter=oil_propane{% if query %}&q={{ query|urlencode }}{% endif %}">Oil/propane not confirmed</a>
       <a class="chip {% if filter == 'flagged' %}active{% endif %}" href="?filter=flagged{% if query %}&q={{ query|urlencode }}{% endif %}">Flagged</a>
     </div>
   </div>
@@ -284,6 +284,23 @@
     {% if panel.cell.label %}<span style="margin-left:8px;font-size:13px;font-weight:600;">{{ panel.cell.label }}</span>{% endif %}
     {% if panel.cell.flag %}<span class="flag" style="margin-left:4px;font-size:14px;" title="Flagged for attention">!</span>{% endif %}
   </div>
+
+  <!-- Mark N/A -->
+  {% if panel.cell.status != "ok" and panel.cell.status != "na" %}
+  <div class="panel-section">
+    {% if panel.can_mark_na %}
+    <form method="post" action="?unit={{ panel.unit_id }}&utility={{ panel.utility }}{% if base_qs %}&{{ base_qs }}{% endif %}" style="margin:0;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="mark_na">
+      <input type="hidden" name="unit_id" value="{{ panel.unit_id }}">
+      <input type="hidden" name="column" value="{{ panel.utility }}">
+      <button type="submit" class="btn btn-quiet" style="padding:5px 12px;font-size:11px;">Mark N/A</button>
+    </form>
+    {% else %}
+    <p style="font-size:11px;color:var(--ink-faint);font-style:italic;margin:0;">Pending info exists — review it instead.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- Approved detail -->
   {% if panel.approved %}
@@ -412,6 +429,18 @@
       <div style="margin-top:8px;display:flex;justify-content:flex-end;">
         <button type="submit" class="btn btn-quiet" style="padding:6px 14px;font-size:12px;">Save answer</button>
       </div>
+    </form>
+  </div>
+  {% endif %}
+
+  <!-- No oil or propane (unit-level panel only) -->
+  {% if not panel.utility and panel.oil_propane_show_na %}
+  <div class="panel-section">
+    <form method="post" action="?unit={{ panel.unit_id }}{% if base_qs %}&{{ base_qs }}{% endif %}" style="margin:0;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="mark_oil_propane_na">
+      <input type="hidden" name="unit_id" value="{{ panel.unit_id }}">
+      <button type="submit" class="btn btn-quiet" style="padding:6px 14px;font-size:12px;">No oil or propane at this property</button>
     </form>
   </div>
   {% endif %}
