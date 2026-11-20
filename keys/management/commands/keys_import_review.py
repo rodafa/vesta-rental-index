@@ -12,29 +12,13 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 from core.models import Unit
-from integrations.rentengine.client import RentEngineClient
-from integrations.rentvine.client import RentvineClient
 from keys.services import (
     build_review_rows,
-    extract_key_notes,
-    parse_key_box_csv,
+    parse_box_or_fail,
 )
-from utilities.services import fetch_notes
+from keys.sources import fetch_rentengine_index, fetch_rentvine_key_notes
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_box_or_fail(path, box_letter):
-    """Parse a key box CSV; raise CommandError if it yields no property rows."""
-    rows = parse_key_box_csv(path, box_letter)
-    property_rows = [r for r in rows if r["row_type"] == "property"]
-    if not property_rows:
-        raise CommandError(
-            f"Box {box_letter} file '{path}': no property rows found. "
-            f"Check that the 'Tag Number' header exists and the file "
-            f"is not empty."
-        )
-    return rows
 
 
 class Command(BaseCommand):
@@ -78,8 +62,11 @@ class Command(BaseCommand):
             )
 
         # 1. Parse both CSVs.
-        tag_rows = _parse_box_or_fail(box_a_path, "A")
-        tag_rows += _parse_box_or_fail(box_b_path, "B")
+        try:
+            tag_rows = parse_box_or_fail(box_a_path, "A")
+            tag_rows += parse_box_or_fail(box_b_path, "B")
+        except ValueError as exc:
+            raise CommandError(str(exc)) from exc
 
         # 2. Load units from DB (Rentvine-linked only).
         units_qs = (
@@ -100,99 +87,26 @@ class Command(BaseCommand):
                 + "."
             )
 
-        # 3. Fetch Rentvine notes for each property and unit.
-        rv_client = RentvineClient()
-        rv_key_notes = {}   # rentvine_unit_id → list of note dicts
-        fetch_errors = {}   # rentvine_unit_id → list of error strings
+        # 3. Fetch Rentvine notes.
+        unit_notes, property_notes, fetch_errors = (
+            fetch_rentvine_key_notes(db_units)
+        )
 
-        # Fetch property-level notes once per property.
-        seen_properties = {}  # rentvine_property_id → list of key notes
-        for unit in db_units:
-            prop_id = unit.property.rentvine_id
-            if prop_id is None:
-                continue
-            if prop_id in seen_properties:
-                continue
-            try:
-                raw = fetch_notes(rv_client, 6, prop_id)
-                prop_notes = extract_key_notes(raw)
-                for n in prop_notes:
-                    n["_prefix"] = "[property] "
-                seen_properties[prop_id] = prop_notes
-            except Exception as exc:
-                logger.error(
-                    "rentvine_property_notes_error",
-                    extra={
-                        "rentvine_property_id": prop_id,
-                        "error": str(exc),
-                    },
-                )
-                seen_properties[prop_id] = []
-                for u in db_units:
-                    if u.property.rentvine_id == prop_id:
-                        fetch_errors.setdefault(u.rentvine_id, []).append(
-                            f"property notes (rv {prop_id}): {exc}"
-                        )
-
-        # Fetch unit-level notes and combine with property notes.
+        # Reassemble the merged rv_key_notes dict that build_review_rows
+        # expects: unit_id → [unit notes..., property notes with prefix...].
+        rv_key_notes = {}
         for unit in db_units:
             uid = unit.rentvine_id
-            unit_notes = []
-            try:
-                raw = fetch_notes(rv_client, 7, uid)
-                unit_notes = extract_key_notes(raw)
-            except Exception as exc:
-                logger.error(
-                    "rentvine_unit_notes_error",
-                    extra={
-                        "rentvine_unit_id": uid,
-                        "error": str(exc),
-                    },
-                )
-                fetch_errors.setdefault(uid, []).append(
-                    f"unit notes (rv {uid}): {exc}"
-                )
+            u_notes = unit_notes.get(uid, [])
+            p_notes = property_notes.get(unit.property.rentvine_id, [])
+            # Tag property notes with "[property] " prefix — same as before.
+            tagged_p = [{**n, "_prefix": "[property] "} for n in p_notes]
+            rv_key_notes[uid] = u_notes + tagged_p
 
-            prop_notes = seen_properties.get(
-                unit.property.rentvine_id, []
-            )
-            rv_key_notes[uid] = unit_notes + prop_notes
-
-        # 4. Fetch RentEngine units, index by str(id).
-        re_index = {}
-        re_fetch_ok = False
-        try:
-            re_client = RentEngineClient()
-            re_raw_units = re_client.get_all("units")
-            for ru in re_raw_units:
-                re_id = ru.get("id")
-                if re_id is not None:
-                    re_index[str(re_id)] = ru
-            re_fetch_ok = True
-            logger.info(
-                "rentengine_units_indexed",
-                extra={"count": len(re_index)},
-            )
-        except Exception as exc:
-            logger.error(
-                "rentengine_units_error",
-                extra={"error": str(exc)},
-            )
-            for unit in db_units:
-                if unit.rentengine_id:
-                    fetch_errors.setdefault(unit.rentvine_id, []).append(
-                        f"RentEngine units fetch: {exc}"
-                    )
-
-        # 4b. Flag units whose rentengine_id is missing from the RE data.
-        if re_fetch_ok:
-            for unit in db_units:
-                if (unit.rentengine_id
-                        and str(unit.rentengine_id) not in re_index):
-                    fetch_errors.setdefault(unit.rentvine_id, []).append(
-                        f"rentengine_id {unit.rentengine_id} not found "
-                        f"in RentEngine units"
-                    )
+        # 4. Fetch RentEngine units.
+        re_index, re_errors = fetch_rentengine_index(db_units)
+        for uid, errs in re_errors.items():
+            fetch_errors.setdefault(uid, []).extend(errs)
 
         # 5. Build review rows.
         rows, stats = build_review_rows(

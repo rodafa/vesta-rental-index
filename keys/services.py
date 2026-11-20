@@ -252,6 +252,19 @@ def parse_key_box_csv(path, box_letter):
     return rows
 
 
+def parse_box_or_fail(path, box_letter):
+    """Parse a key box CSV; raise ValueError if it yields no property rows."""
+    rows = parse_key_box_csv(path, box_letter)
+    property_rows = [r for r in rows if r["row_type"] == "property"]
+    if not property_rows:
+        raise ValueError(
+            f"Box {box_letter} file '{path}': no property rows found. "
+            f"Check that the 'Tag Number' header exists and the file "
+            f"is not empty."
+        )
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Rentvine note filtering
 # ---------------------------------------------------------------------------
