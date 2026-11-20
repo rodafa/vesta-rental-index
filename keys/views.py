@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from keys.replies import (
+    format_did_you_mean,
     format_help,
     format_not_found,
     format_tag,
@@ -81,18 +82,34 @@ def slack_events(request):
                         reply = format_not_found(parsed["value"])
                         outcome, match_count = "not_found", 0
                 else:
-                    units = find_units(parsed["value"])
+                    result = find_units(parsed["value"])
+                    units = result["units"]
+                    exact = result["exact"]
                     match_count = len(units)
                     if not units:
                         reply = format_not_found(parsed["value"])
                         outcome = "not_found"
-                    elif len(units) == 1:
-                        reply = format_unit(unit_key_info(units[0]))
-                        outcome = "unit_found"
+                    elif exact:
+                        if len(units) == 1:
+                            reply = format_unit(unit_key_info(units[0]))
+                            outcome = "unit_found"
+                        else:
+                            infos = [unit_key_info(u) for u in units[:10]]
+                            reply = format_unit_list(infos, len(units))
+                            outcome = "multi_match"
                     else:
-                        infos = [unit_key_info(u) for u in units]
-                        reply = format_unit_list(infos)
-                        outcome = "multi_match"
+                        if result["narrowed_by_token"] and len(units) == 1:
+                            reply = (
+                                "_Closest match:_\n"
+                                + format_unit(unit_key_info(units[0]))
+                            )
+                            outcome = "closest_match"
+                        else:
+                            infos = [unit_key_info(u) for u in units[:10]]
+                            reply = format_did_you_mean(
+                                parsed["value"], infos, len(units),
+                            )
+                            outcome = "did_you_mean"
             except Exception:
                 logger.exception("keybot_lookup_error")
                 reply = "Something went wrong with that lookup \u2014 please try again."

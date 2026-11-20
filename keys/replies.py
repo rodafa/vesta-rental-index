@@ -9,6 +9,8 @@ def _escape(text: str) -> str:
 def _display_address(address: str, unit_number: str) -> str:
     """Format 'Address — Unit X' or just 'Address'."""
     if unit_number:
+        if unit_number.lower().startswith("unit"):
+            return f"{_escape(address)} \u2014 {_escape(unit_number)}"
         return f"{_escape(address)} \u2014 Unit {_escape(unit_number)}"
     return _escape(address)
 
@@ -82,11 +84,10 @@ def format_unit(info: dict) -> str:
     return "\n".join(lines)
 
 
-def format_unit_list(units_with_info: list[dict]) -> str:
-    """Multi-match reply (max 10 units, then overflow message)."""
-    lines = [f"Found {len(units_with_info)} units at this address:\n"]
-    shown = units_with_info[:10]
-    for info in shown:
+def format_unit_list(units_with_info: list[dict], total_count: int) -> str:
+    """Multi-match reply. units_with_info has at most 10 pre-fetched items."""
+    lines = [f"Found {total_count} units at this address:\n"]
+    for info in units_with_info:
         label = _display_address(info["address"], info["unit_number"])
         tags = info.get("tags", [])
         if tags:
@@ -94,7 +95,7 @@ def format_unit_list(units_with_info: list[dict]) -> str:
             lines.append(f"\u2022 *{label}* \u2014 \U0001f511 {tag_str}")
         else:
             lines.append(f"\u2022 *{label}* \u2014 no key on file")
-    remaining = len(units_with_info) - len(shown)
+    remaining = total_count - len(units_with_info)
     if remaining > 0:
         lines.append(f"\n\u2026and {remaining} more \u2014 add a unit number")
     else:
@@ -145,3 +146,22 @@ def format_help() -> str:
         "\u2022 `@KeyBot A-038` \u2014 look up a key by tag ID\n"
         "\u2022 `@KeyBot help` \u2014 this message"
     )
+
+
+def format_did_you_mean(query: str, units_with_info: list[dict],
+                        total_count: int) -> str:
+    """Suggestion reply when no exact address match found."""
+    q = _escape(query[:80])
+    lines = [f'No exact match for "{q}". Did you mean:\n']
+    for info in units_with_info:
+        label = _display_address(info["address"], info["unit_number"])
+        tags = info.get("tags", [])
+        if tags:
+            tag_str = ", ".join(t["key_id"] for t in tags)
+            lines.append(f"\u2022 *{label}* \u2014 \U0001f511 {tag_str}")
+        else:
+            lines.append(f"\u2022 *{label}* \u2014 no key on file")
+    remaining = total_count - len(units_with_info)
+    if remaining > 0:
+        lines.append(f"\n\u2026and {remaining} more")
+    return "\n".join(lines)

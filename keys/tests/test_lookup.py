@@ -13,6 +13,8 @@ from django.test import RequestFactory, TestCase, override_settings
 from core.models import Property, Unit
 from keys.models import AccessNote, Tag
 from keys.replies import (
+    _display_address,
+    format_did_you_mean,
     format_help,
     format_not_found,
     format_tag,
@@ -22,6 +24,7 @@ from keys.replies import (
 from keys.selectors import (
     find_tag_by_key_id,
     find_units,
+    find_units_by_street,
     parse_query,
     tag_info,
     unit_key_info,
@@ -134,22 +137,26 @@ class SelectorTests(_BassLaneFixture):
 
     def test_find_units_exact_with_unit_number(self):
         result = find_units("28 Bass ln unit 1")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].pk, self.unit1.pk)
+        self.assertTrue(result["exact"])
+        self.assertEqual(len(result["units"]), 1)
+        self.assertEqual(result["units"][0].pk, self.unit1.pk)
 
     def test_find_units_filler_stripped(self):
         result = find_units("what's the lockbox for 28 bass lane unit 1?")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].pk, self.unit1.pk)
+        self.assertTrue(result["exact"])
+        self.assertEqual(len(result["units"]), 1)
+        self.assertEqual(result["units"][0].pk, self.unit1.pk)
 
     def test_find_units_curly_apostrophe_filler(self):
         result = find_units("what\u2019s the lockbox for 28 bass lane unit 1?")
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].pk, self.unit1.pk)
+        self.assertTrue(result["exact"])
+        self.assertEqual(len(result["units"]), 1)
+        self.assertEqual(result["units"][0].pk, self.unit1.pk)
 
     def test_find_units_address_only_returns_all(self):
         result = find_units("28 Bass")
-        self.assertEqual(len(result), 3)
+        self.assertTrue(result["exact"])
+        self.assertEqual(len(result["units"]), 3)
 
     def test_find_tag_by_key_id_loose(self):
         tag = find_tag_by_key_id("a-38")
@@ -231,7 +238,7 @@ class ReplyFormattingTests(_BassLaneFixture):
 
     def test_format_unit_list_shows_all(self):
         infos = [unit_key_info(u) for u in [self.unit1, self.unit2, self.unit3]]
-        reply = format_unit_list(infos)
+        reply = format_unit_list(infos, 3)
         self.assertIn("Found 3 units", reply)
         self.assertIn("Unit 1", reply)
         self.assertIn("Unit 2", reply)
@@ -341,3 +348,194 @@ class ViewIntegrationTests(_BassLaneFixture):
         reply = mock_post.call_args[0][1]
         self.assertIn("Something went wrong", reply)
         self.assertTrue(any("keybot_lookup_error" in m for m in log_ctx.output))
+
+
+# ---------------------------------------------------------------------------
+# Fallback / "did you mean" fixtures and tests
+# ---------------------------------------------------------------------------
+
+class _FallbackFixture(TestCase):
+    """297 Cosmos Drive (1 unit) and 6 Dogwood Court (units A, B)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.cosmos_prop = Property.objects.create(
+            name="297 Cosmos Drive",
+            address_line_1="297 Cosmos Drive",
+            city="Asheville",
+            state="NC",
+            postal_code="28801",
+            rentvine_id=9100,
+        )
+        cls.cosmos_unit = Unit.objects.create(
+            property=cls.cosmos_prop,
+            address_line_1="297 Cosmos Drive",
+            unit_number="",
+            rentvine_id=9101,
+        )
+        cls.dogwood_prop = Property.objects.create(
+            name="6 Dogwood Court",
+            address_line_1="6 Dogwood Court",
+            city="Asheville",
+            state="NC",
+            postal_code="28801",
+            rentvine_id=9200,
+        )
+        cls.dogwood_a = Unit.objects.create(
+            property=cls.dogwood_prop,
+            address_line_1="6 Dogwood Court",
+            unit_number="A",
+            rentvine_id=9201,
+        )
+        cls.dogwood_b = Unit.objects.create(
+            property=cls.dogwood_prop,
+            address_line_1="6 Dogwood Court",
+            unit_number="B",
+            rentvine_id=9202,
+        )
+
+
+class FallbackSelectorTests(_FallbackFixture):
+
+    def test_wrong_number_suggests_cosmos(self):
+        """'293 Cosmos' has no exact match; fallback suggests 297."""
+        result = find_units("293 Cosmos")
+        self.assertFalse(result["exact"])
+        self.assertEqual(len(result["units"]), 1)
+        self.assertEqual(result["units"][0].pk, self.cosmos_unit.pk)
+
+    def test_street_name_only_dogwood(self):
+        """'dogwood' (no number) returns both Dogwood units."""
+        result = find_units("dogwood")
+        self.assertFalse(result["exact"])
+        self.assertEqual(len(result["units"]), 2)
+        pks = {u.pk for u in result["units"]}
+        self.assertEqual(pks, {self.dogwood_a.pk, self.dogwood_b.pk})
+
+    def test_dog_wood_unit_a_closest_match(self):
+        """'dog wood unit a' -> single unit A, narrowed by token."""
+        result = find_units("dog wood unit a")
+        self.assertFalse(result["exact"])
+        self.assertTrue(result["narrowed_by_token"])
+        self.assertEqual(len(result["units"]), 1)
+        self.assertEqual(result["units"][0].pk, self.dogwood_a.pk)
+
+
+class FallbackReplyTests(_FallbackFixture):
+
+    def test_display_address_no_double_unit_prefix(self):
+        """unit_number='Unit 1' should display once, not 'Unit Unit 1'."""
+        self.assertEqual(
+            _display_address("28 Bass Lane", "Unit 1"),
+            "28 Bass Lane \u2014 Unit 1",
+        )
+
+    def test_display_address_plain_number(self):
+        """unit_number='1' still gets the 'Unit' prefix."""
+        self.assertEqual(
+            _display_address("28 Bass Lane", "1"),
+            "28 Bass Lane \u2014 Unit 1",
+        )
+
+    def test_display_address_letter(self):
+        """unit_number='A' gets the 'Unit' prefix."""
+        self.assertEqual(
+            _display_address("6 Dogwood Court", "A"),
+            "6 Dogwood Court \u2014 Unit A",
+        )
+
+
+@override_settings(
+    SLACK_SIGNING_SECRET=SIGNING_SECRET,
+    SLACK_BOT_TOKEN="xoxb-test-token",
+    KEYBOT_CHANNEL_ID=CHANNEL_ID,
+)
+class FallbackViewTests(_FallbackFixture):
+
+    def test_view_closest_match_reply(self):
+        """'dog wood unit a' -> Closest match reply with full unit info."""
+        request = _make_mention_request("dog wood unit a")
+        with patch("keys.views.post_message") as mock_post:
+            slack_events(request)
+        reply = mock_post.call_args[0][1]
+        self.assertIn("_Closest match:_", reply)
+        self.assertIn("6 Dogwood Court", reply)
+        self.assertIn("Unit A", reply)
+
+    def test_view_did_you_mean_reply(self):
+        """'293 Cosmos' -> Did you mean reply."""
+        request = _make_mention_request("293 Cosmos")
+        with patch("keys.views.post_message") as mock_post:
+            slack_events(request)
+        reply = mock_post.call_args[0][1]
+        self.assertIn("No exact match", reply)
+        self.assertIn("Did you mean", reply)
+        self.assertIn("297 Cosmos Drive", reply)
+
+    def test_view_dogwood_lists_both(self):
+        """'dogwood' -> did-you-mean with both units listed."""
+        request = _make_mention_request("dogwood")
+        with patch("keys.views.post_message") as mock_post:
+            slack_events(request)
+        reply = mock_post.call_args[0][1]
+        self.assertIn("Did you mean", reply)
+        self.assertIn("Unit A", reply)
+        self.assertIn("Unit B", reply)
+
+
+class _ManyUnitsFixture(TestCase):
+    """Street with 15 units to test the max-10 / unit_key_info cap."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.prop = Property.objects.create(
+            name="100 Long Street",
+            address_line_1="100 Long Street",
+            city="Asheville",
+            state="NC",
+            postal_code="28801",
+            rentvine_id=9300,
+        )
+        cls.units = []
+        for i in range(1, 16):
+            u = Unit.objects.create(
+                property=cls.prop,
+                address_line_1="100 Long Street",
+                unit_number=str(i),
+                rentvine_id=9300 + i,
+            )
+            cls.units.append(u)
+
+
+@override_settings(
+    SLACK_SIGNING_SECRET=SIGNING_SECRET,
+    SLACK_BOT_TOKEN="xoxb-test-token",
+    KEYBOT_CHANNEL_ID=CHANNEL_ID,
+)
+class ManyUnitsTests(_ManyUnitsFixture):
+
+    def test_exact_multi_match_caps_unit_key_info(self):
+        """15 units -> unit_key_info called at most 10 times, reply says '5 more'."""
+        request = _make_mention_request("100 Long")
+        with (
+            patch("keys.views.post_message") as mock_post,
+            patch("keys.views.unit_key_info", wraps=unit_key_info) as spy,
+        ):
+            slack_events(request)
+        self.assertLessEqual(spy.call_count, 10)
+        reply = mock_post.call_args[0][1]
+        self.assertIn("5 more", reply)
+        self.assertIn("Found 15 units", reply)
+
+    def test_did_you_mean_caps_unit_key_info(self):
+        """Wrong-number fallback to 15 units also caps at 10."""
+        request = _make_mention_request("101 Long")
+        with (
+            patch("keys.views.post_message") as mock_post,
+            patch("keys.views.unit_key_info", wraps=unit_key_info) as spy,
+        ):
+            slack_events(request)
+        self.assertLessEqual(spy.call_count, 10)
+        reply = mock_post.call_args[0][1]
+        self.assertIn("5 more", reply)
+        self.assertIn("No exact match", reply)

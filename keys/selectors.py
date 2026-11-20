@@ -82,32 +82,65 @@ def parse_query(text: str) -> dict:
     return {"type": "address", "value": text}
 
 
-def find_units(query_text: str) -> list:
-    """Address lookup: strip filler, normalize, match against Rentvine-linked units."""
+def _narrow_by_token(candidates, unit_token):
+    """Filter candidates by unit token. Returns (units, was_narrowed)."""
+    if not unit_token:
+        return candidates, False
+    normalized = normalize_unit_token(unit_token)
+    narrowed = [
+        u for u in candidates
+        if normalize_unit_token(u.unit_number) == normalized
+    ]
+    if narrowed:
+        return narrowed, True
+    return candidates, False
+
+
+def find_units_by_street(base_name: str, index: dict) -> list:
+    """Units whose normalized base_name equals or prefix-matches the query.
+
+    Exact base_name equality always matches.  Prefix match (one starts
+    with the other) requires both strings to be >= 4 chars.
+    """
+    if not base_name:
+        return []
+    matches = []
+    for (_num, base), units in index.items():
+        if base == base_name:
+            matches.extend(units)
+        elif len(base) >= 4 and len(base_name) >= 4:
+            if base.startswith(base_name) or base_name.startswith(base):
+                matches.extend(units)
+    return matches
+
+
+def find_units(query_text: str) -> dict:
+    """Address lookup → {"units": [...], "exact": bool, "narrowed_by_token": bool}."""
     cleaned = _strip_filler(query_text)
     street_number, base_name, unit_token = normalize_address(cleaned)
-    if not street_number or not base_name:
-        return []
+    if not base_name:
+        return {"units": [], "exact": True, "narrowed_by_token": False}
 
     db_units = list(
         Unit.objects.filter(rentvine_id__isnull=False)
         .select_related("property")
     )
     index = build_unit_address_index(db_units)
-    candidates = index.get((street_number, base_name), [])
+
+    # --- exact path: query has a street number ---
+    if street_number:
+        candidates = index.get((street_number, base_name), [])
+        if candidates:
+            units, by_token = _narrow_by_token(candidates, unit_token)
+            return {"units": units, "exact": True, "narrowed_by_token": by_token}
+        # No exact (number, base) match — fall through to street-name fallback.
+
+    # --- street-name fallback ---
+    candidates = find_units_by_street(base_name, index)
     if not candidates:
-        return []
-
-    if unit_token:
-        normalized_token = normalize_unit_token(unit_token)
-        narrowed = [
-            u for u in candidates
-            if normalize_unit_token(u.unit_number) == normalized_token
-        ]
-        if narrowed:
-            return narrowed
-
-    return candidates
+        return {"units": [], "exact": False, "narrowed_by_token": False}
+    units, by_token = _narrow_by_token(candidates, unit_token)
+    return {"units": units, "exact": False, "narrowed_by_token": by_token}
 
 
 def find_tag_by_key_id(text: str):
