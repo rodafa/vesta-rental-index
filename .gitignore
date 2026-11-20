@@ -18,3 +18,4 @@ staticfiles/
 .claude/
 tmp/
 .backfill_events_progress.txt
+keys/import_data/

@@ -25,5 +25,5 @@ dev = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.dev"
 pythonpath = ["."]
-testpaths = ["tests", "accounts", "core", "integrations", "maintenance", "comms", "accounting"]
+testpaths = ["tests", "accounts", "core", "integrations", "maintenance", "comms", "accounting", "keys"]
 norecursedirs = ["_salvage", ".venv", ".git", "node_modules"]

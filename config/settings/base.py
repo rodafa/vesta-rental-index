@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "automations",
     "leasing",
     "utilities",
+    "keys",
 ]
 
 MIDDLEWARE = [
