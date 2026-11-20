@@ -118,11 +118,10 @@ class SlackEventsViewTests(TestCase):
         with patch("keys.views.post_message") as mock_post:
             resp = slack_events(request)
         self.assertEqual(resp.status_code, 200)
-        mock_post.assert_called_once_with(
-            CHANNEL_ID,
-            "KeyBot is connected \u2705 \u2014 lookups coming soon.",
-            thread_ts="1234567890.123456",
-        )
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], CHANNEL_ID)
+        self.assertEqual(kwargs.get("thread_ts"), "1234567890.123456")
 
     def test_app_mention_wrong_channel_no_post(self):
         payload = {

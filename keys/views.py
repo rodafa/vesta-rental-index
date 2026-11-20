@@ -8,7 +8,21 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from keys.slack import post_message, verify_slack_signature
+from keys.replies import (
+    format_help,
+    format_not_found,
+    format_tag,
+    format_unit,
+    format_unit_list,
+)
+from keys.selectors import (
+    find_tag_by_key_id,
+    find_units,
+    parse_query,
+    tag_info,
+    unit_key_info,
+)
+from keys.slack import post_message, strip_mention, verify_slack_signature
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +65,46 @@ def slack_events(request):
                 logger.info("keybot_ignored_bot")
                 return JsonResponse({"ok": True})
             text = event.get("text", "")
+            query = strip_mention(text)
+            parsed = parse_query(query)
+
+            try:
+                if parsed["type"] in ("empty", "help"):
+                    reply = format_help()
+                    outcome, match_count = "help", 0
+                elif parsed["type"] == "key_id":
+                    tag = find_tag_by_key_id(parsed["value"])
+                    if tag:
+                        reply = format_tag(tag_info(tag))
+                        outcome, match_count = "tag_found", 1
+                    else:
+                        reply = format_not_found(parsed["value"])
+                        outcome, match_count = "not_found", 0
+                else:
+                    units = find_units(parsed["value"])
+                    match_count = len(units)
+                    if not units:
+                        reply = format_not_found(parsed["value"])
+                        outcome = "not_found"
+                    elif len(units) == 1:
+                        reply = format_unit(unit_key_info(units[0]))
+                        outcome = "unit_found"
+                    else:
+                        infos = [unit_key_info(u) for u in units]
+                        reply = format_unit_list(infos)
+                        outcome = "multi_match"
+            except Exception:
+                logger.exception("keybot_lookup_error")
+                reply = "Something went wrong with that lookup \u2014 please try again."
+                outcome, match_count = "error", 0
+
             logger.info(
-                "keybot_app_mention",
-                extra={"channel": channel, "text": text[:100]},
+                f"keybot_lookup query_len={len(query)}"
+                f" query_type={parsed['type']}"
+                f" match_count={match_count}"
+                f" outcome={outcome}"
             )
-            post_message(
-                channel,
-                "KeyBot is connected \u2705 \u2014 lookups coming soon.",
-                thread_ts=event.get("ts"),
-            )
+            post_message(channel, reply, thread_ts=event.get("ts"))
             return JsonResponse({"ok": True})
 
     logger.info("keybot_unhandled_event", extra={"type": event_type})
