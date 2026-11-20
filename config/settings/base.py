@@ -213,6 +213,11 @@ ONBOARD_SHARED_SECRET = os.environ.get("ONBOARD_SHARED_SECRET", "")
 RENTENGINE_WEBHOOK_SECRET = os.environ.get("RENTENGINE_WEBHOOK_SECRET", "")
 RENTVINE_WEBHOOK_URL_SECRET = os.environ.get("RENTVINE_WEBHOOK_URL_SECRET", "")
 
+# --- Slack Bot (KeyBot inbound) ---
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
+SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
+KEYBOT_CHANNEL_ID = os.environ.get("KEYBOT_CHANNEL_ID", "")
+
 # --- Owner Distribution Email ---
 
 # RentVine internal chargeAccountID values (not GL numbers).

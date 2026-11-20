@@ -48,4 +48,6 @@ urlpatterns = [
     path("api/webhooks/", include("leasing.urls")),
     # Utilities grid
     path("dashboard/utilities/", include("utilities.urls")),
+    # Slack — KeyBot inbound events
+    path("slack/keybot/", include("keys.urls")),
 ]
