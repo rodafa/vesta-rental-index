@@ -155,9 +155,13 @@ def slack_events(request):
                                 parsed["value"], infos, len(units),
                             )
                             outcome = "did_you_mean"
-            except Exception:
-                logger.exception("keybot_lookup_error")
+            except Exception as exc:
+                logger.exception(
+                    f"keybot_lookup_error query_type={parsed['type']}"
+                    f" error={exc}"
+                )
                 reply = "Something went wrong \u2014 please try again."
+                blocks = None
                 outcome, match_count = "error", 0
 
             logger.info(
@@ -167,14 +171,29 @@ def slack_events(request):
                 f" outcome={outcome}"
             )
             if reply is not None:
-                post_message(
-                    channel, reply,
-                    thread_ts=event.get("ts"), blocks=blocks,
-                )
+                try:
+                    post_message(
+                        channel, reply,
+                        thread_ts=event.get("ts"), blocks=blocks,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        f"keybot_reply_error query_type={parsed['type']}"
+                        f" error={exc}"
+                    )
+                    _safe_reply(channel, reply, event.get("ts"))
             return JsonResponse({"ok": True})
 
     logger.info("keybot_unhandled_event", extra={"type": event_type})
     return JsonResponse({"ok": True})
+
+
+def _safe_reply(channel, text, thread_ts):
+    """Post a plain-text reply, swallowing errors. Last-resort fallback."""
+    try:
+        post_message(channel, text, thread_ts=thread_ts)
+    except Exception as exc:
+        logger.exception(f"keybot_safe_reply_failed error={exc}")
 
 
 # ── Mention sub-handlers ────────────────────────────────────────────
@@ -279,9 +298,9 @@ def slack_interactions(request):
         message_ts = payload.get("message", {}).get("ts", "")
 
         try:
-            if action_id == "keybot_take":
+            if action_id.startswith("keybot_take:"):
                 _interaction_take(value, user_id, channel_id, message_ts)
-            elif action_id == "keybot_return":
+            elif action_id.startswith("keybot_return:"):
                 _interaction_lookup_return(value, user_id, channel_id, message_ts)
             elif action_id == "keybot_reminder_return":
                 _interaction_reminder_return(
@@ -323,11 +342,14 @@ def _interaction_take(key_id, user_id, channel_id, message_ts):
         return
 
     new_text, new_blocks = _rebuild_lookup_message(tag)
-    update_message(channel_id, message_ts, new_text, blocks=new_blocks)
-    post_message(
-        channel_id, format_checkout_ok(key_id, display_name),
-        thread_ts=message_ts,
-    )
+    try:
+        update_message(channel_id, message_ts, new_text, blocks=new_blocks)
+    except Exception as exc:
+        logger.exception(
+            f"keybot_update_message_failed action=take tag={key_id} error={exc}"
+        )
+    confirm = format_checkout_ok(key_id, display_name)
+    _safe_reply(channel_id, confirm, message_ts)
     logger.info(f"keybot_button_take tag={key_id} by={user_id}")
 
 
@@ -345,12 +367,15 @@ def _interaction_lookup_return(key_id, user_id, channel_id, message_ts):
 
     display_name = get_display_name(user_id)
     new_text, new_blocks = _rebuild_lookup_message(tag)
-    update_message(channel_id, message_ts, new_text, blocks=new_blocks)
-    post_message(
-        channel_id,
-        f"\u21a9\ufe0f *{key_id}* returned by {display_name}.",
-        thread_ts=message_ts,
-    )
+    try:
+        update_message(channel_id, message_ts, new_text, blocks=new_blocks)
+    except Exception as exc:
+        logger.exception(
+            f"keybot_update_message_failed action=return tag={key_id}"
+            f" error={exc}"
+        )
+    confirm = f"\u21a9\ufe0f *{key_id}* returned by {display_name}."
+    _safe_reply(channel_id, confirm, message_ts)
     logger.info(f"keybot_button_return_lookup tag={key_id} by={user_id}")
 
 
@@ -392,7 +417,14 @@ def _interaction_reminder_return(checkout_id_str, user_id, channel_id, message_t
     return_tag(co.tag, user_id)
     display_name = get_display_name(user_id)
     new_text = reminder_resolved_text(co.tag.key_id, "returned", display_name)
-    update_message(channel_id, message_ts, new_text)
+    try:
+        update_message(channel_id, message_ts, new_text)
+    except Exception as exc:
+        logger.exception(
+            f"keybot_update_message_failed action=reminder_return"
+            f" tag={co.tag.key_id} error={exc}"
+        )
+        _safe_reply(channel_id, new_text, message_ts)
     logger.info(f"keybot_button_reminder_return tag={co.tag.key_id} by={user_id}")
 
 
@@ -414,5 +446,12 @@ def _interaction_reminder_snooze(checkout_id_str, user_id, channel_id, message_t
     snooze_reminder(co)
     display_name = get_display_name(user_id)
     new_text = reminder_resolved_text(co.tag.key_id, "snoozed", display_name)
-    update_message(channel_id, message_ts, new_text)
+    try:
+        update_message(channel_id, message_ts, new_text)
+    except Exception as exc:
+        logger.exception(
+            f"keybot_update_message_failed action=snooze"
+            f" tag={co.tag.key_id} error={exc}"
+        )
+        _safe_reply(channel_id, new_text, message_ts)
     logger.info(f"keybot_button_snooze tag={co.tag.key_id} by={user_id}")

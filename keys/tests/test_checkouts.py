@@ -20,6 +20,12 @@ from keys.checkouts import (
     snooze_reminder,
 )
 from keys.models import Checkout, KeyChange, Tag
+from keys.replies import (
+    format_unit,
+    lookup_blocks,
+    reminder_blocks,
+    take_buttons,
+)
 from keys.selectors import parse_query
 
 ET = ZoneInfo("America/New_York")
@@ -333,7 +339,7 @@ class LookupButtonTests(_CheckoutFixture):
     def test_take_button_creates_checkout(
         self, mock_update, mock_post, mock_name, mock_sig,
     ):
-        resp = self._interaction_post("keybot_take", "A-099")
+        resp = self._interaction_post("keybot_take:A-099", "A-099")
         self.assertEqual(resp.status_code, 200)
 
         # Checkout created.
@@ -357,7 +363,7 @@ class LookupButtonTests(_CheckoutFixture):
     ):
         checkout_tag(self.tag, "U_ALICE", "Alice")
 
-        resp = self._interaction_post("keybot_take", "A-099", user_id="U_BOB")
+        resp = self._interaction_post("keybot_take:A-099", "A-099", user_id="U_BOB")
         self.assertEqual(resp.status_code, 200)
 
         # Ephemeral refusal.
@@ -380,7 +386,7 @@ class LookupButtonTests(_CheckoutFixture):
     ):
         checkout_tag(self.tag, "U_ALICE", "Alice")
 
-        resp = self._interaction_post("keybot_return", "A-099")
+        resp = self._interaction_post("keybot_return:A-099", "A-099")
         self.assertEqual(resp.status_code, 200)
 
         # Checkout closed.
@@ -466,3 +472,228 @@ class ReminderButtonTests(_CheckoutFixture):
         co.refresh_from_db()
         self.assertIsNone(co.last_reminder_at)
         mock_update.assert_not_called()
+
+
+# ── Block Kit validation helpers & tests ───────────────────────────
+
+
+def _validate_blocks(test_case, blocks):
+    """Assert a Block Kit payload satisfies Slack's validation rules."""
+    test_case.assertIsInstance(blocks, list)
+    action_ids = []
+    for block in blocks:
+        btype = block.get("type")
+        if btype == "section":
+            text = block.get("text", {}).get("text", "")
+            test_case.assertLessEqual(
+                len(text), 3000,
+                f"section text exceeds 3000 chars ({len(text)})",
+            )
+            test_case.assertTrue(text, "section text must not be empty")
+        elif btype == "actions":
+            for elem in block.get("elements", []):
+                aid = elem.get("action_id", "")
+                test_case.assertNotIn(
+                    aid, action_ids, f"duplicate action_id: {aid}",
+                )
+                action_ids.append(aid)
+                btn_text = elem.get("text", {}).get("text", "")
+                test_case.assertLessEqual(
+                    len(btn_text), 75,
+                    f"button text exceeds 75 chars: {btn_text!r}",
+                )
+                val = elem.get("value", "")
+                test_case.assertLessEqual(
+                    len(val), 2000, "button value exceeds 2000 chars",
+                )
+
+
+class BlockKitValidationTests(TestCase):
+    """Block Kit payload validation for Slack compliance."""
+
+    def test_lookup_blocks_one_on_hook_tag(self):
+        tags = [{"key_id": "A-038", "status_raw": "on_hook",
+                 "checkout": None, "ring_notes": ""}]
+        buttons = take_buttons(tags)
+        blocks = lookup_blocks("some lookup text", buttons)
+        self.assertIsNotNone(blocks)
+        _validate_blocks(self, blocks)
+
+    def test_lookup_blocks_two_on_hook_tags(self):
+        """The bug case: 2 on_hook tags now produce unique action_ids."""
+        tags = [
+            {"key_id": "A-038", "status_raw": "on_hook",
+             "checkout": None, "ring_notes": ""},
+            {"key_id": "A-134", "status_raw": "on_hook",
+             "checkout": None, "ring_notes": ""},
+        ]
+        buttons = take_buttons(tags)
+        blocks = lookup_blocks("some lookup text", buttons)
+        self.assertIsNotNone(blocks)
+        _validate_blocks(self, blocks)
+        # Verify two distinct buttons.
+        self.assertEqual(len(blocks[1]["elements"]), 2)
+
+    def test_lookup_blocks_no_tags(self):
+        buttons = take_buttons([])
+        blocks = lookup_blocks("text", buttons)
+        self.assertIsNone(blocks)
+
+    def test_reminder_blocks_valid(self):
+        now = timezone.now()
+        checked_out_at = now - timedelta(hours=48)
+        text, blocks = reminder_blocks(
+            "A-038", "U_ALICE", checked_out_at, now, checkout_id=1,
+        )
+        _validate_blocks(self, blocks)
+
+    def test_format_unit_long_notes_under_3000(self):
+        """Even with 5 long notes, section text stays under 3000 chars."""
+        info = {
+            "address": "28 Bass Lane",
+            "unit_number": "1",
+            "tags": [{"key_id": "A-038", "status_raw": "on_hook",
+                       "checkout": None, "ring_notes": "front door"}],
+            "property_tags": [],
+            "notes": [
+                {"text": "x" * 300, "source": "RV", "date": "2026-01-01"}
+                for _ in range(5)
+            ],
+        }
+        text = format_unit(info)
+        buttons = take_buttons(info["tags"])
+        blocks = lookup_blocks(text, buttons)
+        self.assertIsNotNone(blocks)
+        _validate_blocks(self, blocks)
+
+
+@override_settings(
+    KEYBOT_CHANNEL_ID="C_TEST",
+    SLACK_SIGNING_SECRET="test-secret",
+    ROOT_URLCONF="config.urls",
+)
+class PostPressBlockTests(TestCase):
+    """Validate blocks after button presses on multi-tag units."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.prop = Property.objects.create(
+            name="28 Bass Lane",
+            address_line_1="28 Bass Lane",
+            city="Asheville", state="NC", postal_code="28801",
+            rentvine_id=9100,
+        )
+        cls.unit = Unit.objects.create(
+            property=cls.prop,
+            address_line_1="28 Bass Lane",
+            unit_number="1",
+            rentvine_id=9101,
+        )
+        cls.tag1 = Tag.objects.create(
+            box="A", number=38, unit=cls.unit, ring_notes="front door",
+        )
+        cls.tag2 = Tag.objects.create(
+            box="A", number=134, unit=cls.unit, ring_notes="back door",
+        )
+
+    def _interaction_post(self, action_id, value, user_id="U_ALICE"):
+        payload = {
+            "type": "block_actions",
+            "user": {"id": user_id},
+            "channel": {"id": "C_TEST"},
+            "message": {"ts": "1234567890.123456"},
+            "actions": [{"action_id": action_id, "value": value}],
+        }
+        return self.client.post(
+            "/slack/keybot/interactions/",
+            urlencode({"payload": json.dumps(payload)}),
+            content_type="application/x-www-form-urlencoded",
+        )
+
+    @patch("keys.views.verify_slack_signature", return_value=True)
+    @patch("keys.views.get_display_name", return_value="Alice")
+    @patch("keys.views.post_message")
+    @patch("keys.views.update_message")
+    def test_post_press_blocks_mixed_statuses(
+        self, mock_update, mock_post, mock_name, mock_sig,
+    ):
+        """After taking one of two tags, rebuilt blocks have mixed buttons."""
+        resp = self._interaction_post("keybot_take:A-038", "A-038")
+        self.assertEqual(resp.status_code, 200)
+
+        # Validate the blocks passed to chat.update.
+        mock_update.assert_called_once()
+        blocks = mock_update.call_args[1]["blocks"]
+        _validate_blocks(self, blocks)
+
+        # Should have 2 buttons: Return A-038, Take A-134.
+        actions_block = blocks[1]
+        aids = [e["action_id"] for e in actions_block["elements"]]
+        self.assertIn("keybot_return:A-038", aids)
+        self.assertIn("keybot_take:A-134", aids)
+
+    @patch("keys.views.verify_slack_signature", return_value=True)
+    @patch("keys.views.get_display_name", return_value="Alice")
+    @patch("keys.views.post_message")
+    @patch("keys.views.update_message",
+           side_effect=RuntimeError("invalid_blocks"))
+    def test_update_message_failure_falls_back_to_thread(
+        self, mock_update, mock_post, mock_name, mock_sig,
+    ):
+        """When chat.update fails, a plain-text threaded reply is still sent."""
+        resp = self._interaction_post("keybot_take:A-038", "A-038")
+        self.assertEqual(resp.status_code, 200)
+
+        # update_message was attempted but failed.
+        mock_update.assert_called_once()
+
+        # _safe_reply still posted a threaded confirmation.
+        mock_post.assert_called_once()
+        self.assertIn("checked out", mock_post.call_args[0][1])
+
+
+@override_settings(
+    KEYBOT_CHANNEL_ID="C_TEST",
+    SLACK_SIGNING_SECRET="test-secret",
+    ROOT_URLCONF="config.urls",
+)
+class EventReplyFallbackTests(_CheckoutFixture):
+    """post_message blocks failure retries as plain text via _safe_reply."""
+
+    def _event_body(self, text):
+        return json.dumps({
+            "type": "event_callback",
+            "event": {
+                "type": "app_mention",
+                "channel": "C_TEST",
+                "user": "U_ALICE",
+                "text": f"<@UBOT> {text}",
+                "ts": "111.222",
+            },
+        }).encode()
+
+    @patch("keys.views.verify_slack_signature", return_value=True)
+    @patch("keys.views.post_message")
+    def test_blocks_failure_retries_plain_text(self, mock_post, mock_sig):
+        """When post_message with blocks raises, _safe_reply sends plain text."""
+        call_count = [0]
+
+        def _side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1 and kwargs.get("blocks"):
+                raise RuntimeError("invalid_blocks")
+
+        mock_post.side_effect = _side_effect
+
+        resp = self.client.post(
+            "/slack/keybot/events/",
+            self._event_body("A-099"),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        # First call had blocks and failed; second call (plain text) succeeded.
+        self.assertEqual(mock_post.call_count, 2)
+        # Second call should have no blocks kwarg.
+        second_kwargs = mock_post.call_args_list[1][1]
+        self.assertNotIn("blocks", second_kwargs)

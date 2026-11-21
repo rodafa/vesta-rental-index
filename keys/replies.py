@@ -280,24 +280,27 @@ def take_buttons(tags: list[dict]) -> list[dict]:
 
     Returns a list of button elements, max 3.
     *tags* are tag dicts (must have key_id, status_raw).
+    action_ids are suffixed with the key_id to ensure uniqueness
+    (e.g. ``keybot_take:A-038``).
     """
     buttons = []
     for tag in tags:
         if len(buttons) >= 3:
             break
+        kid = tag["key_id"]
         if tag["status_raw"] == "on_hook":
             buttons.append({
                 "type": "button",
-                "text": {"type": "plain_text", "text": f"Take {tag['key_id']}"},
-                "action_id": "keybot_take",
-                "value": tag["key_id"],
+                "text": {"type": "plain_text", "text": f"Take {kid}"},
+                "action_id": f"keybot_take:{kid}",
+                "value": kid,
             })
         elif tag["status_raw"] == "checked_out":
             buttons.append({
                 "type": "button",
-                "text": {"type": "plain_text", "text": f"Return {tag['key_id']}"},
-                "action_id": "keybot_return",
-                "value": tag["key_id"],
+                "text": {"type": "plain_text", "text": f"Return {kid}"},
+                "action_id": f"keybot_return:{kid}",
+                "value": kid,
             })
     return buttons
 
@@ -307,7 +310,7 @@ def return_button(key_id: str) -> dict:
     return {
         "type": "button",
         "text": {"type": "plain_text", "text": f"Return {key_id}"},
-        "action_id": "keybot_return",
+        "action_id": f"keybot_return:{key_id}",
         "value": key_id,
     }
 
