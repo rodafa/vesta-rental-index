@@ -293,34 +293,45 @@ def slack_interactions(request):
     for action in payload.get("actions", []):
         action_id = action.get("action_id", "")
         value = action.get("value", "")
-        user_id = payload.get("user", {}).get("id", "")
+        user_obj = payload.get("user", {})
+        user_id = user_obj.get("id", "")
+        fallback_name = (
+            user_obj.get("username") or user_obj.get("name") or user_id
+        )
         channel_id = payload.get("channel", {}).get("id", "")
         message_ts = payload.get("message", {}).get("ts", "")
 
         try:
             if action_id.startswith("keybot_take:"):
-                _interaction_take(value, user_id, channel_id, message_ts)
+                _interaction_take(
+                    value, user_id, fallback_name, channel_id, message_ts,
+                )
             elif action_id.startswith("keybot_return:"):
-                _interaction_lookup_return(value, user_id, channel_id, message_ts)
+                _interaction_lookup_return(
+                    value, user_id, fallback_name, channel_id, message_ts,
+                )
             elif action_id == "keybot_reminder_return":
                 _interaction_reminder_return(
-                    value, user_id, channel_id, message_ts,
+                    value, user_id, fallback_name, channel_id, message_ts,
                 )
             elif action_id == "keybot_snooze":
                 _interaction_reminder_snooze(
-                    value, user_id, channel_id, message_ts,
+                    value, user_id, fallback_name, channel_id, message_ts,
                 )
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 f"keybot_interaction_error action={action_id} value={value}"
+                f" error={exc}"
             )
             try:
                 post_ephemeral(
                     channel_id, user_id,
                     "Something went wrong with that button \u2014 please try again.",
                 )
-            except Exception:
-                logger.exception("keybot_interaction_error_ephemeral_failed")
+            except Exception as exc2:
+                logger.exception(
+                    f"keybot_interaction_error_ephemeral_failed error={exc2}"
+                )
 
     return HttpResponse(status=200)
 
@@ -328,14 +339,14 @@ def slack_interactions(request):
 # ── Interaction sub-handlers ────────────────────────────────────────
 
 
-def _interaction_take(key_id, user_id, channel_id, message_ts):
+def _interaction_take(key_id, user_id, fallback_name, channel_id, message_ts):
     """Take button pressed on a lookup message."""
     tag = find_tag_by_key_id(key_id)
     if tag is None:
         post_ephemeral(channel_id, user_id, f"Tag {key_id} not found.")
         return
 
-    display_name = get_display_name(user_id)
+    display_name = get_display_name(user_id, fallback=fallback_name)
     result = checkout_tag(tag, user_id, display_name)
     if isinstance(result, str):
         post_ephemeral(channel_id, user_id, result)
@@ -353,7 +364,7 @@ def _interaction_take(key_id, user_id, channel_id, message_ts):
     logger.info(f"keybot_button_take tag={key_id} by={user_id}")
 
 
-def _interaction_lookup_return(key_id, user_id, channel_id, message_ts):
+def _interaction_lookup_return(key_id, user_id, fallback_name, channel_id, message_ts):
     """Return button pressed on a lookup message."""
     tag = find_tag_by_key_id(key_id)
     if tag is None:
@@ -365,7 +376,7 @@ def _interaction_lookup_return(key_id, user_id, channel_id, message_ts):
         post_ephemeral(channel_id, user_id, f"{key_id} is not currently checked out.")
         return
 
-    display_name = get_display_name(user_id)
+    display_name = get_display_name(user_id, fallback=fallback_name)
     new_text, new_blocks = _rebuild_lookup_message(tag)
     try:
         update_message(channel_id, message_ts, new_text, blocks=new_blocks)
@@ -406,7 +417,7 @@ def _rebuild_lookup_message(tag):
     return text, blocks
 
 
-def _interaction_reminder_return(checkout_id_str, user_id, channel_id, message_ts):
+def _interaction_reminder_return(checkout_id_str, user_id, fallback_name, channel_id, message_ts):
     """Return button on a reminder message. Anyone can press this."""
     try:
         co = Checkout.objects.select_related("tag").get(pk=checkout_id_str)
@@ -415,7 +426,7 @@ def _interaction_reminder_return(checkout_id_str, user_id, channel_id, message_t
         return
 
     return_tag(co.tag, user_id)
-    display_name = get_display_name(user_id)
+    display_name = get_display_name(user_id, fallback=fallback_name)
     new_text = reminder_resolved_text(co.tag.key_id, "returned", display_name)
     try:
         update_message(channel_id, message_ts, new_text)
@@ -428,7 +439,7 @@ def _interaction_reminder_return(checkout_id_str, user_id, channel_id, message_t
     logger.info(f"keybot_button_reminder_return tag={co.tag.key_id} by={user_id}")
 
 
-def _interaction_reminder_snooze(checkout_id_str, user_id, channel_id, message_ts):
+def _interaction_reminder_snooze(checkout_id_str, user_id, fallback_name, channel_id, message_ts):
     """Snooze button on a reminder message. Holder-only."""
     try:
         co = Checkout.objects.select_related("tag").get(pk=checkout_id_str)
@@ -444,7 +455,7 @@ def _interaction_reminder_snooze(checkout_id_str, user_id, channel_id, message_t
         return
 
     snooze_reminder(co)
-    display_name = get_display_name(user_id)
+    display_name = get_display_name(user_id, fallback=fallback_name)
     new_text = reminder_resolved_text(co.tag.key_id, "snoozed", display_name)
     try:
         update_message(channel_id, message_ts, new_text)

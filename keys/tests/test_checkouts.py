@@ -321,7 +321,7 @@ class LookupButtonTests(_CheckoutFixture):
     def _interaction_post(self, action_id, value, user_id="U_ALICE"):
         payload = {
             "type": "block_actions",
-            "user": {"id": user_id},
+            "user": {"id": user_id, "username": "testuser", "name": "Test User"},
             "channel": {"id": "C_TEST"},
             "message": {"ts": "1234567890.123456"},
             "actions": [{"action_id": action_id, "value": value}],
@@ -413,7 +413,7 @@ class ReminderButtonTests(_CheckoutFixture):
     def _interaction_post(self, action_id, value, user_id="U_ALICE"):
         payload = {
             "type": "block_actions",
-            "user": {"id": user_id},
+            "user": {"id": user_id, "username": "testuser", "name": "Test User"},
             "channel": {"id": "C_TEST"},
             "message": {"ts": "1234567890.123456"},
             "actions": [{"action_id": action_id, "value": value}],
@@ -599,7 +599,7 @@ class PostPressBlockTests(TestCase):
     def _interaction_post(self, action_id, value, user_id="U_ALICE"):
         payload = {
             "type": "block_actions",
-            "user": {"id": user_id},
+            "user": {"id": user_id, "username": "testuser", "name": "Test User"},
             "channel": {"id": "C_TEST"},
             "message": {"ts": "1234567890.123456"},
             "actions": [{"action_id": action_id, "value": value}],
@@ -697,3 +697,78 @@ class EventReplyFallbackTests(_CheckoutFixture):
         # Second call should have no blocks kwarg.
         second_kwargs = mock_post.call_args_list[1][1]
         self.assertNotIn("blocks", second_kwargs)
+
+
+# ── Display-name fallback tests ────────────────────────────────────
+
+
+class GetDisplayNameFallbackTests(TestCase):
+    """get_display_name never raises, falls back gracefully."""
+
+    @patch("keys.slack._slack_api", side_effect=RuntimeError("user_not_found"))
+    def test_falls_back_to_provided_name(self, mock_api):
+        from keys.slack import get_display_name
+
+        name = get_display_name("U123", fallback="rodrigo")
+        self.assertEqual(name, "rodrigo")
+
+    @patch("keys.slack._slack_api", side_effect=RuntimeError("user_not_found"))
+    def test_falls_back_to_user_id_when_no_fallback(self, mock_api):
+        from keys.slack import get_display_name
+
+        name = get_display_name("U123")
+        self.assertEqual(name, "U123")
+
+    @patch("keys.slack._slack_api", return_value={
+        "ok": True,
+        "user": {"profile": {"display_name": "", "real_name": ""}},
+    })
+    def test_empty_profile_uses_fallback(self, mock_api):
+        from keys.slack import get_display_name
+
+        name = get_display_name("U123", fallback="rodrigo")
+        self.assertEqual(name, "rodrigo")
+
+
+@override_settings(
+    KEYBOT_CHANNEL_ID="C_TEST",
+    SLACK_SIGNING_SECRET="test-secret",
+    ROOT_URLCONF="config.urls",
+)
+class UsersInfoFailureTests(_CheckoutFixture):
+    """Checkout succeeds even when users.info fails."""
+
+    def _interaction_post(self, action_id, value, user_id="U_ALICE"):
+        payload = {
+            "type": "block_actions",
+            "user": {"id": user_id, "username": "rodrigo", "name": "Rodrigo"},
+            "channel": {"id": "C_TEST"},
+            "message": {"ts": "1234567890.123456"},
+            "actions": [{"action_id": action_id, "value": value}],
+        }
+        return self.client.post(
+            "/slack/keybot/interactions/",
+            urlencode({"payload": json.dumps(payload)}),
+            content_type="application/x-www-form-urlencoded",
+        )
+
+    @patch("keys.views.verify_slack_signature", return_value=True)
+    @patch("keys.slack._slack_api")
+    def test_checkout_ok_despite_users_info_failure(self, mock_api, mock_sig):
+        """users.info failing still produces a successful checkout."""
+        def _api_side_effect(method, payload):
+            if method == "users.info":
+                raise RuntimeError("user_not_found")
+            return {"ok": True}
+
+        mock_api.side_effect = _api_side_effect
+
+        resp = self._interaction_post("keybot_take:A-099", "A-099")
+        self.assertEqual(resp.status_code, 200)
+
+        # Checkout was created with the fallback name from the payload.
+        co = Checkout.objects.filter(
+            tag=self.tag, returned_at__isnull=True,
+        ).first()
+        self.assertIsNotNone(co)
+        self.assertEqual(co.checked_out_by_name, "rodrigo")

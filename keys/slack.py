@@ -73,15 +73,25 @@ def post_ephemeral(channel: str, user: str, text: str) -> dict:
     })
 
 
-def get_display_name(user_id: str) -> str:
-    """Fetch a Slack user's display name (falls back to real_name, then ID)."""
-    data = _slack_api("users.info", {"user": user_id})
-    profile = data.get("user", {}).get("profile", {})
-    return (
-        profile.get("display_name")
-        or profile.get("real_name")
-        or user_id
-    )
+def get_display_name(user_id: str, fallback: str = "") -> str:
+    """Fetch a Slack user's display name. Never raises.
+
+    Falls back to *fallback* (e.g. payload username), then *user_id*.
+    """
+    try:
+        data = _slack_api("users.info", {"user": user_id})
+        profile = data.get("user", {}).get("profile", {})
+        return (
+            profile.get("display_name")
+            or profile.get("real_name")
+            or fallback
+            or user_id
+        )
+    except Exception as exc:
+        logger.warning(
+            f"slack_display_name_failed user={user_id} error={exc}"
+        )
+        return fallback or user_id
 
 
 def _slack_api(method: str, payload: dict) -> dict:
