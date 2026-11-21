@@ -373,6 +373,12 @@ class _FallbackFixture(TestCase):
             unit_number="",
             rentvine_id=9101,
         )
+        cls.cosmos_293 = Unit.objects.create(
+            property=cls.cosmos_prop,
+            address_line_1="297 Cosmos Drive",
+            unit_number="293",
+            rentvine_id=9102,
+        )
         cls.dogwood_prop = Property.objects.create(
             name="6 Dogwood Court",
             address_line_1="6 Dogwood Court",
@@ -397,12 +403,20 @@ class _FallbackFixture(TestCase):
 
 class FallbackSelectorTests(_FallbackFixture):
 
-    def test_wrong_number_suggests_cosmos(self):
-        """'293 Cosmos' has no exact match; fallback suggests 297."""
+    def test_unit_number_as_street_number_exact(self):
+        """'293 Cosmos' → exact match to unit 293 at 297 Cosmos Drive."""
         result = find_units("293 Cosmos")
-        self.assertFalse(result["exact"])
+        self.assertTrue(result["exact"])
         self.assertEqual(len(result["units"]), 1)
-        self.assertEqual(result["units"][0].pk, self.cosmos_unit.pk)
+        self.assertEqual(result["units"][0].pk, self.cosmos_293.pk)
+
+    def test_wrong_number_no_unit_match_suggests(self):
+        """'295 Cosmos' has no exact or unit-number match; fallback suggests."""
+        result = find_units("295 Cosmos")
+        self.assertFalse(result["exact"])
+        self.assertEqual(len(result["units"]), 2)
+        pks = {u.pk for u in result["units"]}
+        self.assertEqual(pks, {self.cosmos_unit.pk, self.cosmos_293.pk})
 
     def test_street_name_only_dogwood(self):
         """'dogwood' (no number) returns both Dogwood units."""
@@ -463,8 +477,8 @@ class FallbackViewTests(_FallbackFixture):
         self.assertIn("Unit A", reply)
 
     def test_view_did_you_mean_reply(self):
-        """'293 Cosmos' -> Did you mean reply."""
-        request = _make_mention_request("293 Cosmos")
+        """'295 Cosmos' -> Did you mean reply (no unit 295 on that street)."""
+        request = _make_mention_request("295 Cosmos")
         with patch("keys.views.post_message") as mock_post:
             slack_events(request)
         reply = mock_post.call_args[0][1]

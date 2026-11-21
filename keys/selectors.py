@@ -133,7 +133,16 @@ def find_units(query_text: str) -> dict:
         if candidates:
             units, by_token = _narrow_by_token(candidates, unit_token)
             return {"units": units, "exact": True, "narrowed_by_token": by_token}
-        # No exact (number, base) match — fall through to street-name fallback.
+        # No exact (number, base) match.
+        # Check if the street number matches a unit number on that street
+        # (e.g. "293 Cosmos" → unit 293 at 297 Cosmos Drive).
+        street_units = find_units_by_street(base_name, index)
+        unit_num_match = [
+            u for u in street_units
+            if normalize_unit_token(u.unit_number) == street_number
+        ]
+        if unit_num_match:
+            return {"units": unit_num_match, "exact": True, "narrowed_by_token": False}
 
     # --- street-name fallback ---
     candidates = find_units_by_street(base_name, index)
