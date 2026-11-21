@@ -1,0 +1,8 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python manage.py keys_refresh"
+cronSchedule = "0 11,23 * * *"
+restartPolicyType = "NEVER"
