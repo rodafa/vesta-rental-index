@@ -139,11 +139,14 @@ def format_not_found(query: str) -> str:
 def format_help() -> str:
     """Usage instructions."""
     return (
-        "*KeyBot* \u2014 key & lockbox lookups\n"
+        "*KeyBot* \u2014 key & lockbox lookups + checkouts\n"
         "\n"
         "\u2022 `@KeyBot 28 Bass Lane Unit 1` \u2014 look up a unit\n"
         "\u2022 `@KeyBot 28 Bass` \u2014 list all units at an address\n"
         "\u2022 `@KeyBot A-038` \u2014 look up a key by tag ID\n"
+        "\u2022 `@KeyBot take A-038` \u2014 check out a key\n"
+        "\u2022 `@KeyBot return A-038` \u2014 return a key\n"
+        "\u2022 `@KeyBot whats out` \u2014 list open checkouts\n"
         "\u2022 `@KeyBot help` \u2014 this message"
     )
 
@@ -165,3 +168,158 @@ def format_did_you_mean(query: str, units_with_info: list[dict],
     if remaining > 0:
         lines.append(f"\n\u2026and {remaining} more")
     return "\n".join(lines)
+
+
+# ── Checkout / Return / Reminder formatters ─────────────────────────
+
+
+def _duration_label(checked_out_at, now) -> str:
+    """Human-readable duration, e.g. '2 days' or '5 hours'."""
+    delta = now - checked_out_at
+    days = delta.days
+    if days >= 1:
+        return f"{days} day{'s' if days != 1 else ''}"
+    hours = delta.seconds // 3600
+    if hours >= 1:
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return "less than an hour"
+
+
+def format_checkout_ok(key_id: str, display_name: str) -> str:
+    """Confirmation after a successful checkout."""
+    return f"\u2705 *{_escape(key_id)}* checked out to {_escape(display_name)}."
+
+
+def format_return_ok(key_id: str, display_name: str) -> str:
+    """Confirmation after a successful return."""
+    return f"\u2705 *{_escape(key_id)}* returned by {_escape(display_name)}."
+
+
+def format_whats_out(checkouts, now) -> str:
+    """List of open checkouts. *checkouts* is a list of dicts.
+
+    Each dict: key_id, checked_out_by_name, checked_out_by_slack_id,
+               checked_out_at.
+    """
+    if not checkouts:
+        return "No keys are currently checked out."
+    lines = [f"*{len(checkouts)} key{'s' if len(checkouts) != 1 else ''} checked out:*\n"]
+    for co in checkouts:
+        dur = _duration_label(co["checked_out_at"], now)
+        lines.append(
+            f"\u2022 *{co['key_id']}* \u2014"
+            f" <@{co['checked_out_by_slack_id']}>"
+            f" ({dur})"
+        )
+    return "\n".join(lines)
+
+
+def reminder_blocks(
+    key_id: str,
+    slack_user_id: str,
+    checked_out_at,
+    now,
+    checkout_id: int,
+    is_overdue: bool = False,
+) -> tuple[str, list]:
+    """Build text + Block Kit blocks for a reminder message.
+
+    Returns (text, blocks).  ``text`` is the notification fallback.
+    ``is_overdue`` (day 3+) swaps ⏰ for ⚠️.
+    """
+    dur = _duration_label(checked_out_at, now)
+    icon = "\u26a0\ufe0f" if is_overdue else "\u23f0"
+    text = (
+        f"{icon} <@{slack_user_id}> still has *{_escape(key_id)}*"
+        f" ({dur})"
+    )
+    blocks = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": text},
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "\u2705 Return it"},
+                    "action_id": "keybot_reminder_return",
+                    "value": f"{checkout_id}",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "\U0001f552 Still have it"},
+                    "action_id": "keybot_snooze",
+                    "value": f"{checkout_id}",
+                },
+            ],
+        },
+    ]
+    return text, blocks
+
+
+def reminder_resolved_text(key_id: str, action: str, display_name: str) -> str:
+    """Updated message text after a reminder button is pressed.
+
+    ``action`` is 'returned' or 'snoozed'.
+    """
+    if action == "returned":
+        return f"\u2705 *{_escape(key_id)}* returned by {_escape(display_name)}."
+    return (
+        f"\U0001f552 *{_escape(key_id)}* \u2014 {_escape(display_name)}"
+        f" still has it (snoozed)."
+    )
+
+
+# ── Lookup action buttons ───────────────────────────────────────────
+
+
+def take_buttons(tags: list[dict]) -> list[dict]:
+    """Block Kit buttons for on_hook (Take) and checked_out (Return) tags.
+
+    Returns a list of button elements, max 3.
+    *tags* are tag dicts (must have key_id, status_raw).
+    """
+    buttons = []
+    for tag in tags:
+        if len(buttons) >= 3:
+            break
+        if tag["status_raw"] == "on_hook":
+            buttons.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": f"Take {tag['key_id']}"},
+                "action_id": "keybot_take",
+                "value": tag["key_id"],
+            })
+        elif tag["status_raw"] == "checked_out":
+            buttons.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": f"Return {tag['key_id']}"},
+                "action_id": "keybot_return",
+                "value": tag["key_id"],
+            })
+    return buttons
+
+
+def return_button(key_id: str) -> dict:
+    """Single Return button for a checked-out key."""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": f"Return {key_id}"},
+        "action_id": "keybot_return",
+        "value": key_id,
+    }
+
+
+def lookup_blocks(text: str, buttons: list[dict]) -> list[dict] | None:
+    """Wrap lookup text + action buttons into Block Kit blocks.
+
+    Returns None when there are no buttons (caller sends text-only).
+    """
+    if not buttons:
+        return None
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "actions", "elements": buttons},
+    ]

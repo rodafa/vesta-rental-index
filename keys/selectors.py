@@ -65,17 +65,49 @@ def _normalize_key_id(text: str) -> str | None:
     return f"{box}-{num:03d}"
 
 
+_WHATS_OUT_RE = re.compile(
+    r"what(?:'?s|\u2019s)?\s+out\b", re.IGNORECASE,
+)
+
+_TAKE_RE = re.compile(
+    r"(?:take|checkout|check\s*out)\s+(.+)", re.IGNORECASE,
+)
+
+_RETURN_RE = re.compile(
+    r"(?:return|bring\s*back)\s+(.+)", re.IGNORECASE,
+)
+
+
 def parse_query(text: str) -> dict:
     """Classify stripped mention text into {type, value}.
 
-    Types: 'help', 'key_id', 'address', 'empty'.
-    key_id only if the entire query fullmatches the key-ID pattern.
+    Types: 'help', 'key_id', 'take', 'return', 'whats_out', 'address', 'empty'.
     """
     text = text.strip()
     if not text:
         return {"type": "empty", "value": ""}
     if text.lower().rstrip("?.,!") in ("help", "?", "", "hi", "hello", "hey"):
         return {"type": "help", "value": ""}
+
+    # "whats out" / "what's out"
+    if _WHATS_OUT_RE.fullmatch(text.rstrip("?.,! ")):
+        return {"type": "whats_out", "value": ""}
+
+    # "take A-038" / "checkout A38"
+    m = _TAKE_RE.fullmatch(text)
+    if m:
+        key_id = _normalize_key_id(m.group(1).strip())
+        if key_id:
+            return {"type": "take", "value": key_id}
+
+    # "return A-038"
+    m = _RETURN_RE.fullmatch(text)
+    if m:
+        key_id = _normalize_key_id(m.group(1).strip())
+        if key_id:
+            return {"type": "return", "value": key_id}
+
+    # Bare key ID
     key_id = _normalize_key_id(text)
     if key_id is not None:
         return {"type": "key_id", "value": key_id}
