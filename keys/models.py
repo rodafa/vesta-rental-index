@@ -247,3 +247,19 @@ class Checkout(models.Model):
     def __str__(self):
         status = "open" if self.returned_at is None else "returned"
         return f"{self.tag} → {self.checked_out_by_name} ({status})"
+
+
+class KeyHealthSnapshot(models.Model):
+    """Daily snapshot of key health counts for trend tracking."""
+
+    date = models.DateField(unique=True)
+    counts = models.JSONField(
+        help_text="One integer per category (a-i). Upserted daily at 6 AM ET.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"KeyHealth {self.date}"

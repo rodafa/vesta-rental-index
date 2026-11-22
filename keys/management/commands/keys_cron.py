@@ -1,8 +1,9 @@
 """Hourly cron entry point for KeyBot.
 
 Always runs keys_remind.  Runs keys_refresh only at ET hours 6 and 18.
-Exits non-zero if either command failed.
-keys_remind failure posts an alert to #keys but does not block keys_refresh.
+Monday 9 AM ET: posts key health report to #keys.
+Daily 6 AM ET: upserts KeyHealthSnapshot (after refresh).
+Exits non-zero if any command failed.
 """
 
 import logging
@@ -44,7 +45,24 @@ class Command(BaseCommand):
             _alert(f"keys_remind crashed: {exc}")
             failed = True
 
+        # --- Monday 9 AM ET: post key health to #keys ---
+        if now_et.weekday() == 0 and hour == 9:
+            try:
+                from keys.replies import format_key_health
+                from keys.selectors import key_health
+
+                health = key_health()
+                text, blocks = format_key_health(health)
+                post_message(
+                    settings.KEYBOT_CHANNEL_ID, text, blocks=blocks,
+                )
+            except Exception as exc:
+                logger.error(f"key_health_post crashed: {exc}")
+                _alert(f"key_health_post crashed: {exc}")
+                failed = True
+
         # --- Refresh at 6 and 18 ET only ---
+        refresh_failed = False
         if hour in _REFRESH_HOURS:
             try:
                 call_command("keys_refresh", stdout=StringIO())
@@ -52,9 +70,32 @@ class Command(BaseCommand):
                 if exc.code != 0:
                     logger.error(f"keys_refresh exited code={exc.code}")
                     # keys_refresh already posted its own Slack alert.
+                    refresh_failed = True
                     failed = True
             except Exception as exc:
                 logger.exception(f"keys_refresh crashed: {exc}")
+                refresh_failed = True
+                failed = True
+
+        # --- Daily 6 AM ET: snapshot key health counts ---
+        if hour == 6:
+            try:
+                from keys.models import KeyHealthSnapshot
+                from keys.selectors import key_health
+
+                if refresh_failed:
+                    logger.warning(
+                        "key_health_snapshot on stale data (refresh failed)"
+                    )
+                health = key_health()
+                counts = _snapshot_counts(health)
+                KeyHealthSnapshot.objects.update_or_create(
+                    date=now_et.date(),
+                    defaults={"counts": counts},
+                )
+            except Exception as exc:
+                logger.error(f"key_health_snapshot crashed: {exc}")
+                _alert(f"key_health_snapshot crashed: {exc}")
                 failed = True
 
         status = "FAIL" if failed else "ok"
@@ -72,3 +113,20 @@ def _alert(message: str) -> None:
         post_message(channel, f":warning: *KeyBot cron:* {message}")
     except Exception:
         logger.exception("keys_cron alert post failed")
+
+
+def _snapshot_counts(health: dict) -> dict:
+    """Extract integer counts from a key_health() result for snapshot storage."""
+    return {
+        "vacant_no_key_no_code": len(health["vacant_no_key_no_code"]),
+        "vacant_no_key": len(health["vacant_no_key"]),
+        "vacant_no_code": len(health["vacant_no_code"]),
+        "overdue_checkouts": len(health["overdue_checkouts"]),
+        "missing_tags": len(health["missing_tags"]),
+        "duplicate_tags": len(health["duplicate_tags"]),
+        "orphan_tags": len(health["orphan_tags"]),
+        "occupied_no_key": len(health["occupied_no_key"]),
+        "occupied_no_code": len(health["occupied_no_code"]),
+        "unknown_no_key": health["unknown_no_key_count"],
+        "unknown_no_code": health["unknown_no_code_count"],
+    }

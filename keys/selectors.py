@@ -2,8 +2,10 @@
 
 import logging
 import re
+from datetime import timedelta
 
-from django.db.models import F, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
+from django.utils import timezone
 
 from core.models import Unit
 from keys.models import AccessNote, Checkout, Tag
@@ -77,17 +79,29 @@ _RETURN_RE = re.compile(
     r"(?:return|bring\s*back)\s+(.+)", re.IGNORECASE,
 )
 
+# Exact-match phrases for the key_health intent (whole query only).
+_KEY_HEALTH_PHRASES = frozenset({
+    "health", "key health", "missing",
+    "what's missing", "whats missing", "what is missing",
+})
+
 
 def parse_query(text: str) -> dict:
     """Classify stripped mention text into {type, value}.
 
-    Types: 'help', 'key_id', 'take', 'return', 'whats_out', 'address', 'empty'.
+    Types: 'help', 'key_health', 'key_id', 'take', 'return',
+           'whats_out', 'address', 'empty'.
     """
     text = text.strip()
     if not text:
         return {"type": "empty", "value": ""}
     if text.lower().rstrip("?.,!") in ("help", "?", "", "hi", "hello", "hey"):
         return {"type": "help", "value": ""}
+
+    # "health", "key health", "missing", "what's missing", etc.
+    normalized = text.lower().rstrip("?.,!").translate(_CURLY_QUOTES)
+    if normalized in _KEY_HEALTH_PHRASES:
+        return {"type": "key_health", "value": ""}
 
     # "whats out" / "what's out"
     if _WHATS_OUT_RE.fullmatch(text.rstrip("?.,! ")):
@@ -291,3 +305,166 @@ def tag_info(tag) -> dict:
         result["property_address"] = prop.address_line_1 or ""
 
     return result
+
+
+# ── Key Health ─────────────────────────────────────────────────────
+
+
+def key_health() -> dict:
+    """Key health report: every category of key/code issue across active units.
+
+    Returns a plain dict of categories → lists of dicts.  All list queries
+    use explicit order_by (address, then key_id) for stable output.
+    """
+    now = timezone.now()
+
+    # Base: active Rentvine-synced units, stable address order.
+    active = (
+        Unit.objects.filter(is_active=True, rentvine_id__isnull=False)
+        .select_related("property")
+        .order_by("property__address_line_1", "unit_number")
+    )
+
+    # Subqueries for "has key" and "has code".
+    has_tag = Tag.objects.filter(
+        Q(unit=OuterRef("pk")) | Q(property=OuterRef("property_id"))
+    ).exclude(status="retired")
+
+    has_note = AccessNote.objects.filter(
+        Q(unit=OuterRef("pk"))
+        | Q(property=OuterRef("property_id"), unit__isnull=True)
+    )
+
+    no_key = active.exclude(Exists(has_tag))
+    no_code = active.exclude(Exists(has_note))
+
+    # --- Vacant (RentEngine "Available") ---
+    no_key_vacant = list(no_key.filter(rentengine_status="Available"))
+    no_code_vacant = list(no_code.filter(rentengine_status="Available"))
+    no_code_vacant_pks = {u.pk for u in no_code_vacant}
+
+    # (a) Vacant: no key AND no code
+    vacant_both = [u for u in no_key_vacant if u.pk in no_code_vacant_pks]
+    vacant_both_pks = {u.pk for u in vacant_both}
+
+    # (b) Vacant: no key only (excludes a)
+    vacant_no_key = [u for u in no_key_vacant if u.pk not in vacant_both_pks]
+
+    # (c) Vacant: no code only (excludes a)
+    vacant_no_code = [
+        u for u in no_code_vacant if u.pk not in vacant_both_pks
+    ]
+
+    def _unit_dict(u):
+        return {"address": u.display_address, "unit_id": u.pk}
+
+    # (d) Overdue checkouts > 24h
+    threshold_24h = now - timedelta(hours=24)
+    threshold_72h = now - timedelta(hours=72)
+    overdue_qs = (
+        Checkout.objects.filter(
+            returned_at__isnull=True,
+            checked_out_at__lt=threshold_24h,
+        )
+        .select_related(
+            "tag", "tag__unit", "tag__unit__property", "tag__property",
+        )
+        .order_by(
+            "tag__unit__property__address_line_1",
+            "tag__unit__unit_number",
+            "tag__key_id",
+        )
+    )
+    overdue = []
+    for co in overdue_qs:
+        tag = co.tag
+        if tag.unit:
+            addr = tag.unit.display_address
+        elif tag.property:
+            addr = tag.property.address_line_1 or "unknown"
+        else:
+            addr = "unassigned"
+        hours = int((now - co.checked_out_at).total_seconds() / 3600)
+        overdue.append({
+            "key_id": tag.key_id,
+            "address": addr,
+            "checked_out_by_name": co.checked_out_by_name,
+            "checked_out_by_slack_id": co.checked_out_by_slack_id,
+            "hours": hours,
+            "is_72h": co.checked_out_at < threshold_72h,
+        })
+
+    # (e) Missing tags
+    missing_qs = (
+        Tag.objects.filter(status="missing")
+        .select_related("unit", "unit__property", "property")
+        .order_by(
+            "unit__property__address_line_1",
+            "unit__unit_number",
+            "key_id",
+        )
+    )
+    missing = [
+        {
+            "key_id": t.key_id,
+            "address": (
+                t.unit.display_address if t.unit
+                else (t.property.address_line_1 or "unknown") if t.property
+                else "unassigned"
+            ),
+        }
+        for t in missing_qs
+    ]
+
+    # (f) Duplicate tags: units with 2+ non-retired tags
+    dupe_units = (
+        active
+        .annotate(
+            active_tag_count=Count(
+                "key_tags", filter=~Q(key_tags__status="retired"),
+            ),
+        )
+        .filter(active_tag_count__gte=2)
+        .order_by("property__address_line_1", "unit_number")
+    )
+    duplicates = []
+    for u in dupe_units:
+        tag_ids = list(
+            Tag.objects.filter(unit=u)
+            .exclude(status="retired")
+            .order_by("key_id")
+            .values_list("key_id", flat=True)
+        )
+        duplicates.append({"address": u.display_address, "key_ids": tag_ids})
+
+    # (g) Orphan tags: no unit, no property, non-retired
+    orphans = [
+        {"key_id": t.key_id, "imported_address": t.imported_address_raw}
+        for t in (
+            Tag.objects.filter(unit__isnull=True, property__isnull=True)
+            .exclude(status="retired")
+            .order_by("key_id")
+        )
+    ]
+
+    # (h) Occupied (Leased): no key / no code
+    occupied_no_key = list(no_key.filter(rentengine_status="Leased"))
+    occupied_no_code = list(no_code.filter(rentengine_status="Leased"))
+
+    # (i) Unknown (not in RentEngine): counts only
+    unknown_no_key_count = no_key.filter(rentengine_status="").count()
+    unknown_no_code_count = no_code.filter(rentengine_status="").count()
+
+    return {
+        "vacant_no_key_no_code": [_unit_dict(u) for u in vacant_both],
+        "vacant_no_key": [_unit_dict(u) for u in vacant_no_key],
+        "vacant_no_code": [_unit_dict(u) for u in vacant_no_code],
+        "overdue_checkouts": overdue,
+        "missing_tags": missing,
+        "duplicate_tags": duplicates,
+        "orphan_tags": orphans,
+        "occupied_no_key": [_unit_dict(u) for u in occupied_no_key],
+        "occupied_no_code": [_unit_dict(u) for u in occupied_no_code],
+        "unknown_no_key_count": unknown_no_key_count,
+        "unknown_no_code_count": unknown_no_code_count,
+    }

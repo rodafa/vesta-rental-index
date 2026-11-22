@@ -15,6 +15,7 @@ from keys.replies import (
     format_checkout_ok,
     format_did_you_mean,
     format_help,
+    format_key_health,
     format_not_found,
     format_return_ok,
     format_tag,
@@ -28,6 +29,7 @@ from keys.replies import (
 from keys.selectors import (
     find_tag_by_key_id,
     find_units,
+    key_health,
     parse_query,
     tag_info,
     unit_key_info,
@@ -106,6 +108,11 @@ def slack_events(request):
                 elif parsed["type"] == "whats_out":
                     reply = _handle_whats_out()
                     outcome, match_count = "whats_out", 0
+
+                elif parsed["type"] == "key_health":
+                    health_data = key_health()
+                    reply, blocks = format_key_health(health_data)
+                    outcome, match_count = "key_health", 0
 
                 elif parsed["type"] == "key_id":
                     tag = find_tag_by_key_id(parsed["value"])

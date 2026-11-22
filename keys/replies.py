@@ -147,6 +147,7 @@ def format_help() -> str:
         "\u2022 `@KeyBot take A-038` \u2014 check out a key\n"
         "\u2022 `@KeyBot return A-038` \u2014 return a key\n"
         "\u2022 `@KeyBot whats out` \u2014 list open checkouts\n"
+        "\u2022 `@KeyBot health` \u2014 key health report\n"
         "\u2022 `@KeyBot help` \u2014 this message"
     )
 
@@ -326,3 +327,187 @@ def lookup_blocks(text: str, buttons: list[dict]) -> list[dict] | None:
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         {"type": "actions", "elements": buttons},
     ]
+
+
+# ── Key Health ─────────────────────────────────────────────────────
+
+_SECTION_LIMIT = 3000
+
+
+def _split_section_text(text, limit=_SECTION_LIMIT):
+    """Split mrkdwn text at line boundaries to stay under Slack's limit."""
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    buf = []
+    buf_len = 0
+    for line in text.split("\n"):
+        added = len(line) + (1 if buf else 0)
+        if buf and buf_len + added > limit:
+            chunks.append("\n".join(buf))
+            buf = [line]
+            buf_len = len(line)
+        else:
+            buf.append(line)
+            buf_len += added
+    if buf:
+        chunks.append("\n".join(buf))
+    return chunks
+
+
+def format_key_health(health: dict) -> tuple[str, list]:
+    """Format key health report as (text, blocks).
+
+    *text* is the full report as a single mrkdwn string — used as the
+    ``post_message`` text param and as the ``_safe_reply`` fallback when
+    blocks fail.  *blocks* is a list of Block Kit section blocks.
+    """
+    sections = []
+
+    # ── Header ──
+    sections.append("*\U0001f511 Key Health*")
+
+    # ── URGENT (always list every item) ──
+    urgent = []
+
+    # (a) Vacant: no key AND no code
+    items = health["vacant_no_key_no_code"]
+    if items:
+        n = len(items)
+        urgent.append(
+            f"\U0001f6a8 {n} vacant unit{'s' if n != 1 else ''}"
+            f" \u2014 no key AND no code:"
+        )
+        for i in items:
+            urgent.append(f"\u2022 {_escape(i['address'])}")
+
+    # (b) Vacant: no key
+    items = health["vacant_no_key"]
+    if items:
+        n = len(items)
+        urgent.append(
+            f"\U0001f511 {n} vacant unit{'s' if n != 1 else ''}"
+            f" \u2014 no key:"
+        )
+        for i in items:
+            urgent.append(f"\u2022 {_escape(i['address'])}")
+
+    # (c) Vacant: no code
+    items = health["vacant_no_code"]
+    if items:
+        n = len(items)
+        urgent.append(
+            f"\U0001f510 {n} vacant unit{'s' if n != 1 else ''}"
+            f" \u2014 no code:"
+        )
+        for i in items:
+            urgent.append(f"\u2022 {_escape(i['address'])}")
+
+    # (d) Overdue checkouts > 24h
+    items = health["overdue_checkouts"]
+    if items:
+        n = len(items)
+        urgent.append(
+            f"\u23f0 {n} key{'s' if n != 1 else ''} out > 24h:"
+        )
+        for co in items:
+            icon = "\u26a0\ufe0f" if co["is_72h"] else "\u2022"
+            urgent.append(
+                f"{icon} *{co['key_id']}* \u2014 "
+                f"{_escape(co['checked_out_by_name'])} "
+                f"({co['hours']}h) @ {_escape(co['address'])}"
+            )
+
+    # (e) Missing tags
+    items = health["missing_tags"]
+    if items:
+        n = len(items)
+        urgent.append(
+            f"\U0001f3f7\ufe0f {n} tag{'s' if n != 1 else ''}"
+            f" marked missing:"
+        )
+        for t in items:
+            urgent.append(
+                f"\u2022 *{t['key_id']}* \u2014 {_escape(t['address'])}"
+            )
+
+    # (f) Duplicate tags
+    items = health["duplicate_tags"]
+    if items:
+        n = len(items)
+        urgent.append(
+            f"\u26a0\ufe0f {n} unit{'s' if n != 1 else ''}"
+            f" with duplicate tags:"
+        )
+        for d in items:
+            ids = ", ".join(d["key_ids"])
+            urgent.append(f"\u2022 {_escape(d['address'])} \u2014 {ids}")
+
+    if urgent:
+        sections.append("*URGENT*\n" + "\n".join(urgent))
+    else:
+        sections.append("\u2705 No urgent key issues.")
+
+    # ── CLEANUP (count + first 10, then "+N more") ──
+    cleanup = []
+
+    # (g) Orphan tags
+    items = health["orphan_tags"]
+    if items:
+        n = len(items)
+        cleanup.append(
+            f"\U0001f47b {n} orphan tag{'s' if n != 1 else ''}"
+            f" (no unit/property):"
+        )
+        for t in items[:10]:
+            addr = t["imported_address"] or "\u2014"
+            cleanup.append(
+                f"\u2022 {t['key_id']} \u2014 \"{_escape(addr)}\""
+            )
+        if n > 10:
+            cleanup.append(f"+{n - 10} more")
+
+    # (h) Occupied: no key
+    items = health["occupied_no_key"]
+    if items:
+        n = len(items)
+        cleanup.append(f"\U0001f3e0 {n} occupied \u2014 no key:")
+        for i in items[:10]:
+            cleanup.append(f"\u2022 {_escape(i['address'])}")
+        if n > 10:
+            cleanup.append(f"+{n - 10} more")
+
+    # (h) Occupied: no code
+    items = health["occupied_no_code"]
+    if items:
+        n = len(items)
+        cleanup.append(f"\U0001f3e0 {n} occupied \u2014 no code:")
+        for i in items[:10]:
+            cleanup.append(f"\u2022 {_escape(i['address'])}")
+        if n > 10:
+            cleanup.append(f"+{n - 10} more")
+
+    if cleanup:
+        sections.append("*CLEANUP*\n" + "\n".join(cleanup))
+
+    # ── COUNTS ONLY ──
+    nk = health["unknown_no_key_count"]
+    nc = health["unknown_no_code_count"]
+    if nk or nc:
+        sections.append(
+            "*COUNTS ONLY*\n"
+            f"\u2753 Not in RentEngine: {nk} no key, {nc} no code"
+        )
+
+    # ── Build output ──
+    text = "\n\n".join(sections)
+
+    blocks = []
+    for section in sections:
+        for chunk in _split_section_text(section):
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": chunk},
+            })
+
+    return text, blocks
