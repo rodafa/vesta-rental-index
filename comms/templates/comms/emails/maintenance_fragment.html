@@ -185,7 +185,7 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
         <tr>
           <td style="font-family:Helvetica, Arial, sans-serif; font-size:12px; color:#888888;">
             {% if wo.owner_handling %}{% if wo.owner_handling_mode == "self_perform" %}Owner performing{% else %}Owner coordinating{% endif %}{% elif wo.vendor_name %}{{ wo.vendor_name }}{% endif %}
-            {% if wo.scheduled_date_display %}{% if wo.vendor_name or wo.owner_handling %} &bull; {% endif %}Scheduled {{ wo.scheduled_date_display }}{% endif %}
+            {% if wo.scheduled_date_display %}{% if wo.vendor_name or wo.owner_handling %} &bull; {% endif %}{% if wo.scheduled_date_past %}Scheduled {{ wo.scheduled_date_display }} — not yet completed{% else %}Scheduled {{ wo.scheduled_date_display }}{% endif %}{% endif %}
           </td>
           {% if wo.cost %}
           <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; font-weight:600; color:#1E3D58;">

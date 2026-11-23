@@ -381,7 +381,10 @@ def _build_work_order_payload(address_groups, section_label, *, name_re=None, se
                         and sched < send_date
                         and not wo.get("date_closed")
                     ):
-                        parts.append("Status: still open")
+                        parts.append(
+                            f"Scheduled: {format_owner_date(sched)}"
+                            " — not yet completed"
+                        )
                     else:
                         parts.append(f"Scheduled: {format_owner_date(sched)}")
                 if wo.get("date_closed"):
@@ -475,10 +478,10 @@ def _build_maintenance_prompt_work_orders(
         data["scheduled"], "Scheduled", **payload_kwargs
     )
     completed = _build_work_order_payload(
-        data["completed"], "Completed this week", **payload_kwargs
+        data["completed"], "Completed last week", **payload_kwargs
     )
     cancelled = _build_work_order_payload(
-        data["cancelled"], "Cancelled this week", **payload_kwargs
+        data["cancelled"], "Cancelled last week", **payload_kwargs
     )
     turn_section = _build_turn_prompt_section(data.get("turns", []), data)
 
@@ -2909,47 +2912,40 @@ def _build_structural_intro(open_n, sched_n, comp_n, canc_n):
     def _wo(n):
         return "work order" if n == 1 else "work orders"
 
-    # Split into present-tense (open/scheduled) and past-tense (completed/cancelled)
-    present = []
+    status = []
     if open_n:
-        present.append(f"{open_n} open {_wo(open_n)}")
+        status.append(f"{open_n} open {_wo(open_n)}")
     if sched_n:
-        present.append(f"{sched_n} scheduled")
+        if open_n:
+            status.append(f"{sched_n} scheduled")
+        else:
+            status.append(f"{sched_n} scheduled {_wo(sched_n)}")
 
-    past = []
+    actions = []
     if comp_n:
-        past.append(f"{comp_n} {'was' if comp_n == 1 else 'were'} completed")
+        actions.append(f"{comp_n} {'was' if comp_n == 1 else 'were'} completed")
     if canc_n:
-        past.append(f"{canc_n} {'was' if canc_n == 1 else 'were'} cancelled")
+        actions.append(f"{canc_n} {'was' if canc_n == 1 else 'were'} cancelled")
 
-    if not present and not past:
-        return "There were no work orders this week."
+    if not status and not actions:
+        return "There were no work orders last week."
 
-    # Single-bucket cases — clean full sentence
-    if not past and len(present) == 1 and not sched_n:
-        verb = "is" if open_n == 1 else "are"
-        return f"This week there {verb} {present[0]}."
-    if not past and len(present) == 1 and not open_n:
-        verb = "is" if sched_n == 1 else "are"
-        return f"This week there {verb} {sched_n} scheduled {_wo(sched_n)}."
-    if not present and len(past) == 1:
-        if comp_n:
-            return f"This week {comp_n} {_wo(comp_n)} {'was' if comp_n == 1 else 'were'} completed."
-        return f"This week {canc_n} {_wo(canc_n)} {'was' if canc_n == 1 else 'were'} cancelled."
-
-    # Multiple buckets — combine present and past halves
-    if present:
+    if status:
         first_n = open_n if open_n else sched_n
-        verb = "is" if first_n == 1 else "are"
-        present_text = " and ".join(present)
-        if past:
-            past_text = " and ".join(past)
-            return f"This week there {verb} {present_text}, and {past_text}."
-        return f"This week there {verb} {present_text}."
+        verb = "was" if first_n == 1 else "were"
+        status_text = " and ".join(status)
+        if actions:
+            actions_text = " and ".join(actions)
+            return f"Last week there {verb} {status_text}, and {actions_text}."
+        return f"Last week there {verb} {status_text}."
 
-    # Only past, multiple
-    past_text = " and ".join(past)
-    return f"This week {past_text}."
+    # Only actions, no status
+    if len(actions) == 1:
+        if comp_n:
+            return f"Last week {comp_n} {_wo(comp_n)} {'was' if comp_n == 1 else 'were'} completed."
+        return f"Last week {canc_n} {_wo(canc_n)} {'was' if canc_n == 1 else 'were'} cancelled."
+    actions_text = " and ".join(actions)
+    return f"Last week {actions_text}."
 
 
 def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
@@ -2959,7 +2955,7 @@ def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
     string identical to what generate_portfolio_maintenance_notes produces via
     its inline render_to_string call.
 
-    send_date: used to detect "past scheduled + not complete" (empty display).
+    send_date: used to flag past-dated scheduled work orders for template wording.
 
     Coercion: scheduled_start_date and date_closed are stored as ISO strings
     after JSON round-tripping; they are parsed back and pre-formatted into
@@ -2990,17 +2986,12 @@ def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
                 sched = wo.get("scheduled_start_date")
                 closed = wo.get("date_closed")
 
-                # Past scheduled + no close → empty display (suppress stale date)
-                if (
-                    sched
-                    and send_date
-                    and hasattr(sched, "year")
-                    and sched < send_date
-                    and not closed
-                ):
-                    wo["scheduled_date_display"] = ""
-                else:
-                    wo["scheduled_date_display"] = format_owner_date(sched) if sched else ""
+                wo["scheduled_date_display"] = format_owner_date(sched) if sched else ""
+                _ref = send_date or _date.today()
+                wo["scheduled_date_past"] = bool(
+                    sched and hasattr(sched, "year")
+                    and sched < _ref and not closed
+                )
 
                 wo["date_closed_display"] = format_owner_date(closed) if closed else ""
 
