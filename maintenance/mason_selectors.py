@@ -50,6 +50,88 @@ def _parse_date(val):
         return None
 
 
+_OWNER_HANDLING_SIGNALS = {
+    "Owner is coordinating their provider": "owner_managed_provider",
+    "Owner is handling": "self_perform",
+}
+_OWNER_RETURN_PREFIX = "Owner Responsible for Work returned to the management team."
+
+
+def _resolve_owner_handling(active_wos):
+    """Batch-fetch Rentvine WO notes for no-vendor WOs; return owner-handling index.
+
+    Returns {rentvine_id: {"mode": str, "assigned_at": str}} for WOs where the
+    latest signal note is an assignment (not a return).  Keyed by Rentvine WO ID.
+
+    Three note signals are matched:
+      - EXACT "Owner is coordinating their provider" → assign (owner_managed_provider)
+      - EXACT "Owner is handling" → assign (self_perform)
+      - STARTSWITH "Owner Responsible for Work returned to the management team." → return
+
+    Within each WO, the latest note by dateTimeCreated wins.  If the latest is
+    a return note, owner_handling is False.
+    """
+    from integrations.rentvine.client import RentvineClient
+
+    candidates = [
+        wo["_rentvine_id"]
+        for wo in active_wos
+        if wo.get("vendorContactId") is None and wo.get("_rentvine_id")
+    ]
+    if not candidates:
+        return {}
+
+    client = RentvineClient()
+    index = {}
+    fetch_errors = 0
+
+    for rv_id in candidates:
+        try:
+            raw = client.get_all(f"/notes/16/{rv_id}")
+        except Exception:
+            fetch_errors += 1
+            logger.warning(
+                "owner_handling_notes_fetch_failed",
+                extra={"rentvine_id": rv_id},
+            )
+            continue
+
+        best_dt = ""
+        best_kind = None   # "assign" or "return"
+        best_mode = None
+
+        for item in raw:
+            n = item.get("note") or item
+            dtc = n.get("dateTimeCreated") or ""
+            if not dtc:
+                continue
+            body = (n.get("noteRaw") or "").strip()
+            mode = _OWNER_HANDLING_SIGNALS.get(body)
+            if mode:
+                if dtc > best_dt:
+                    best_dt = dtc
+                    best_kind = "assign"
+                    best_mode = mode
+            elif body.startswith(_OWNER_RETURN_PREFIX):
+                if dtc > best_dt:
+                    best_dt = dtc
+                    best_kind = "return"
+                    best_mode = None
+
+        if best_kind == "assign":
+            index[rv_id] = {"mode": best_mode, "assigned_at": best_dt[:10]}
+
+    logger.info(
+        "owner_handling_resolved",
+        extra={
+            "candidates": len(candidates),
+            "matches": len(index),
+            "fetch_errors": fetch_errors,
+        },
+    )
+    return index
+
+
 def _build_turn_groups(open_dicts, scheduled_dicts, completed_dicts):
     """Build turn groups from work orders with work_order_type == 'turn'.
 
@@ -197,6 +279,9 @@ def get_portfolio_work_order_data_mason(
         wo for wo in after_lawn_filter if wo["_mapped_bucket"] != "excluded"
     ]
 
+    # Batch owner-handling lookup — Rentvine WO notes for no-vendor WOs
+    owner_handling_index = _resolve_owner_handling(active_wos)
+
     # Batch cost lookup — uses Rentvine bill data (unchanged)
     rentvine_ids = [
         wo["_rentvine_id"]
@@ -280,6 +365,13 @@ def get_portfolio_work_order_data_mason(
             if "portal" in wo_source or "tenant" in wo_source:
                 is_tenant_reported = True
         wo_dict["is_tenant_reported"] = is_tenant_reported
+
+        # Owner handling: owner arranging or performing the work themselves.
+        oh = owner_handling_index.get(wo.get("_rentvine_id"))
+        if oh:
+            wo_dict["owner_handling"] = True
+            wo_dict["owner_handling_mode"] = oh["mode"]
+            wo_dict["owner_handling_assigned_at"] = oh["assigned_at"]
 
         bucket = wo["_mapped_bucket"]
 

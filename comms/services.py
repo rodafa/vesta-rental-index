@@ -352,6 +352,11 @@ def _build_work_order_payload(address_groups, section_label, *, name_re=None, se
                     parts.append(f"Completed: {format_owner_date(wo['date_closed'])}")
                 if wo.get("is_tenant_reported"):
                     parts.append("Reported by tenant")
+                if wo.get("owner_handling"):
+                    if wo["owner_handling_mode"] == "self_perform":
+                        parts.append("Owner responsibility: owner is performing this work themselves")
+                    else:
+                        parts.append("Owner responsibility: owner is coordinating their own provider")
                 lines.append(" | ".join(parts))
                 for il in item_lines:
                     lines.append(f"      {il}")
@@ -387,6 +392,11 @@ def _build_work_order_payload(address_groups, section_label, *, name_re=None, se
                     parts.append(f"Work notes: {work_note_text[:200]}")
                 if wo.get("is_tenant_reported"):
                     parts.append("Reported by tenant")
+                if wo.get("owner_handling"):
+                    if wo["owner_handling_mode"] == "self_perform":
+                        parts.append("Owner responsibility: owner is performing this work themselves")
+                    else:
+                        parts.append("Owner responsibility: owner is coordinating their own provider")
                 lines.append(" | ".join(parts))
     return "\n".join(lines)
 
