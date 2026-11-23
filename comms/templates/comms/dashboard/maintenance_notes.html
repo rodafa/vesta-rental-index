@@ -286,6 +286,7 @@
           </div>
           <div class="bulk">
             <button class="btn btn-quiet btn-sm" id="approve-all-btn">Approve all</button>
+            <button class="btn btn-quiet btn-sm" id="unapprove-all-btn" style="display:none">Unapprove all</button>
             <button class="btn btn-danger btn-sm" id="delete-all-btn" title="Delete all draft notes this week">Delete all</button>
           </div>
         </div>
@@ -329,6 +330,7 @@
           <button class="btn btn-navy" id="save-btn">Save changes</button>
           <div class="right-group">
             <button class="btn btn-approve" id="approve-btn">Approve</button>
+            <button class="btn btn-quiet" id="unapprove-btn" style="display:none">Unapprove</button>
             <button class="btn btn-danger" id="delete-btn">Delete</button>
           </div>
         </div>
@@ -378,6 +380,30 @@
     <div class="modal-foot">
       <button class="btn btn-quiet" id="gen-cancel">Cancel</button>
       <button class="btn btn-primary" id="gen-confirm">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APPROVE-ALL CONFIRM MODAL ============ -->
+<div class="modal-overlay" id="approve-all-modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="approve-all-modal-title">
+    <div class="modal-head"><h3 id="approve-all-modal-title">Approve all draft notes?</h3></div>
+    <div class="modal-body">
+      This marks every draft note for this week as approved and ready to send.
+      <div class="modal-summary">
+        <div class="sum-line sum-rebuild">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><b id="approve-all-draft-n">0</b> draft note(s) will be approved</span>
+        </div>
+        <div class="sum-line sum-safe">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span><b id="approve-all-already-n">0</b> note(s) already approved</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-quiet" id="approve-all-cancel">Cancel</button>
+      <button class="btn btn-primary" id="approve-all-confirm">Approve all</button>
     </div>
   </div>
 </div>

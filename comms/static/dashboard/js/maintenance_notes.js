@@ -90,10 +90,14 @@
   var WEEK_HINT = 'Sending is available for standard Mon\u2013Sun weeks. Use the arrows to pick a week.';
   function syncWeekActions() {
     var ok = isStandardWeek();
+    var hasApproved = portfolioNotes.some(function (n) { return n.status === 'approved'; });
     $('approve-all-btn').disabled = !ok;
+    $('unapprove-all-btn').disabled = !ok;
+    $('unapprove-all-btn').style.display = hasApproved ? '' : 'none';
     $('delete-all-btn').disabled = !ok;
     $('send-all-ready-btn').disabled = !ok;
     $('approve-all-btn').title = ok ? '' : WEEK_HINT;
+    $('unapprove-all-btn').title = ok ? '' : WEEK_HINT;
     $('delete-all-btn').title = ok ? '' : WEEK_HINT;
     $('send-all-ready-btn').title = ok ? '' : WEEK_HINT;
   }
@@ -135,6 +139,7 @@
     $('n-draft').textContent = c.draft;
     $('n-approved').textContent = c.approved;
     $('draft-count').textContent = c.all + ' portfolio' + (c.all === 1 ? '' : 's');
+    return c;
   }
 
   function filteredPortfolios() {
@@ -157,6 +162,7 @@
       var ownerCount = n.owners ? n.owners.length : 0;
       var actions = '';
       if (n.status === 'draft') actions += '<button class="btn btn-quiet btn-sm" data-act="approve" data-id="' + n.id + '">Approve</button>';
+      if (n.status === 'approved') actions += '<button class="btn btn-quiet btn-sm" data-act="unapprove" data-id="' + n.id + '">Unapprove</button>';
       return '<div class="row' + (n.id === activePortfolioId ? ' active' : '') + '" data-id="' + n.id + '">' +
         '<div class="row-top">' +
           '<div><div class="row-name">' + esc(n.portfolio_name) + '</div>' +
@@ -189,7 +195,11 @@
     $('note-title').textContent = n.portfolio_name;
     $('note-addr').textContent = n.property_count + ' propert' + (n.property_count === 1 ? 'y' : 'ies');
     var ownerCount = n.owners ? n.owners.length : 0;
-    $('note-meta').textContent = formatWeek(periodStart, periodEnd) + ' \u00b7 ' + ownerCount + ' owner' + (ownerCount === 1 ? '' : 's');
+    var meta = formatWeek(periodStart, periodEnd) + ' \u00b7 ' + ownerCount + ' owner' + (ownerCount === 1 ? '' : 's');
+    if (n.approved_at && n.approved_by_name) {
+      meta += ' \u00b7 Approved ' + new Date(n.approved_at).toLocaleDateString() + ' by ' + n.approved_by_name;
+    }
+    $('note-meta').textContent = meta;
     var st = $('note-status');
     st.className = 'badge badge-' + n.status;
     st.textContent = n.status;
@@ -277,6 +287,7 @@
     });
 
     $('approve-btn').style.display = (n.status === 'draft') ? '' : 'none';
+    $('unapprove-btn').style.display = (n.status === 'approved') ? '' : 'none';
     $('delete-btn').style.display = (n.status === 'draft') ? '' : 'none';
     $('save-btn').disabled = false;
   }
@@ -415,6 +426,7 @@
 
   // --- Tab switching ---
   function renderCurrentTab() {
+    syncWeekActions();
     if (currentTab === 'portfolios') {
       $('portfolio-controls').style.display = '';
       $('send-controls').style.display = 'none';
@@ -481,6 +493,10 @@
         var id = parseInt(act.getAttribute('data-id'), 10);
         approveNote(id);
       }
+      if (action === 'unapprove') {
+        var id = parseInt(act.getAttribute('data-id'), 10);
+        unapproveNote(id);
+      }
       if (action === 'send-recip') {
         var email = act.getAttribute('data-email');
         sendRecipient(email);
@@ -508,6 +524,16 @@
 
   $('approve-btn').addEventListener('click', function () {
     if (activePortfolioId) approveNote(activePortfolioId);
+  });
+
+  function unapproveNote(id) {
+    VestaAPI.post('/reports/maintenance-notes/' + id + '/unapprove', {})
+      .then(function () { toast('Unapproved.', 'ok'); return loadAll(); })
+      .catch(function (e) { toast('Unapprove failed: ' + e.message, 'warn'); });
+  }
+
+  $('unapprove-btn').addEventListener('click', function () {
+    if (activePortfolioId) unapproveNote(activePortfolioId);
   });
 
   $('save-btn').addEventListener('click', function () {
@@ -560,6 +586,20 @@
   $('approve-all-btn').addEventListener('click', function () {
     var wk = weekMonday();
     if (!wk) { toast(WEEK_HINT); return; }
+    var c = portfolioCounts();
+    $('approve-all-draft-n').textContent = c.draft;
+    $('approve-all-already-n').textContent = c.approved;
+    $('approve-all-modal').classList.add('show');
+  });
+
+  $('approve-all-cancel').addEventListener('click', function () {
+    $('approve-all-modal').classList.remove('show');
+  });
+
+  $('approve-all-confirm').addEventListener('click', function () {
+    $('approve-all-modal').classList.remove('show');
+    var wk = weekMonday();
+    if (!wk) return;
     VestaAPI.post('/reports/maintenance-notes/approve-all?week=' + wk, {})
       .then(function (r) {
         var msg = (r.approved || 0) + ' note(s) approved.';
@@ -568,6 +608,19 @@
         return loadAll();
       })
       .catch(function (e) { toast('Approve all failed: ' + e.message, 'warn'); });
+  });
+
+  $('approve-all-modal').addEventListener('click', function (e) { if (e.target === this) $('approve-all-modal').classList.remove('show'); });
+
+  $('unapprove-all-btn').addEventListener('click', function () {
+    var wk = weekMonday();
+    if (!wk) { toast(WEEK_HINT); return; }
+    VestaAPI.post('/reports/maintenance-notes/unapprove-all?week=' + wk, {})
+      .then(function (r) {
+        toast((r.unapproved || 0) + ' note(s) unapproved.', 'ok');
+        return loadAll();
+      })
+      .catch(function (e) { toast('Unapprove all failed: ' + e.message, 'warn'); });
   });
 
   $('delete-all-btn').addEventListener('click', function () {

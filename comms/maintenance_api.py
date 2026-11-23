@@ -10,8 +10,10 @@ Read/view endpoints accept ?start_date=&end_date= or ?week=YYYY-MM-DD:
 Mutation/send endpoints require ?week=YYYY-MM-DD (Monday token only):
     PUT    /api/reports/maintenance-notes/{id}
     POST   /api/reports/maintenance-notes/{id}/approve
+    POST   /api/reports/maintenance-notes/{id}/unapprove
     POST   /api/reports/maintenance-notes/generate
     POST   /api/reports/maintenance-notes/approve-all?week=YYYY-MM-DD
+    POST   /api/reports/maintenance-notes/unapprove-all?week=YYYY-MM-DD
     POST   /api/reports/maintenance-notes/delete-all?week=YYYY-MM-DD
     DELETE /api/reports/maintenance-notes/{id}
 
@@ -32,6 +34,7 @@ from datetime import date, timedelta
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from .maintenance_services import (
@@ -126,6 +129,55 @@ def _notes_for_period(period_start, period_end, explicit):
     return qs
 
 
+def _week_has_sent_emails(period_start):
+    """True if any maintenance email has been sent for this weekly period."""
+    return EmailDraft.objects.filter(
+        product=PRODUCT,
+        period_type="weekly",
+        period_start=period_start,
+        status="sent",
+    ).exists()
+
+
+def _set_note_draft(note, extra_fields=None):
+    """Reset a note to draft state, clearing approval audit.
+
+    Used by both the PUT-edit path and the unapprove endpoints so the
+    draft-state transition is never duplicated.
+
+    *extra_fields* is an optional dict of {field_name: value} pairs to set
+    on the note before saving (e.g. work_order_snapshot, notes_html, is_edited
+    for the edit path).  The caller does NOT need to include status,
+    approved_at, approved_by, or updated_at — this function handles those.
+    """
+    note.status = "draft"
+    note.approved_at = None
+    note.approved_by = None
+
+    save_fields = ["status", "approved_at", "approved_by", "updated_at"]
+
+    if extra_fields:
+        for field, value in extra_fields.items():
+            setattr(note, field, value)
+            save_fields.append(field)
+
+    note.save(update_fields=save_fields)
+
+
+def _set_note_approved(note, user, now=None):
+    """Mark a note as approved with audit fields.
+
+    Used by both single-approve and approve-all so the approved-state
+    transition is never duplicated.
+    """
+    if now is None:
+        now = timezone.now()
+    note.status = "approved"
+    note.approved_at = now
+    note.approved_by = user
+    note.save(update_fields=["status", "approved_at", "approved_by", "updated_at"])
+
+
 def _serialize_maintenance_note(note):
     """Serialize a PortfolioMaintenanceNote for the dashboard JS."""
     owners = list(
@@ -159,6 +211,8 @@ def _serialize_maintenance_note(note):
         ],
         "generated_at": note.generated_at.isoformat() if note.generated_at else None,
         "updated_at": note.updated_at.isoformat() if note.updated_at else None,
+        "approved_at": note.approved_at.isoformat() if note.approved_at else None,
+        "approved_by_name": (note.approved_by.get_full_name() or note.approved_by.username) if note.approved_by_id else None,
     }
 
 
@@ -263,11 +317,11 @@ def maintenance_note_detail(request, note_id):
 
     notes_html = render_maintenance_notes_html_from_snapshot(snap)
 
-    note.work_order_snapshot = snap
-    note.notes_html = notes_html
-    note.status = "draft"
-    note.is_edited = True
-    note.save(update_fields=["work_order_snapshot", "notes_html", "status", "is_edited", "updated_at"])
+    _set_note_draft(note, extra_fields={
+        "work_order_snapshot": snap,
+        "notes_html": notes_html,
+        "is_edited": True,
+    })
 
     return JsonResponse(_serialize_maintenance_note(note))
 
@@ -289,8 +343,7 @@ def approve_maintenance_note(request, note_id):
             "error": "Cannot approve: this note has no email content. Re-generate this portfolio.",
         }, status=422)
 
-    note.status = "approved"
-    note.save(update_fields=["status", "updated_at"])
+    _set_note_approved(note, request.user)
 
     return JsonResponse(_serialize_maintenance_note(note))
 
@@ -424,15 +477,71 @@ def approve_all_maintenance_notes(request):
 
     approved = 0
     skipped_empty = 0
+    now = timezone.now()
     for note in notes:
         if not note_has_sendable_content(note):
             skipped_empty += 1
             continue
-        note.status = "approved"
-        note.save(update_fields=["status", "updated_at"])
+        _set_note_approved(note, request.user, now=now)
         approved += 1
 
     return JsonResponse({"approved": approved, "skipped_empty": skipped_empty})
+
+
+@require_POST
+def unapprove_maintenance_note(request, note_id):
+    """POST /api/reports/maintenance-notes/{id}/unapprove"""
+    err = _require_access(request)
+    if err:
+        return err
+
+    try:
+        note = PortfolioMaintenanceNote.objects.select_related("portfolio").get(pk=note_id)
+    except PortfolioMaintenanceNote.DoesNotExist:
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    if note.status != "approved":
+        return JsonResponse({"error": "Note is not approved"}, status=400)
+
+    if _week_has_sent_emails(note.period_start):
+        return JsonResponse(
+            {"error": "Emails have already been sent for this week \u2014 cannot unapprove."},
+            status=409,
+        )
+
+    _set_note_draft(note)
+    return JsonResponse(_serialize_maintenance_note(note))
+
+
+@require_POST
+def unapprove_all_maintenance_notes(request):
+    """POST /api/reports/maintenance-notes/unapprove-all?week=YYYY-MM-DD"""
+    err = _require_access(request)
+    if err:
+        return err
+
+    period_start = _parse_week(request)
+    if not period_start:
+        return JsonResponse({"error": "week param required"}, status=400)
+
+    if _week_has_sent_emails(period_start):
+        return JsonResponse(
+            {"error": "Emails have already been sent for this week \u2014 cannot unapprove."},
+            status=409,
+        )
+
+    notes = PortfolioMaintenanceNote.objects.filter(
+        period_type="weekly",
+        period_start=period_start,
+        status="approved",
+    )
+
+    unapproved = 0
+    for note in notes:
+        _set_note_draft(note)
+        unapproved += 1
+
+    return JsonResponse({"unapproved": unapproved})
 
 
 @require_POST

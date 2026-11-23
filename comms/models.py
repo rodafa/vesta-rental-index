@@ -240,6 +240,18 @@ class PortfolioMaintenanceNote(models.Model):
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default="draft", db_index=True
     )
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When status was last set to 'approved'.",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     is_edited = models.BooleanField(
         default=False,
         db_index=True,
