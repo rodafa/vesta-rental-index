@@ -580,3 +580,79 @@ class UpdatePermissionTests(_UpdateFixture):
         self.assertEqual(resp.status_code, 200)
         mock_eph.assert_called_once()
         self.assertIn("permission", mock_eph.call_args[0][2])
+
+
+# ── End-to-end event → handler tests ──────────────────────────────
+
+
+@override_settings(
+    KEYBOT_CHANNEL_ID="C_TEST",
+    SLACK_SIGNING_SECRET="test-secret",
+    KEYBOT_EDITORS=["U_EDITOR"],
+    ROOT_URLCONF="config.urls",
+)
+class SetCodeEndToEndTests(TestCase):
+    """Hit slack_events with a real address resolve — no mocked resolver."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.prop = Property.objects.create(
+            name="90 Moody Ave",
+            address_line_1="90 Moody Ave",
+            city="Asheville",
+            state="NC",
+            postal_code="28801",
+            rentvine_id=9200,
+        )
+        cls.unit = Unit.objects.create(
+            property=cls.prop,
+            address_line_1="90 Moody Ave",
+            unit_number="2",
+            rentvine_id=9201,
+        )
+
+    def _event_body(self, text, user_id="U_EDITOR"):
+        return json.dumps({
+            "type": "event_callback",
+            "event": {
+                "type": "app_mention",
+                "channel": "C_TEST",
+                "user": user_id,
+                "text": f"<@UBOT> {text}",
+                "ts": "111.222",
+            },
+        }).encode()
+
+    @patch("keys.views.verify_slack_signature", return_value=True)
+    @patch("keys.views.get_display_name", return_value="Editor")
+    @patch("keys.views.post_message")
+    @patch("keys.views.post_ephemeral")
+    def test_set_code_unit_level_creates_pending(
+        self, mock_eph, mock_post, mock_name, mock_sig,
+    ):
+        """Unit-level set_code through slack_events — the path that was broken."""
+        resp = self.client.post(
+            "/slack/keybot/events/",
+            self._event_body(
+                "set code 90 moody ave unit 2 to 1776, lockbox on porch",
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        # PendingKeyChange created with correct payload.
+        self.assertEqual(PendingKeyChange.objects.count(), 1)
+        pending = PendingKeyChange.objects.first()
+        self.assertEqual(pending.action, "set_code")
+        self.assertEqual(pending.payload["unit_id"], self.unit.pk)
+        self.assertEqual(pending.payload["property_id"], self.prop.pk)
+        self.assertEqual(pending.payload["code"], "1776, lockbox on porch")
+
+        # Preview posted with confirm/cancel blocks.
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args[1]
+        self.assertIn("blocks", call_kwargs)
+        self.assertIsNotNone(call_kwargs["blocks"])
+
+        # No ephemeral error.
+        mock_eph.assert_not_called()
