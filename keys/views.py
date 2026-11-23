@@ -126,6 +126,10 @@ def slack_events(request):
                     reply, blocks = format_key_health(health_data)
                     outcome, match_count = "key_health", 0
 
+                elif parsed["type"] == "bad_command":
+                    reply = _bad_command_usage(parsed["value"])
+                    outcome, match_count = "bad_command", 0
+
                 elif parsed["type"] in _UPDATE_TYPES:
                     _handle_update(parsed, event, channel)
                     outcome, match_count = parsed["type"], 0
@@ -232,6 +236,86 @@ _APPLY_DISPATCH = {
     "mark_missing": apply_mark_missing,
     "found": apply_found,
 }
+
+
+def _confirm_text(pending: PendingKeyChange) -> str:
+    """Build descriptive text for a confirmed change."""
+    action = pending.action
+    payload = pending.payload
+    name = pending.requester_name or pending.requester_slack_id
+
+    if action == "set_code":
+        # Resolve address from unit or property
+        from core.models import Property, Unit
+        unit_id = payload.get("unit_id")
+        if unit_id:
+            try:
+                unit = Unit.objects.select_related("property").get(pk=unit_id)
+                addr = unit.display_address
+            except Unit.DoesNotExist:
+                addr = "unknown"
+        else:
+            try:
+                prop = Property.objects.get(pk=payload["property_id"])
+                addr = prop.address_line_1 or "unknown"
+            except Property.DoesNotExist:
+                addr = "unknown"
+        return f"Code set for {addr} by {name}"
+    elif action == "assign":
+        tag = Tag.objects.filter(pk=payload["tag_id"]).first()
+        key_id = tag.key_id if tag else "unknown"
+        from core.models import Unit
+        try:
+            unit = Unit.objects.select_related("property").get(pk=payload["unit_id"])
+            addr = unit.display_address
+        except Exception:
+            addr = "unknown"
+        return f"{key_id} assigned to {addr} by {name}"
+    elif action == "retire":
+        tag = Tag.objects.filter(pk=payload["tag_id"]).first()
+        key_id = tag.key_id if tag else "unknown"
+        return f"{key_id} retired by {name}"
+    elif action == "mark_missing":
+        tag = Tag.objects.filter(pk=payload["tag_id"]).first()
+        key_id = tag.key_id if tag else "unknown"
+        return f"{key_id} marked missing by {name}"
+    elif action == "found":
+        tag = Tag.objects.filter(pk=payload["tag_id"]).first()
+        key_id = tag.key_id if tag else "unknown"
+        return f"{key_id} marked found by {name}"
+    return f"Done by {name}"
+
+
+_BAD_COMMAND_USAGE = {
+    "set": (
+        "Usage: `set code <address> to <code>`\n"
+        "Example: `set code 28 Bass Lane Unit 1 to 1234`"
+    ),
+    "assign": (
+        "Usage: `assign <key-ID> to <address>`\n"
+        "Example: `assign A-038 to 28 Bass Lane`"
+    ),
+    "retire": (
+        "Usage: `retire <key-ID>`\n"
+        "Example: `retire A-038`"
+    ),
+    "missing": (
+        "Usage: `missing <key-ID>`\n"
+        "Example: `missing A-038`"
+    ),
+    "found": (
+        "Usage: `found <key-ID>`\n"
+        "Example: `found A-038`"
+    ),
+}
+
+
+def _bad_command_usage(attempted: str) -> str:
+    """Return a usage hint for a bad command keyword."""
+    return _BAD_COMMAND_USAGE.get(
+        attempted,
+        "I didn't understand that command. Try `help` for usage.",
+    )
 
 
 def _is_editor(slack_user_id: str) -> bool:
@@ -890,7 +974,7 @@ def _interaction_confirm(pending_id_str, user_id, channel_id, message_ts):
                     pending.resolved_at = now
                     pending.outcome = "confirmed"
                     pending.save(update_fields=["resolved_at", "outcome"])
-                    result = ("confirmed", None)
+                    result = ("confirmed", _confirm_text(pending))
 
     # Phase 2: Slack calls outside transaction.
     kind, msg = result
@@ -906,7 +990,7 @@ def _interaction_confirm(pending_id_str, user_id, channel_id, message_ts):
             )
     elif kind == "confirmed":
         try:
-            update_message(channel_id, message_ts, "\u2705 Done.")
+            update_message(channel_id, message_ts, f"\u2705 {msg}")
         except Exception as exc:
             logger.exception(
                 f"keybot_update_message_failed action=confirm"

@@ -2,6 +2,7 @@
 
 import logging
 import re
+import zoneinfo
 from datetime import timedelta
 
 from django.db.models import Count, Exists, F, OuterRef, Q
@@ -10,10 +11,13 @@ from django.utils import timezone
 from core.models import Unit
 from keys.models import AccessNote, Checkout, PendingKeyChange, Tag
 from keys.services import (
+    _SUFFIX_SET,
     build_unit_address_index,
     normalize_address,
     normalize_unit_token,
 )
+
+_ET = zoneinfo.ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +43,9 @@ _SOURCE_DISPLAY = {
 
 
 def _fmt_date(d):
-    """Format date or datetime as 'Oct 22, 2025'."""
+    """Format date or datetime as 'Oct 22, 2025'. Datetimes convert to ET."""
+    if hasattr(d, "astimezone"):
+        d = d.astimezone(_ET)
     return f"{d:%b} {d.day}, {d:%Y}"
 
 
@@ -86,9 +92,70 @@ _KEY_HEALTH_PHRASES = frozenset({
 })
 
 # ── Update-command regexes ────────────────────────────────────────
+
+# Primary: "set code|lockbox|lockbox code [for] <addr> to <code>"
 _SET_CODE_RE = re.compile(
-    r"set\s+(?:code|lockbox)\s+(.+?)\s+to\s+(.+)", re.IGNORECASE,
+    r"set\s+(?:(?:lockbox\s+)?code|lockbox)\s+(?:for\s+)?(.+?)\s+to\s+(.+)",
+    re.IGNORECASE,
 )
+
+# Unit label tokens that mark the boundary between address and code
+_UNIT_LABEL_RE = re.compile(r"^(?:unit|apt|#|lot)$", re.IGNORECASE)
+
+# Street suffixes (reuse from services) for no-"to" boundary detection
+_SUFFIX_SET_LOWER = frozenset(s.lower() for s in _SUFFIX_SET)
+
+
+def _parse_set_code_no_to(text: str) -> dict | None:
+    """Parse 'set code <addr> <code>' without a 'to' separator.
+
+    Rule: scan tokens after the keyword preamble.  The code starts at
+    the first token starting with a digit that comes AFTER a recognised
+    boundary (unit label + number, or street suffix).  Everything from
+    that token onward is code text; everything before is address.
+    Returns {"address": ..., "code": ...} or None.
+    """
+    m = re.match(
+        r"set\s+(?:(?:lockbox\s+)?code|lockbox)\s+(?:for\s+)?(.+)",
+        text, re.IGNORECASE,
+    )
+    if not m:
+        return None
+    rest = m.group(1).strip()
+    tokens = rest.split()
+    if len(tokens) < 2:
+        return None
+
+    # Walk tokens looking for a boundary, then a digit-starting token after it
+    boundary_seen = False
+    for i, tok in enumerate(tokens):
+        clean = tok.rstrip(".,").lower()
+        # Check if this token is a unit label (next token would be its number)
+        if _UNIT_LABEL_RE.match(clean):
+            # unit label: boundary is after label + its number
+            if i + 1 < len(tokens):
+                boundary_seen = True  # mark after consuming unit num
+                continue
+        # If previous was a unit label, this is its number — boundary after it
+        if i > 0 and _UNIT_LABEL_RE.match(tokens[i - 1].rstrip(".,").lower()):
+            boundary_seen = True
+            continue
+        # Street suffix is a boundary
+        if clean in _SUFFIX_SET_LOWER:
+            boundary_seen = True
+            continue
+        # After a boundary, first digit-starting token starts the code
+        if boundary_seen and tok[0].isdigit():
+            addr = " ".join(tokens[:i]).strip()
+            code = " ".join(tokens[i:]).strip()
+            if addr and code:
+                return {"address": addr, "code": code}
+    return None
+
+
+# Command keywords that signal an attempted command
+_COMMAND_KEYWORDS = frozenset({"set", "assign", "retire", "missing", "found"})
+
 _ASSIGN_RE = re.compile(
     r"assign\s+([ABab][\s\-]?\d{1,3})\s+to\s+(.+)", re.IGNORECASE,
 )
@@ -149,6 +216,11 @@ def parse_query(text: str) -> dict:
             "value": {"address": m.group(1).strip(), "code": m.group(2).strip()},
         }
 
+    # No-"to" form: "set code 90 moody ave 1776"
+    no_to = _parse_set_code_no_to(text)
+    if no_to:
+        return {"type": "set_code", "value": no_to}
+
     # "assign A-038 to 28 Bass Lane"
     m = _ASSIGN_RE.fullmatch(text)
     if m:
@@ -184,6 +256,12 @@ def parse_query(text: str) -> dict:
     key_id = _normalize_key_id(text)
     if key_id is not None:
         return {"type": "key_id", "value": key_id}
+
+    # Bad command detection: starts with a known keyword but didn't match
+    first_word = text.split()[0].lower() if text.split() else ""
+    if first_word in _COMMAND_KEYWORDS:
+        return {"type": "bad_command", "value": first_word}
+
     return {"type": "address", "value": text}
 
 

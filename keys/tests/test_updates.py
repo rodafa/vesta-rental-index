@@ -357,9 +357,12 @@ class ConfirmCancelTests(_UpdateFixture):
         self.assertEqual(pending.outcome, "confirmed")
         self.assertIsNotNone(pending.resolved_at)
 
-        # Slack message updated to "Done", no ephemeral.
+        # Slack message updated with descriptive text, no ephemeral.
         mock_update.assert_called_once()
-        self.assertIn("Done", mock_update.call_args[0][2])
+        msg = mock_update.call_args[0][2]
+        self.assertIn("A-050", msg)
+        self.assertIn("retired", msg)
+        self.assertIn("Editor", msg)
         mock_eph.assert_not_called()
 
     @patch("keys.views.verify_slack_signature", return_value=True)
@@ -482,6 +485,12 @@ class ConfirmCancelTests(_UpdateFixture):
         ).first()
         self.assertIsNotNone(note)
         self.assertEqual(note.text, "5555")
+
+        # Descriptive confirm text.
+        mock_update.assert_called_once()
+        msg = mock_update.call_args[0][2]
+        self.assertIn("Code set for", msg)
+        self.assertIn("Editor", msg)
 
     @patch("keys.views.verify_slack_signature", return_value=True)
     @patch("keys.views.update_message")

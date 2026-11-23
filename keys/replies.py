@@ -1,5 +1,7 @@
 """Pure Slack mrkdwn formatters for KeyBot replies. No DB access."""
 
+from keys.services import normalize_address
+
 
 def _escape(text: str) -> str:
     """Escape &, <, > for Slack mrkdwn."""
@@ -7,8 +9,19 @@ def _escape(text: str) -> str:
 
 
 def _display_address(address: str, unit_number: str) -> str:
-    """Format 'Address — Unit X' or just 'Address'."""
+    """Format 'Address — Unit X' or just 'Address'.
+
+    If unit_number normalizes to the same (street_number, base_name) as
+    address, it's a redundant variant (e.g. "12 La Salle Ln" vs
+    "12 La Salle Lane") — show address only.
+    """
     if unit_number:
+        # Check if unit_number is a redundant address variant
+        addr_num, addr_base, _ = normalize_address(address)
+        unit_num, unit_base, _ = normalize_address(unit_number)
+        if addr_num and unit_num and addr_base and unit_base:
+            if (addr_num, addr_base) == (unit_num, unit_base):
+                return _escape(address)
         if unit_number.lower().startswith("unit"):
             return f"{_escape(address)} \u2014 {_escape(unit_number)}"
         return f"{_escape(address)} \u2014 Unit {_escape(unit_number)}"
@@ -380,6 +393,22 @@ def confirm_cancel_blocks(preview_text: str, pending_id: int) -> tuple[str, list
 
 # ── Key Health ─────────────────────────────────────────────────────
 
+def _chunk_urgent(lines: list[str], max_lines: int = 5) -> list[dict]:
+    """Split a list of mrkdwn lines into multiple section blocks.
+
+    Each block has at most *max_lines* lines so Slack doesn't fold them
+    behind a "Show more" collapse.
+    """
+    blocks = []
+    for i in range(0, len(lines), max_lines):
+        chunk = lines[i : i + max_lines]
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(chunk)},
+        })
+    return blocks
+
+
 _SECTION_LIMIT = 3000
 
 
@@ -413,13 +442,14 @@ def format_key_health(health: dict) -> tuple[str, list]:
     short section per category so Slack never collapses urgent items
     behind "Show more".
     """
-    sections = []
+    sections = []        # text sections (joined for plain-text fallback)
+    urgent_line_groups = []  # list of line-lists for _chunk_urgent
 
     # ── Header ──
     sections.append("*\U0001f511 Key Health*")
 
     # ── URGENT — one section per category ──
-    urgent_sections = []
+    urgent_text_sections = []
 
     # (a) Vacant: no key AND no code
     items = health["vacant_no_key_no_code"]
@@ -431,7 +461,8 @@ def format_key_health(health: dict) -> tuple[str, list]:
         ]
         for i in items:
             lines.append(f"\u2022 {_escape(i['address'])}")
-        urgent_sections.append("\n".join(lines))
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
 
     # (b) Vacant: no key
     items = health["vacant_no_key"]
@@ -443,7 +474,8 @@ def format_key_health(health: dict) -> tuple[str, list]:
         ]
         for i in items:
             lines.append(f"\u2022 {_escape(i['address'])}")
-        urgent_sections.append("\n".join(lines))
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
 
     # (c) Vacant: no code
     items = health["vacant_no_code"]
@@ -455,7 +487,8 @@ def format_key_health(health: dict) -> tuple[str, list]:
         ]
         for i in items:
             lines.append(f"\u2022 {_escape(i['address'])}")
-        urgent_sections.append("\n".join(lines))
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
 
     # (d) Overdue checkouts > 24h
     items = health["overdue_checkouts"]
@@ -469,7 +502,8 @@ def format_key_health(health: dict) -> tuple[str, list]:
                 f"{_escape(co['checked_out_by_name'])} "
                 f"({co['hours']}h) @ {_escape(co['address'])}"
             )
-        urgent_sections.append("\n".join(lines))
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
 
     # (e) Missing tags
     items = health["missing_tags"]
@@ -483,7 +517,8 @@ def format_key_health(health: dict) -> tuple[str, list]:
             lines.append(
                 f"\u2022 *{t['key_id']}* \u2014 {_escape(t['address'])}"
             )
-        urgent_sections.append("\n".join(lines))
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
 
     # (f) Duplicate tags
     items = health["duplicate_tags"]
@@ -496,11 +531,12 @@ def format_key_health(health: dict) -> tuple[str, list]:
         for d in items:
             ids = ", ".join(d["key_ids"])
             lines.append(f"\u2022 {_escape(d['address'])} \u2014 {ids}")
-        urgent_sections.append("\n".join(lines))
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
 
-    if urgent_sections:
+    if urgent_text_sections:
         sections.append("*URGENT*")
-        sections.extend(urgent_sections)
+        sections.extend(urgent_text_sections)
     else:
         sections.append("\u2705 No urgent key issues.")
 
@@ -562,8 +598,28 @@ def format_key_health(health: dict) -> tuple[str, list]:
     # ── Build output ──
     text = "\n\n".join(sections)
 
-    blocks = []
-    for section in sections:
+    # Build blocks: header + URGENT header, then chunked urgent categories,
+    # then remaining (cleanup, counts) as regular split sections.
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": sections[0]}},
+    ]
+
+    if urgent_line_groups:
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*URGENT*"}},
+        )
+        for line_group in urgent_line_groups:
+            blocks.extend(_chunk_urgent(line_group))
+        # remaining sections start after header + "URGENT" + urgent text sections
+        remaining_start = 2 + len(urgent_text_sections)
+    else:
+        # "No urgent key issues" is sections[1]
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": sections[1]}},
+        )
+        remaining_start = 2
+
+    for section in sections[remaining_start:]:
         for chunk in _split_section_text(section):
             blocks.append({
                 "type": "section",

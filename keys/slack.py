@@ -94,11 +94,15 @@ def get_display_name(user_id: str, fallback: str = "") -> str:
         return fallback or user_id
 
 
+_FORM_METHODS = frozenset({"users.info"})
+
+
 def _slack_api(method: str, payload: dict) -> dict:
     """POST to a Slack Web API method. Returns parsed response or raises."""
+    kwargs = {"data": payload} if method in _FORM_METHODS else {"json": payload}
     resp = requests.post(
         f"https://slack.com/api/{method}",
-        json=payload,
+        **kwargs,
         headers={"Authorization": f"Bearer {settings.SLACK_BOT_TOKEN}"},
         timeout=5,
     )

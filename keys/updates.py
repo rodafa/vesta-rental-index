@@ -8,10 +8,13 @@ Never logs code text or note text — only ids and actions.
 """
 
 import logging
+import zoneinfo
 
 from django.utils import timezone
 
 from keys.models import AccessNote, Checkout, KeyChange, PendingKeyChange, Tag
+
+_ET = zoneinfo.ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,7 @@ def apply_set_code(pending: PendingKeyChange) -> str | None:
     property_id = payload["property_id"]
     code = payload["code"]
     ref = str(pending.pk)
-    today = timezone.now().date()
+    today = timezone.now().astimezone(_ET).date()
 
     if unit_id:
         note = AccessNote.objects.create(
