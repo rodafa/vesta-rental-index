@@ -270,6 +270,10 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
           <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; font-style:italic; color:#888888;">
             Completed in-house
           </td>
+          {% elif wo.owner_handling %}
+          <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; font-style:italic; color:#888888;">
+            Handled by owner
+          </td>
           {% else %}
           <td style="text-align:right; font-family:Helvetica, Arial, sans-serif; font-size:12px; font-style:italic; color:#888888;">
             Work completed, billing pending

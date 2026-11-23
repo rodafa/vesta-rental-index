@@ -183,6 +183,7 @@ def _build_turn_groups(open_dicts, scheduled_dicts, completed_dicts):
                 f" ({zi_count} items)" if zi_count and zi_count > 1 else ""
             )
             trades.append({
+                "work_order_number": wo["work_order_number"],
                 "title": wo.get("title", ""),
                 "count_suffix": count_suffix,
                 "vendor_name": wo.get("vendor_name", ""),
@@ -375,13 +376,20 @@ def get_portfolio_work_order_data_mason(
 
         bucket = wo["_mapped_bucket"]
 
-        # Approved estimate amount from Mason — Open/Scheduled only.
-        # Completed/Cancelled leave estimated_amount from Rentvine
-        # unchanged ("Final costs on completed items stay on Rentvine").
+        # Approved estimate amount from Mason.
+        # Open/Scheduled: Mason estimate overwrites (source of truth for active WOs).
+        # Completed: fill-only — preserve Rentvine's estimate when present,
+        # use Mason's only when Rentvine is blank.
+        # Cancelled: no estimate (irrelevant context).
         if bucket in ("open", "scheduled"):
             mason_estimate = wo.get("_approved_estimate_amount")
             if mason_estimate is not None:
                 wo_dict["estimated_amount"] = mason_estimate
+        elif bucket == "completed":
+            if wo_dict.get("estimated_amount") is None:
+                mason_estimate = wo.get("_approved_estimate_amount")
+                if mason_estimate is not None:
+                    wo_dict["estimated_amount"] = mason_estimate
 
         # Recurring work orders: ONLY in Completed, never in Open/Scheduled.
         # Still windowed — a recurring WO that completed outside the period

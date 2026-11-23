@@ -2822,6 +2822,8 @@ def generate_portfolio_maintenance_notes(
             }
             if use_mason:
                 work_order_snapshot["_mason_path"] = True
+            if send_date and isinstance(send_date, _date):
+                work_order_snapshot["_send_date"] = str(send_date)
             if data.get("turns"):
                 work_order_snapshot["turns"] = data["turns"]
 
@@ -2972,6 +2974,46 @@ def render_maintenance_notes_html_from_snapshot(snapshot, *, send_date=None):
     from maintenance.sanitizers import format_owner_date
 
     data = copy.deepcopy(snapshot)
+
+    # Pin send_date from snapshot when not explicitly passed — prevents
+    # scheduled_date_past from drifting between review and send.
+    if send_date is None:
+        _pinned = data.get("_send_date")
+        if _pinned and isinstance(_pinned, str):
+            try:
+                send_date = _date.fromisoformat(_pinned)
+            except (ValueError, TypeError):
+                pass  # fall back to _date.today() at scheduled_date_past
+
+    # Refresh costs from DB — bills may arrive (or be voided) after snapshot freeze
+    all_pks = [
+        wo["id"]
+        for bucket in ("open", "scheduled", "completed", "cancelled")
+        for group in data.get(bucket, [])
+        for wo in group.get("work_orders", [])
+        if wo.get("id")
+    ]
+    if all_pks:
+        from maintenance.selectors import get_work_order_costs_by_pk
+
+        fresh_costs, resolved_pks = get_work_order_costs_by_pk(all_pks)
+
+        # Bucket WOs: overwrite cost for resolved PKs (None = no bill/voided)
+        wo_num_to_cost = {}
+        for bucket in ("open", "scheduled", "completed", "cancelled"):
+            for group in data.get(bucket, []):
+                for wo in group.get("work_orders", []):
+                    pk = wo.get("id")
+                    if pk and pk in resolved_pks:
+                        wo["cost"] = fresh_costs.get(pk)
+                        wo_num_to_cost[str(wo.get("work_order_number", ""))] = wo["cost"]
+
+        # Turn-group trades: same treatment, keyed by work_order_number
+        for turn in data.get("turns", []):
+            for trade in turn.get("trades", []):
+                wo_num = str(trade.get("work_order_number", ""))
+                if wo_num and wo_num in wo_num_to_cost:
+                    trade["cost"] = wo_num_to_cost[wo_num]
 
     # Coerce ISO-string dates back to date objects and pre-format for display
     for bucket in ("open", "scheduled", "completed", "cancelled"):
@@ -3323,8 +3365,13 @@ def assemble_owner_maintenance_email(recipient_email, period_start, period_type=
         if note.status != "approved":
             all_approved = False
 
-        # Use notes_html AS-IS (card-based fragments, never re-render from text)
-        if note.notes_html:
+        # Re-render from snapshot for fresh costs (bills arrive after generation)
+        if note.work_order_snapshot:
+            fresh_html = render_maintenance_notes_html_from_snapshot(
+                note.work_order_snapshot,
+            )
+            fragments.append((portfolio.name, fresh_html))
+        elif note.notes_html:
             fragments.append((portfolio.name, note.notes_html))
 
     # Zero-activity owner — no notes found at all

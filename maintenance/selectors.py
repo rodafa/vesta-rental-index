@@ -661,6 +661,40 @@ def get_work_order_costs(rentvine_ids: list[int]) -> dict[int, Decimal]:
     return {row["bill__work_order_id"]: row["total"] for row in rows}
 
 
+def get_work_order_costs_by_pk(pks):
+    """Look up fresh bill costs for work orders by Django PK.
+
+    Bridge for snapshot-based rendering: snapshot stores Django PK (not
+    rentvine_id), but BillCharge is keyed by rentvine_id.
+
+    Returns (costs, resolved_pks):
+        costs: {django_pk: Decimal} for WOs with bill charges.
+        resolved_pks: set of PKs that were found in the DB (regardless
+            of whether they have charges).  Missing PKs (deleted WOs)
+            are excluded so the caller can preserve their snapshot cost.
+    """
+    from maintenance.models import WorkOrder
+
+    if not pks:
+        return {}, set()
+
+    pk_to_rvid = dict(
+        WorkOrder.objects.filter(pk__in=pks)
+        .values_list("pk", "rentvine_id")
+    )
+    if not pk_to_rvid:
+        return {}, set()
+
+    rvid_costs = get_work_order_costs(list(pk_to_rvid.values()))
+
+    costs = {
+        pk: rvid_costs[rvid]
+        for pk, rvid in pk_to_rvid.items()
+        if rvid in rvid_costs
+    }
+    return costs, set(pk_to_rvid.keys())
+
+
 def get_portfolio_work_order_data(portfolio, period_start, period_end):
     """
     Gather work orders for a single portfolio, grouped into four email buckets.
