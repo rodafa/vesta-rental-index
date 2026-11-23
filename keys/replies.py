@@ -34,14 +34,22 @@ def _format_tag_line(tag: dict) -> str:
 
 
 def _format_note_line(note: dict) -> str:
-    """Single access note: text (truncated 300), source, date."""
+    """Single access note: text (truncated 300), source, date, author."""
     text = note["text"]
     if len(text) > 300:
         text = text[:297] + "\u2026"
     text = _escape(text)
     source = note["source"]
+    author = note.get("author")
     date_str = note.get("date")
-    if date_str:
+    if author:
+        # KeyBot notes: "KeyBot · Nov 22, 2026 · Alice"
+        parts = [source]
+        if date_str:
+            parts.append(date_str)
+        parts.append(_escape(author))
+        label = f"_({' \u00b7 '.join(parts)})_"
+    elif date_str:
         label = f"_({source}, {date_str})_"
     else:
         label = f"_({source})_"
@@ -141,12 +149,23 @@ def format_help() -> str:
     return (
         "*KeyBot* \u2014 key & lockbox lookups + checkouts\n"
         "\n"
+        "*Lookups*\n"
         "\u2022 `@KeyBot 28 Bass Lane Unit 1` \u2014 look up a unit\n"
         "\u2022 `@KeyBot 28 Bass` \u2014 list all units at an address\n"
         "\u2022 `@KeyBot A-038` \u2014 look up a key by tag ID\n"
+        "\n"
+        "*Checkouts*\n"
         "\u2022 `@KeyBot take A-038` \u2014 check out a key\n"
         "\u2022 `@KeyBot return A-038` \u2014 return a key\n"
         "\u2022 `@KeyBot whats out` \u2014 list open checkouts\n"
+        "\n"
+        "*Updates* (editors only)\n"
+        "\u2022 `@KeyBot set code 28 Bass Lane to 1234` \u2014 set lockbox code\n"
+        "\u2022 `@KeyBot assign A-038 to 28 Bass Lane` \u2014 assign key to unit\n"
+        "\u2022 `@KeyBot retire A-038` \u2014 retire a key\n"
+        "\u2022 `@KeyBot missing A-038` \u2014 mark key missing\n"
+        "\u2022 `@KeyBot found A-038` \u2014 mark key found\n"
+        "\n"
         "\u2022 `@KeyBot health` \u2014 key health report\n"
         "\u2022 `@KeyBot help` \u2014 this message"
     )
@@ -329,6 +348,36 @@ def lookup_blocks(text: str, buttons: list[dict]) -> list[dict] | None:
     ]
 
 
+def confirm_cancel_blocks(preview_text: str, pending_id: int) -> tuple[str, list]:
+    """Wrap a pending-change preview with Confirm / Cancel buttons.
+
+    Returns (text, blocks).  The button value carries only the pending id.
+    """
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": preview_text}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "\u2705 Confirm"},
+                    "action_id": f"keybot_confirm:{pending_id}",
+                    "value": str(pending_id),
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "\u274c Cancel"},
+                    "action_id": f"keybot_cancel:{pending_id}",
+                    "value": str(pending_id),
+                    "style": "danger",
+                },
+            ],
+        },
+    ]
+    return preview_text, blocks
+
+
 # ── Key Health ─────────────────────────────────────────────────────
 
 _SECTION_LIMIT = 3000
@@ -360,135 +409,146 @@ def format_key_health(health: dict) -> tuple[str, list]:
 
     *text* is the full report as a single mrkdwn string — used as the
     ``post_message`` text param and as the ``_safe_reply`` fallback when
-    blocks fail.  *blocks* is a list of Block Kit section blocks.
+    blocks fail.  *blocks* is a list of Block Kit section blocks — one
+    short section per category so Slack never collapses urgent items
+    behind "Show more".
     """
     sections = []
 
     # ── Header ──
     sections.append("*\U0001f511 Key Health*")
 
-    # ── URGENT (always list every item) ──
-    urgent = []
+    # ── URGENT — one section per category ──
+    urgent_sections = []
 
     # (a) Vacant: no key AND no code
     items = health["vacant_no_key_no_code"]
     if items:
         n = len(items)
-        urgent.append(
+        lines = [
             f"\U0001f6a8 {n} vacant unit{'s' if n != 1 else ''}"
             f" \u2014 no key AND no code:"
-        )
+        ]
         for i in items:
-            urgent.append(f"\u2022 {_escape(i['address'])}")
+            lines.append(f"\u2022 {_escape(i['address'])}")
+        urgent_sections.append("\n".join(lines))
 
     # (b) Vacant: no key
     items = health["vacant_no_key"]
     if items:
         n = len(items)
-        urgent.append(
+        lines = [
             f"\U0001f511 {n} vacant unit{'s' if n != 1 else ''}"
             f" \u2014 no key:"
-        )
+        ]
         for i in items:
-            urgent.append(f"\u2022 {_escape(i['address'])}")
+            lines.append(f"\u2022 {_escape(i['address'])}")
+        urgent_sections.append("\n".join(lines))
 
     # (c) Vacant: no code
     items = health["vacant_no_code"]
     if items:
         n = len(items)
-        urgent.append(
+        lines = [
             f"\U0001f510 {n} vacant unit{'s' if n != 1 else ''}"
             f" \u2014 no code:"
-        )
+        ]
         for i in items:
-            urgent.append(f"\u2022 {_escape(i['address'])}")
+            lines.append(f"\u2022 {_escape(i['address'])}")
+        urgent_sections.append("\n".join(lines))
 
     # (d) Overdue checkouts > 24h
     items = health["overdue_checkouts"]
     if items:
         n = len(items)
-        urgent.append(
-            f"\u23f0 {n} key{'s' if n != 1 else ''} out > 24h:"
-        )
+        lines = [f"\u23f0 {n} key{'s' if n != 1 else ''} out > 24h:"]
         for co in items:
             icon = "\u26a0\ufe0f" if co["is_72h"] else "\u2022"
-            urgent.append(
+            lines.append(
                 f"{icon} *{co['key_id']}* \u2014 "
                 f"{_escape(co['checked_out_by_name'])} "
                 f"({co['hours']}h) @ {_escape(co['address'])}"
             )
+        urgent_sections.append("\n".join(lines))
 
     # (e) Missing tags
     items = health["missing_tags"]
     if items:
         n = len(items)
-        urgent.append(
+        lines = [
             f"\U0001f3f7\ufe0f {n} tag{'s' if n != 1 else ''}"
             f" marked missing:"
-        )
+        ]
         for t in items:
-            urgent.append(
+            lines.append(
                 f"\u2022 *{t['key_id']}* \u2014 {_escape(t['address'])}"
             )
+        urgent_sections.append("\n".join(lines))
 
     # (f) Duplicate tags
     items = health["duplicate_tags"]
     if items:
         n = len(items)
-        urgent.append(
+        lines = [
             f"\u26a0\ufe0f {n} unit{'s' if n != 1 else ''}"
             f" with duplicate tags:"
-        )
+        ]
         for d in items:
             ids = ", ".join(d["key_ids"])
-            urgent.append(f"\u2022 {_escape(d['address'])} \u2014 {ids}")
+            lines.append(f"\u2022 {_escape(d['address'])} \u2014 {ids}")
+        urgent_sections.append("\n".join(lines))
 
-    if urgent:
-        sections.append("*URGENT*\n" + "\n".join(urgent))
+    if urgent_sections:
+        sections.append("*URGENT*")
+        sections.extend(urgent_sections)
     else:
         sections.append("\u2705 No urgent key issues.")
 
-    # ── CLEANUP (count + first 10, then "+N more") ──
-    cleanup = []
+    # ── CLEANUP — one section per category ──
+    cleanup_sections = []
 
     # (g) Orphan tags
     items = health["orphan_tags"]
     if items:
         n = len(items)
-        cleanup.append(
+        lines = [
             f"\U0001f47b {n} orphan tag{'s' if n != 1 else ''}"
             f" (no unit/property):"
-        )
+        ]
         for t in items[:10]:
             addr = t["imported_address"] or "\u2014"
-            cleanup.append(
+            lines.append(
                 f"\u2022 {t['key_id']} \u2014 \"{_escape(addr)}\""
             )
         if n > 10:
-            cleanup.append(f"+{n - 10} more")
+            lines.append(f"+{n - 10} more")
+        cleanup_sections.append("\n".join(lines))
 
     # (h) Occupied: no key
     items = health["occupied_no_key"]
     if items:
         n = len(items)
-        cleanup.append(f"\U0001f3e0 {n} occupied \u2014 no key:")
+        lines = [f"\U0001f3e0 {n} occupied \u2014 no key:"]
         for i in items[:10]:
-            cleanup.append(f"\u2022 {_escape(i['address'])}")
+            lines.append(f"\u2022 {_escape(i['address'])}")
         if n > 10:
-            cleanup.append(f"+{n - 10} more")
+            lines.append(f"+{n - 10} more")
+        cleanup_sections.append("\n".join(lines))
 
     # (h) Occupied: no code
     items = health["occupied_no_code"]
     if items:
         n = len(items)
-        cleanup.append(f"\U0001f3e0 {n} occupied \u2014 no code:")
+        lines = [f"\U0001f3e0 {n} occupied \u2014 no code:"]
         for i in items[:10]:
-            cleanup.append(f"\u2022 {_escape(i['address'])}")
+            lines.append(f"\u2022 {_escape(i['address'])}")
         if n > 10:
-            cleanup.append(f"+{n - 10} more")
+            lines.append(f"+{n - 10} more")
+        cleanup_sections.append("\n".join(lines))
 
-    if cleanup:
-        sections.append("*CLEANUP*\n" + "\n".join(cleanup))
+    if cleanup_sections:
+        sections.append("*CLEANUP*")
+        sections.extend(cleanup_sections)
 
     # ── COUNTS ONLY ──
     nk = health["unknown_no_key_count"]

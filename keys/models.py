@@ -206,6 +206,13 @@ class KeyChange(models.Model):
         help_text='Slack user id, dashboard username, or "import".',
     )
     reason = models.TextField(blank=True)
+    source_ref = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="PendingKeyChange id that authorized this change.",
+    )
     changed_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -263,3 +270,44 @@ class KeyHealthSnapshot(models.Model):
 
     def __str__(self):
         return f"KeyHealth {self.date}"
+
+
+class PendingKeyChange(models.Model):
+    """Pending edit command awaiting Confirm/Cancel from Slack.
+
+    Created when an editor issues a command (set code, assign, retire,
+    mark missing, found).  The button value carries only the pending id;
+    code text and payloads never travel through Slack action values.
+
+    resolved_at IS NULL means still awaiting a button press.
+    Expires after 15 minutes (checked at confirm time, not by cron).
+    """
+
+    ACTION_CHOICES = [
+        ("set_code", "Set Code"),
+        ("assign", "Assign Tag"),
+        ("retire", "Retire Tag"),
+        ("mark_missing", "Mark Missing"),
+        ("found", "Mark Found"),
+    ]
+
+    requester_slack_id = models.CharField(max_length=50)
+    requester_name = models.CharField(max_length=150)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    payload = models.JSONField(
+        help_text="Command-specific data: resolved ids, preview text, etc.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text='"confirmed", "cancelled", or "expired".',
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        state = self.outcome or "pending"
+        return f"PendingKeyChange #{self.pk} {self.action} ({state})"

@@ -2,16 +2,19 @@
 
 import json
 import logging
+from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from keys.checkouts import checkout_tag, return_tag, snooze_reminder
-from keys.models import Checkout
+from keys.models import AccessNote, Checkout, PendingKeyChange, Tag
 from keys.replies import (
+    confirm_cancel_blocks,
     format_checkout_ok,
     format_did_you_mean,
     format_help,
@@ -34,6 +37,7 @@ from keys.selectors import (
     tag_info,
     unit_key_info,
 )
+from keys.services import normalize_address
 from keys.slack import (
     get_display_name,
     post_ephemeral,
@@ -41,6 +45,13 @@ from keys.slack import (
     strip_mention,
     update_message,
     verify_slack_signature,
+)
+from keys.updates import (
+    apply_assign,
+    apply_found,
+    apply_mark_missing,
+    apply_retire,
+    apply_set_code,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,6 +124,10 @@ def slack_events(request):
                     health_data = key_health()
                     reply, blocks = format_key_health(health_data)
                     outcome, match_count = "key_health", 0
+
+                elif parsed["type"] in _UPDATE_TYPES:
+                    _handle_update(parsed, event, channel)
+                    outcome, match_count = parsed["type"], 0
 
                 elif parsed["type"] == "key_id":
                     tag = find_tag_by_key_id(parsed["value"])
@@ -203,6 +218,35 @@ def _safe_reply(channel, text, thread_ts):
         logger.exception(f"keybot_safe_reply_failed error={exc}")
 
 
+# ── Update-command constants ────────────────────────────────────────
+
+_UPDATE_TYPES = frozenset({
+    "set_code", "assign", "retire", "mark_missing", "found",
+})
+
+_APPLY_DISPATCH = {
+    "set_code": apply_set_code,
+    "assign": apply_assign,
+    "retire": apply_retire,
+    "mark_missing": apply_mark_missing,
+    "found": apply_found,
+}
+
+
+def _is_editor(slack_user_id: str) -> bool:
+    """True when the Slack user is in the KEYBOT_EDITORS allowlist."""
+    return slack_user_id in settings.KEYBOT_EDITORS
+
+
+def _tag_location(tag) -> str:
+    """Human-readable location for a tag (address or 'unassigned')."""
+    if tag.unit:
+        return tag.unit.display_address
+    if tag.property:
+        return tag.property.address_line_1 or "unknown"
+    return "unassigned"
+
+
 # ── Mention sub-handlers ────────────────────────────────────────────
 
 
@@ -280,6 +324,318 @@ def _handle_whats_out() -> str:
     return format_whats_out(cos, timezone.now())
 
 
+# ── Update sub-handlers ────────────────────────────────────────────
+
+
+def _handle_update(parsed: dict, event: dict, channel: str):
+    """Dispatch an update command. Posts directly (never sets reply)."""
+    user_id = event.get("user", "")
+    thread_ts = event.get("ts")
+
+    if not _is_editor(user_id):
+        post_ephemeral(
+            channel, user_id,
+            "You don't have permission to make changes via KeyBot.",
+        )
+        return
+
+    handler = {
+        "set_code": _handle_set_code,
+        "assign": _handle_assign,
+        "retire": _handle_retire,
+        "mark_missing": _handle_mark_missing,
+        "found": _handle_found,
+    }.get(parsed["type"])
+
+    if handler:
+        handler(parsed["value"], user_id, channel, thread_ts)
+
+
+def _handle_set_code(value: dict, user_id: str, channel: str, thread_ts: str):
+    """Set code: resolve address, preview, create PendingKeyChange."""
+    address_text = value["address"]
+    code = value["code"]
+
+    result = find_units(address_text)
+    units = result["units"]
+    if not units:
+        post_message(
+            channel, format_not_found(address_text), thread_ts=thread_ts,
+        )
+        return
+    if len(units) > 1:
+        # Multiple properties or multiple units — user must be more specific.
+        # Check if all units share one property (multi-unit building).
+        props = {u.property_id for u in units}
+        if len(props) == 1:
+            # Multi-unit, same property. Check if the query had a unit token.
+            cleaned = address_text.strip()
+            _sn, _bn, unit_token = normalize_address(cleaned)
+            if not unit_token:
+                # No unit token → property-level code.
+                prop = units[0].property
+                current = AccessNote.objects.filter(
+                    property=prop, unit__isnull=True,
+                ).order_by("-source_date", "-created_at").first()
+                current_text = (
+                    f"Current: `{current.text}`" if current else "No code on file"
+                )
+                display_name = get_display_name(user_id)
+                preview = (
+                    f"Set *property-level* code for"
+                    f" *{prop.address_line_1}* to `{code}`\n"
+                    f"{current_text}"
+                )
+                pending = PendingKeyChange.objects.create(
+                    requester_slack_id=user_id,
+                    requester_name=display_name,
+                    action="set_code",
+                    payload={
+                        "unit_id": None,
+                        "property_id": prop.pk,
+                        "code": code,
+                    },
+                )
+                text, blocks = confirm_cancel_blocks(preview, pending.pk)
+                post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+                logger.info(
+                    f"keybot_set_code_preview pending={pending.pk}"
+                    f" property={prop.pk} by={user_id}"
+                )
+                return
+            # Has unit token but multiple units — ambiguous.
+            pass
+        post_message(
+            channel,
+            f"Multiple matches for \"{address_text}\" — add a unit number.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    unit = units[0]
+    prop = unit.property
+    current = AccessNote.objects.filter(
+        Q(unit=unit) | Q(property=prop, unit__isnull=True),
+    ).order_by("-source_date", "-created_at").first()
+    current_text = (
+        f"Current: `{current.text}`" if current else "No code on file"
+    )
+    display_name = get_display_name(user_id)
+    preview = (
+        f"Set code for *{unit.display_address}* to `{code}`\n"
+        f"{current_text}"
+    )
+    pending = PendingKeyChange.objects.create(
+        requester_slack_id=user_id,
+        requester_name=display_name,
+        action="set_code",
+        payload={
+            "unit_id": unit.pk,
+            "property_id": prop.pk,
+            "code": code,
+        },
+    )
+    text, blocks = confirm_cancel_blocks(preview, pending.pk)
+    post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+    logger.info(
+        f"keybot_set_code_preview pending={pending.pk}"
+        f" unit={unit.pk} by={user_id}"
+    )
+
+
+def _handle_assign(value: dict, user_id: str, channel: str, thread_ts: str):
+    """Assign tag to unit: resolve both, preview, create PendingKeyChange."""
+    key_id = value["key_id"]
+    address_text = value["address"]
+
+    tag = find_tag_by_key_id(key_id)
+    if tag is None:
+        post_message(
+            channel, format_not_found(key_id), thread_ts=thread_ts,
+        )
+        return
+    if tag.status == "retired":
+        post_message(
+            channel,
+            f"{key_id} is retired and cannot be assigned.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    result = find_units(address_text)
+    units = result["units"]
+    if not units:
+        post_message(
+            channel, format_not_found(address_text), thread_ts=thread_ts,
+        )
+        return
+    if len(units) > 1:
+        post_message(
+            channel,
+            f"Multiple matches for \"{address_text}\" — add a unit number.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    unit = units[0]
+    display_name = get_display_name(user_id)
+
+    # Check for existing tags on target unit (duplicate warning)
+    existing = list(
+        Tag.objects.filter(unit=unit)
+        .exclude(status="retired")
+        .exclude(pk=tag.pk)
+        .values_list("key_id", flat=True)
+    )
+    warning = ""
+    if existing:
+        ids = ", ".join(existing)
+        warning = f"\n\u26a0\ufe0f Unit already has: {ids}"
+
+    old_loc = _tag_location(tag) if tag.unit or tag.property else "unassigned"
+    preview = (
+        f"Assign *{key_id}* to *{unit.display_address}*\n"
+        f"Currently: {old_loc}{warning}"
+    )
+    pending = PendingKeyChange.objects.create(
+        requester_slack_id=user_id,
+        requester_name=display_name,
+        action="assign",
+        payload={"tag_id": tag.pk, "unit_id": unit.pk},
+    )
+    text, blocks = confirm_cancel_blocks(preview, pending.pk)
+    post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+    logger.info(
+        f"keybot_assign_preview pending={pending.pk}"
+        f" tag={key_id} unit={unit.pk} by={user_id}"
+    )
+
+
+def _handle_retire(value: dict, user_id: str, channel: str, thread_ts: str):
+    """Retire tag: resolve, preview, create PendingKeyChange."""
+    key_id = value["key_id"]
+    tag = find_tag_by_key_id(key_id)
+    if tag is None:
+        post_message(
+            channel, format_not_found(key_id), thread_ts=thread_ts,
+        )
+        return
+    if tag.status == "retired":
+        post_message(
+            channel, f"{key_id} is already retired.", thread_ts=thread_ts,
+        )
+        return
+    if tag.status == "checked_out":
+        post_message(
+            channel,
+            f"{key_id} is currently checked out \u2014 return it first.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    display_name = get_display_name(user_id)
+    loc = _tag_location(tag)
+    preview = f"Retire *{key_id}*\nCurrently: {loc} ({tag.get_status_display().lower()})"
+    pending = PendingKeyChange.objects.create(
+        requester_slack_id=user_id,
+        requester_name=display_name,
+        action="retire",
+        payload={"tag_id": tag.pk},
+    )
+    text, blocks = confirm_cancel_blocks(preview, pending.pk)
+    post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+    logger.info(
+        f"keybot_retire_preview pending={pending.pk}"
+        f" tag={key_id} by={user_id}"
+    )
+
+
+def _handle_mark_missing(value: dict, user_id: str, channel: str, thread_ts: str):
+    """Mark tag missing: resolve, preview, create PendingKeyChange."""
+    key_id = value["key_id"]
+    tag = find_tag_by_key_id(key_id)
+    if tag is None:
+        post_message(
+            channel, format_not_found(key_id), thread_ts=thread_ts,
+        )
+        return
+    if tag.status == "retired":
+        post_message(
+            channel, f"{key_id} is retired.", thread_ts=thread_ts,
+        )
+        return
+    if tag.status == "missing":
+        post_message(
+            channel, f"{key_id} is already marked missing.", thread_ts=thread_ts,
+        )
+        return
+
+    display_name = get_display_name(user_id)
+    loc = _tag_location(tag)
+    checkout_note = ""
+    if tag.status == "checked_out":
+        co = Checkout.objects.filter(
+            tag=tag, returned_at__isnull=True,
+        ).first()
+        if co:
+            checkout_note = (
+                f"\n\u26a0\ufe0f Currently checked out to"
+                f" {co.checked_out_by_name} \u2014 checkout will be closed"
+            )
+    preview = (
+        f"Mark *{key_id}* as missing\n"
+        f"Currently: {loc} ({tag.get_status_display().lower()})"
+        f"{checkout_note}"
+    )
+    pending = PendingKeyChange.objects.create(
+        requester_slack_id=user_id,
+        requester_name=display_name,
+        action="mark_missing",
+        payload={"tag_id": tag.pk},
+    )
+    text, blocks = confirm_cancel_blocks(preview, pending.pk)
+    post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+    logger.info(
+        f"keybot_mark_missing_preview pending={pending.pk}"
+        f" tag={key_id} by={user_id}"
+    )
+
+
+def _handle_found(value: dict, user_id: str, channel: str, thread_ts: str):
+    """Mark tag found: resolve, preview, create PendingKeyChange."""
+    key_id = value["key_id"]
+    tag = find_tag_by_key_id(key_id)
+    if tag is None:
+        post_message(
+            channel, format_not_found(key_id), thread_ts=thread_ts,
+        )
+        return
+    if tag.status != "missing":
+        post_message(
+            channel,
+            f"{key_id} is not marked missing"
+            f" (current: {tag.get_status_display().lower()}).",
+            thread_ts=thread_ts,
+        )
+        return
+
+    display_name = get_display_name(user_id)
+    loc = _tag_location(tag)
+    preview = f"Mark *{key_id}* as found (on hook)\nCurrently: {loc} (missing)"
+    pending = PendingKeyChange.objects.create(
+        requester_slack_id=user_id,
+        requester_name=display_name,
+        action="found",
+        payload={"tag_id": tag.pk},
+    )
+    text, blocks = confirm_cancel_blocks(preview, pending.pk)
+    post_message(channel, text, thread_ts=thread_ts, blocks=blocks)
+    logger.info(
+        f"keybot_found_preview pending={pending.pk}"
+        f" tag={key_id} by={user_id}"
+    )
+
+
 # ── Slack Interactive Components ────────────────────────────────────
 
 
@@ -324,6 +680,14 @@ def slack_interactions(request):
             elif action_id == "keybot_snooze":
                 _interaction_reminder_snooze(
                     value, user_id, fallback_name, channel_id, message_ts,
+                )
+            elif action_id.startswith("keybot_confirm:"):
+                _interaction_confirm(
+                    value, user_id, channel_id, message_ts,
+                )
+            elif action_id.startswith("keybot_cancel:"):
+                _interaction_cancel(
+                    value, user_id, channel_id, message_ts,
                 )
         except Exception as exc:
             logger.exception(
@@ -473,3 +837,125 @@ def _interaction_reminder_snooze(checkout_id_str, user_id, fallback_name, channe
         )
         _safe_reply(channel_id, new_text, message_ts)
     logger.info(f"keybot_button_snooze tag={co.tag.key_id} by={user_id}")
+
+
+# ── Confirm / Cancel interaction handlers ──────────────────────────
+
+_CONFIRM_EXPIRY = timedelta(minutes=15)
+
+
+def _interaction_confirm(pending_id_str, user_id, channel_id, message_ts):
+    """Confirm button on a pending change. Applies inside transaction.
+
+    All Slack calls happen AFTER the transaction closes so that:
+    (a) the row lock is never held during a network call, and
+    (b) a Slack failure cannot roll back a DB change that should stand.
+    """
+    now = timezone.now()
+
+    # Phase 1: DB work inside transaction — collect result, no Slack calls.
+    with transaction.atomic():
+        try:
+            pending = PendingKeyChange.objects.select_for_update().get(
+                pk=pending_id_str,
+            )
+        except PendingKeyChange.DoesNotExist:
+            pending = None
+
+        if pending is None:
+            result = ("ephemeral", "Change not found.")
+        elif pending.resolved_at is not None:
+            result = ("ephemeral", f"Already {pending.outcome}.")
+        elif now - pending.created_at > _CONFIRM_EXPIRY:
+            pending.resolved_at = now
+            pending.outcome = "expired"
+            pending.save(update_fields=["resolved_at", "outcome"])
+            result = ("update", "\u23f0 Expired \u2014 please re-run the command.")
+        elif pending.requester_slack_id != user_id:
+            result = ("ephemeral", f"Only <@{pending.requester_slack_id}> can confirm this.")
+        else:
+            apply_fn = _APPLY_DISPATCH.get(pending.action)
+            if not apply_fn:
+                logger.error(
+                    f"keybot_confirm_unknown_action pending={pending.pk}"
+                    f" action={pending.action}"
+                )
+                result = ("ephemeral", "Unknown action type.")
+            else:
+                error = apply_fn(pending)
+                if error:
+                    result = ("ephemeral", error)
+                else:
+                    pending.resolved_at = now
+                    pending.outcome = "confirmed"
+                    pending.save(update_fields=["resolved_at", "outcome"])
+                    result = ("confirmed", None)
+
+    # Phase 2: Slack calls outside transaction.
+    kind, msg = result
+    if kind == "ephemeral":
+        post_ephemeral(channel_id, user_id, msg)
+    elif kind == "update":
+        try:
+            update_message(channel_id, message_ts, msg)
+        except Exception as exc:
+            logger.exception(
+                f"keybot_update_message_failed action=confirm"
+                f" pending={pending_id_str} error={exc}"
+            )
+    elif kind == "confirmed":
+        try:
+            update_message(channel_id, message_ts, "\u2705 Done.")
+        except Exception as exc:
+            logger.exception(
+                f"keybot_update_message_failed action=confirm"
+                f" pending={pending_id_str} error={exc}"
+            )
+        logger.info(
+            f"keybot_confirmed pending={pending_id_str}"
+            f" action={pending.action} by={user_id}"
+        )
+
+
+def _interaction_cancel(pending_id_str, user_id, channel_id, message_ts):
+    """Cancel button on a pending change.
+
+    All Slack calls happen AFTER the transaction closes.
+    """
+    now = timezone.now()
+
+    with transaction.atomic():
+        try:
+            pending = PendingKeyChange.objects.select_for_update().get(
+                pk=pending_id_str,
+            )
+        except PendingKeyChange.DoesNotExist:
+            pending = None
+
+        if pending is None:
+            result = ("ephemeral", "Change not found.")
+        elif pending.resolved_at is not None:
+            result = ("ephemeral", f"Already {pending.outcome}.")
+        elif pending.requester_slack_id != user_id:
+            result = ("ephemeral", f"Only <@{pending.requester_slack_id}> can cancel this.")
+        else:
+            pending.resolved_at = now
+            pending.outcome = "cancelled"
+            pending.save(update_fields=["resolved_at", "outcome"])
+            result = ("cancelled", None)
+
+    kind, msg = result
+    if kind == "ephemeral":
+        post_ephemeral(channel_id, user_id, msg)
+    elif kind == "cancelled":
+        try:
+            update_message(channel_id, message_ts, "\u274c Cancelled.")
+        except Exception as exc:
+            logger.exception(
+                f"keybot_update_message_failed action=cancel"
+                f" pending={pending_id_str} error={exc}"
+            )
+        logger.info(
+            f"keybot_cancelled pending={pending_id_str}"
+            f" action={pending.action} by={user_id}"
+        )

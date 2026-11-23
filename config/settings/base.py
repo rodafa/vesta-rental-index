@@ -217,6 +217,11 @@ RENTVINE_WEBHOOK_URL_SECRET = os.environ.get("RENTVINE_WEBHOOK_URL_SECRET", "")
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
 KEYBOT_CHANNEL_ID = os.environ.get("KEYBOT_CHANNEL_ID", "")
+# Comma-separated Slack user IDs allowed to edit via KeyBot.
+# Empty / unset = nobody can edit (fail closed).
+KEYBOT_EDITORS = [
+    s.strip() for s in os.environ.get("KEYBOT_EDITORS", "").split(",") if s.strip()
+]
 
 # --- Owner Distribution Email ---
 

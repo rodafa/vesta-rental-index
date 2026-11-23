@@ -8,7 +8,7 @@ from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from core.models import Unit
-from keys.models import AccessNote, Checkout, Tag
+from keys.models import AccessNote, Checkout, PendingKeyChange, Tag
 from keys.services import (
     build_unit_address_index,
     normalize_address,
@@ -85,12 +85,30 @@ _KEY_HEALTH_PHRASES = frozenset({
     "what's missing", "whats missing", "what is missing",
 })
 
+# ── Update-command regexes ────────────────────────────────────────
+_SET_CODE_RE = re.compile(
+    r"set\s+(?:code|lockbox)\s+(.+?)\s+to\s+(.+)", re.IGNORECASE,
+)
+_ASSIGN_RE = re.compile(
+    r"assign\s+([ABab][\s\-]?\d{1,3})\s+to\s+(.+)", re.IGNORECASE,
+)
+_RETIRE_RE = re.compile(
+    r"retire\s+([ABab][\s\-]?\d{1,3})\s*$", re.IGNORECASE,
+)
+_MARK_MISSING_RE = re.compile(
+    r"missing\s+([ABab][\s\-]?\d{1,3})\s*$", re.IGNORECASE,
+)
+_FOUND_RE = re.compile(
+    r"found\s+([ABab][\s\-]?\d{1,3})\s*$", re.IGNORECASE,
+)
+
 
 def parse_query(text: str) -> dict:
     """Classify stripped mention text into {type, value}.
 
     Types: 'help', 'key_health', 'key_id', 'take', 'return',
-           'whats_out', 'address', 'empty'.
+           'whats_out', 'set_code', 'assign', 'retire',
+           'mark_missing', 'found', 'address', 'empty'.
     """
     text = text.strip()
     if not text:
@@ -120,6 +138,47 @@ def parse_query(text: str) -> dict:
         key_id = _normalize_key_id(m.group(1).strip())
         if key_id:
             return {"type": "return", "value": key_id}
+
+    # ── Update commands ───────────────────────────────────────────
+
+    # "set code 28 Bass Lane to 1234" / "set lockbox 28 Bass to 1234"
+    m = _SET_CODE_RE.fullmatch(text)
+    if m:
+        return {
+            "type": "set_code",
+            "value": {"address": m.group(1).strip(), "code": m.group(2).strip()},
+        }
+
+    # "assign A-038 to 28 Bass Lane"
+    m = _ASSIGN_RE.fullmatch(text)
+    if m:
+        key_id = _normalize_key_id(m.group(1).strip())
+        if key_id:
+            return {
+                "type": "assign",
+                "value": {"key_id": key_id, "address": m.group(2).strip()},
+            }
+
+    # "retire A-038"
+    m = _RETIRE_RE.fullmatch(text)
+    if m:
+        key_id = _normalize_key_id(m.group(1).strip())
+        if key_id:
+            return {"type": "retire", "value": {"key_id": key_id}}
+
+    # "missing A-038" (bare "missing" → key_health, already matched above)
+    m = _MARK_MISSING_RE.fullmatch(text)
+    if m:
+        key_id = _normalize_key_id(m.group(1).strip())
+        if key_id:
+            return {"type": "mark_missing", "value": {"key_id": key_id}}
+
+    # "found A-038"
+    m = _FOUND_RE.fullmatch(text)
+    if m:
+        key_id = _normalize_key_id(m.group(1).strip())
+        if key_id:
+            return {"type": "found", "value": {"key_id": key_id}}
 
     # Bare key ID
     key_id = _normalize_key_id(text)
@@ -252,27 +311,47 @@ def unit_key_info(unit) -> dict:
         }
 
     # Access notes: unit-level + property-level (unit IS NULL)
-    notes_qs = AccessNote.objects.filter(
-        Q(unit=unit) | Q(property=prop, unit__isnull=True)
-    ).order_by(
-        F("source_date").desc(nulls_last=True),
-        "-created_at",
+    notes = list(
+        AccessNote.objects.filter(
+            Q(unit=unit) | Q(property=prop, unit__isnull=True)
+        ).order_by(
+            F("source_date").desc(nulls_last=True),
+            "-created_at",
+        )
     )
 
+    # Batch-fetch requester names for keybot notes
+    keybot_refs = [
+        n.source_ref for n in notes if n.source == "keybot" and n.source_ref
+    ]
+    pending_names = {}
+    if keybot_refs:
+        for p in PendingKeyChange.objects.filter(
+            pk__in=keybot_refs,
+        ).only("pk", "requester_name"):
+            pending_names[str(p.pk)] = p.requester_name
+
     def _note_dict(note):
-        return {
+        d = {
             "text": note.text,
             "source": _SOURCE_DISPLAY.get(note.source, note.source),
             "date": _fmt_date(note.source_date) if note.source_date else None,
             "is_property_level": note.unit_id is None,
         }
+        if note.source == "keybot" and note.source_ref:
+            d["author"] = pending_names.get(note.source_ref, "")
+        return d
+
+    # KeyBot notes first, then others (each group keeps date order)
+    keybot_notes = [_note_dict(n) for n in notes if n.source == "keybot"]
+    other_notes = [_note_dict(n) for n in notes if n.source != "keybot"]
 
     return {
         "address": prop.address_line_1 or "",
         "unit_number": unit.unit_number or "",
         "tags": [_tag_dict(t) for t in unit_tags],
         "property_tags": [_tag_dict(t) for t in prop_tags],
-        "notes": [_note_dict(n) for n in notes_qs],
+        "notes": keybot_notes + other_notes,
     }
 
 
