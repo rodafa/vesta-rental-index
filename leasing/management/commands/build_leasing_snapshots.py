@@ -294,6 +294,11 @@ class Command(BaseCommand):
                 benchmark_parts.append(f"{br}BR={count} units (suppressed <5)")
         self.stdout.write(f"Benchmarks: {', '.join(benchmark_parts) or 'none'}")
 
+        # --- Market comps budget ---
+        # Metered at $0.50/call, 60/day cap. Budget limits total ATTEMPTS
+        # (not successes) across the entire run.
+        comps_budget = {"remaining": 25}
+
         # --- Per-unit loop ---
         created_count = 0
         updated_count = 0
@@ -353,6 +358,7 @@ class Command(BaseCommand):
                             unit.bedrooms, {},
                         ) if unit.bedrooms is not None else {},
                         since_listed=since_listed_map.get(unit.id, {}),
+                        comps_budget=comps_budget,
                     )
                     if was_created:
                         created_count += 1

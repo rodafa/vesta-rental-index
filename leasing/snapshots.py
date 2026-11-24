@@ -7,10 +7,14 @@ per unit per period.
 """
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from integrations.rentengine.client import RentEngineClient
 
+from .market_comps import reduce_comps
 from .models import UnitLeasingSnapshot, UnitPriceChange
+from .note_services import ET
 from .selectors import compute_leasing_metrics_bulk
 
 logger = logging.getLogger(__name__)
@@ -21,6 +25,7 @@ def build_unit_snapshot(
     rv_advertised_dates=None, re_marked_available_dates=None,
     applications=None, applications_received=0,
     segment_benchmark=None, since_listed=None,
+    *, comps_budget=None,
 ):
     """
     Build or update a UnitLeasingSnapshot for a single unit and period.
@@ -43,6 +48,11 @@ def build_unit_snapshot(
             build_unit_applications() period_counts, not len(applications).
         segment_benchmark: optional dict from compute_segment_benchmarks()
             for this unit's bedroom segment. Defaults to {} when None.
+        since_listed: optional dict from compute_since_listed_totals()
+            for this unit. Defaults to {} when None.
+        comps_budget: optional mutable dict {"remaining": int} owned by
+            the caller. Decremented before each metered comps call.
+            When None, allows at most 1 fetch (single-unit mode).
 
     Returns:
         (snapshot, created) — the UnitLeasingSnapshot and whether it was
@@ -108,6 +118,11 @@ def build_unit_snapshot(
         for pc in price_change_rows
     ]
 
+    # --- Market comps (metered — guarded by budget and idempotency) ---
+    market_snapshot_data = _fetch_market_comps(
+        unit, period_start, period_end, client, comps_budget,
+    )
+
     logger.info(
         "leasing_snapshot_built",
         extra={
@@ -116,6 +131,7 @@ def build_unit_snapshot(
             "period_start": str(period_start),
             "period_end": str(period_end),
             "reporting_ok": reporting_fetch_ok,
+            "has_market_comps": bool(market_snapshot_data),
         },
     )
 
@@ -148,7 +164,79 @@ def build_unit_snapshot(
             "price_changes": price_changes_json,
             "segment_benchmark": segment_benchmark if segment_benchmark is not None else {},
             "since_listed": since_listed if since_listed is not None else {},
+            "market_snapshot": market_snapshot_data,
         },
     )
 
     return snapshot, created
+
+
+def _fetch_market_comps(unit, period_start, period_end, client, comps_budget):
+    """
+    Conditionally fetch and reduce market comps for a unit.
+
+    Returns a reduced dict or {} if skipped/failed.
+
+    Guard logic:
+    1. Unit must have a rentengine_id.
+    2. Existing snapshot with non-empty market_snapshot → skip (idempotent).
+    3. Budget must have remaining > 0 (or be None for single-unit mode).
+    4. Budget is decremented BEFORE the API call (blast-radius limit on
+       attempts, not counter of successes — a failed call still costs $0.50).
+    """
+    if unit.latitude is None or unit.longitude is None:
+        return {}
+    if unit.bedrooms is None:
+        return {}
+
+    # Idempotency: if a snapshot already exists with market_snapshot data,
+    # don't re-fetch.
+    existing = UnitLeasingSnapshot.objects.filter(
+        unit=unit,
+        period_start=period_start,
+        period_end=period_end,
+    ).values_list("market_snapshot", flat=True).first()
+
+    if existing is not None and existing:
+        logger.info(
+            "market_comps_skip_existing",
+            extra={"unit_id": unit.id},
+        )
+        return existing
+
+    # Budget gate
+    if comps_budget is not None:
+        if comps_budget.get("remaining", 0) <= 0:
+            return {}
+        # Decrement BEFORE the call (Fix 4: budget limits attempts, not successes)
+        comps_budget["remaining"] -= 1
+    else:
+        # None budget = single-unit mode, allow exactly 1 fetch (no guard)
+        pass
+
+    try:
+        raw_comps = client.get_market_comps(
+            unit.latitude, unit.longitude,
+            min_beds=unit.bedrooms, max_beds=unit.bedrooms,
+            radius_miles=2,
+        )
+    except Exception as exc:
+        logger.warning(
+            "market_comps_fetch_failed",
+            extra={"unit_id": unit.id, "error": str(exc)},
+        )
+        return {}
+
+    today = datetime.now(ET).date()
+
+    return reduce_comps(
+        raw_comps=raw_comps,
+        our_address=unit.display_address or "",
+        our_rent=unit.target_rental_rate,
+        our_sqft=unit.square_feet,
+        beds=unit.bedrooms,
+        radius_miles=2,
+        period_start=period_start,
+        period_end=period_end,
+        today=today,
+    )

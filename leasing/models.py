@@ -364,6 +364,18 @@ class UnitLeasingSnapshot(models.Model):
         ),
     )
 
+    # --- Market comps snapshot (from RentEngine getMarketToolComps) ---
+    market_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
+        help_text=(
+            "Reduced market comps from RentEngine, one fetch per unit "
+            "per period, stored here so regeneration does not re-bill "
+            "the metered endpoint. Empty dict when comps unavailable."
+        ),
+    )
+
     # --- Audit ---
     generated_at = models.DateTimeField(auto_now_add=True)
 

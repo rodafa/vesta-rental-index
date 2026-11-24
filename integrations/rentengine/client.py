@@ -426,6 +426,50 @@ class RentEngineClient:
         params = {"account_id": account_ids}
         return self.get_all_enveloped("tasks", params=params, page_size=100)
 
+    def get_market_comps(self, latitude, longitude, *, min_beds, max_beds, radius_miles=2):
+        """
+        GET /market-tool/comps — comparable listings near a location.
+
+        METERED: $0.50 per call, 60/day cap.  Callers must budget and
+        guard against duplicate fetches (e.g. check existing snapshot).
+
+        The API requires latitude + longitude + either radius_miles or
+        zipcodes.  min_beds and max_beds filter by bedroom count — the
+        whole premise of this feature is same-bedroom-count comps.
+
+        Returns a list of comp dicts with heavyweight fields
+        (description, image, features) stripped at the client level to
+        keep snapshot JSON lean.
+        """
+        data = self.get(
+            "market-tool/comps",
+            params={
+                "latitude": str(latitude),
+                "longitude": str(longitude),
+                "radius_miles": radius_miles,
+                "min_beds": min_beds,
+                "max_beds": max_beds,
+            },
+        )
+
+        # API may return bare list or {"data": [...]}
+        if isinstance(data, dict) and "data" in data:
+            comps = data["data"]
+        elif isinstance(data, list):
+            comps = data
+        else:
+            raise RentEngineAPIError(
+                f"Unexpected market comps response: {type(data).__name__}"
+            )
+
+        # Strip heavyweight fields to keep snapshot JSON lean
+        strip_keys = {"description", "image", "features"}
+        for comp in comps:
+            for key in strip_keys:
+                comp.pop(key, None)
+
+        return comps
+
     def _default_account_ids(self):
         """Read ACCOUNT_ID from settings; raise if missing."""
         config = getattr(settings, "RENTENGINE", {})
