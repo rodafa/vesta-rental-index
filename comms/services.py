@@ -201,7 +201,6 @@ force one into every note.
 "We will continue to follow up on all leads."
 "We have a tour scheduled for [day] at [time]."
 "We will push for feedback from the prospect."
-"The market is telling us..."
 "What do you think?" / "Would you be ok with this?"
 "...at no cost to you" — always add this when mentioning a Vesta-funded incentive.
 "We will keep pushing!" / "Stay tuned!"
@@ -234,7 +233,16 @@ about it. Do not list feedback mechanically.
 WAITLIST UNITS
 A unit on waitlist status is on hold for a reason you have not been told. State the \
 status plainly and note that we will follow up with detail. Do not speculate about \
-why.\
+why.
+
+MARKET POSITION
+You may receive one line stating whether our advertised rent is above, at, or below \
+the median of comparable available homes nearby. You may use that fact, in those words, \
+to support a pricing observation or recommended action. You must not state any market \
+number, count, median, or window — those are rendered beneath your note. Do not mention \
+homes that came off the market, addresses, apartments, or competitors. Never say a \
+competing listing "rented" or "leased". Never open a sentence with \
+"The market is telling us".\
 """,
 }
 
@@ -3509,6 +3517,7 @@ def assemble_owner_leasing_email(recipient_email, period_start, period_end, peri
     portfolio_info = []
     all_approved = True
     unit_count = 0
+    has_market_footnote = False
 
     for portfolio in portfolios:
         note = PortfolioLeasingNote.objects.filter(
@@ -3533,6 +3542,14 @@ def assemble_owner_leasing_email(recipient_email, period_start, period_end, peri
         # Count units from snapshot
         if note.unit_snapshot and "unit_contexts" in note.unit_snapshot:
             unit_count += len(note.unit_snapshot["unit_contexts"])
+            if not has_market_footnote:
+                for ctx in note.unit_snapshot["unit_contexts"]:
+                    mkt = ctx.get("market") or {}
+                    if (mkt.get("off_market_count", 0) > 0
+                            or (mkt.get("came_off_market_in_period") or {})
+                            .get("count", 0) > 0):
+                        has_market_footnote = True
+                        break
 
         # Use notes_html AS-IS (card-based fragments, never re-render from text)
         if note.notes_html:
@@ -3621,6 +3638,7 @@ def assemble_owner_leasing_email(recipient_email, period_start, period_end, peri
             "period_label": period_label,
             "fragments_html": fragments_html,
             "top_lead_sources": top_lead_sources,
+            "has_market_footnote": has_market_footnote,
         },
     )
 

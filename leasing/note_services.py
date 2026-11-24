@@ -8,7 +8,7 @@ No email sending, no dashboard, no envelope — those are Layer 2.
 import logging
 import re
 import unicodedata
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.template.loader import render_to_string
@@ -40,6 +40,7 @@ BANNED_PHRASES = [
     "i'll be honest",
     "let me be direct",
     "let me be candid",
+    "the market is telling us",
 ]
 
 _QUOTE_TABLE = str.maketrans({
@@ -68,24 +69,53 @@ def check_banned_phrases(text):
     if not text:
         return []
     normalized = _normalize_for_phrase_match(text)
-    return [p for p in BANNED_PHRASES if re.search(re.escape(p) + r"\b", normalized)]
+    return [p for p in BANNED_PHRASES if re.search(r"\b" + re.escape(p) + r"\b", normalized)]
 
 
 def _drop_banned_sentences(text):
     """
     Return *text* with any sentence containing a banned phrase removed.
 
-    A "sentence" is delimited by `.`, `!`, or `?` followed by whitespace
-    or end-of-string.  Bullet lines (`- ...`) are treated as sentences.
+    Works line-by-line so bullet markers, paragraph breaks, and blank lines
+    survive untouched when nothing is dropped.
+
+    Within each line:
+    - A bullet line (starts with ``- ``) is one atomic sentence.
+    - A non-bullet line is split into sentences on ``.``, ``!``, or ``?``
+      followed by a space or end-of-string; each sentence is checked
+      independently and survivors are re-joined with a single space.
+    - If every sentence on a line is dropped the whole line is removed.
+
+    Lines are re-joined with ``\\n``; trailing blank lines left by removal
+    are collapsed but intentional blank lines elsewhere are preserved.
     """
     if not text:
         return text
-    # Split on sentence-ending punctuation (keep the delimiter)
-    parts = re.split(r'(?<=[.!?])\s+|(?=^- |\n- )', text, flags=re.MULTILINE)
-    kept = [p for p in parts if not check_banned_phrases(p)]
-    result = " ".join(kept).strip()
-    # Collapse any double-spaces left by removal
-    return re.sub(r"  +", " ", result)
+
+    out_lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        # Blank / whitespace-only lines pass through unchanged
+        if not stripped:
+            out_lines.append(line)
+            continue
+        # Bullet lines are atomic: keep or drop the whole line
+        if stripped.startswith("- "):
+            if not check_banned_phrases(stripped):
+                out_lines.append(line)
+            continue
+        # Non-bullet: split into sentences, filter, rejoin
+        # Split keeps the delimiter attached to the preceding sentence
+        sentences = re.split(r'(?<=[.!?])\s+', stripped)
+        kept = [s for s in sentences if not check_banned_phrases(s)]
+        if kept:
+            out_lines.append(" ".join(kept))
+        # else: entire line dropped — omit it
+
+    result = "\n".join(out_lines).strip()
+    # Collapse runs of blank lines left by removals into a single blank line
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result
 
 
 def _safe_delta(current, prior):
@@ -480,6 +510,7 @@ def build_unit_context(unit, snapshot, prior_snapshot, period_end):
             and snapshot.date_marked_available < snapshot.period_start
             else None
         ),
+        "market": snapshot.market_snapshot or {},
     }
 
 
@@ -577,6 +608,15 @@ def build_leasing_prompt(
         else:
             lines.append("  Showing feedback: none")
 
+        # Market position (from frozen snapshot)
+        mkt = ctx.get("market") or {}
+        pos = market_position(mkt)
+        if pos:
+            lines.append(
+                f"  Market position: our advertised rent is {pos} the median"
+                f" of comparable available homes nearby."
+            )
+
         # Prior-week context for this unit (if available)
         uid = str(ctx["unit_id"])
         if prior_context.get(uid):
@@ -641,6 +681,145 @@ def build_leasing_prompt(
     return "\n".join(lines)
 
 
+def _fmt_money(val):
+    """Format a money value string with thousands separators: '2050' -> '2,050'."""
+    if val is None:
+        return val
+    try:
+        return f"{int(round(float(val))):,}"
+    except (ValueError, TypeError):
+        return val
+
+
+def market_position(market):
+    """
+    Determine our rent's position vs comparable available homes.
+
+    Returns "above" | "at" | "below" | None.
+    None when market is empty, available_count < 3, or values unparseable.
+    Within 2 % either way is "at".
+    """
+    if not market:
+        return None
+    if (market.get("available_count") or 0) < 3:
+        return None
+    try:
+        our = float(market.get("our_rent", ""))
+        median = float(market.get("available_median_rent", ""))
+    except (ValueError, TypeError):
+        return None
+    if median == 0:
+        return None
+    ratio = our / median
+    if 0.98 <= ratio <= 1.02:
+        return "at"
+    elif our > median:
+        return "above"
+    else:
+        return "below"
+
+
+def prepare_market_for_template(market_dict):
+    """
+    Convert a frozen market_snapshot dict into template-ready form.
+
+    - Parses ISO date strings to date objects for Django's |date filter.
+    - Renames price-drop keys from/to -> rent_from/rent_to for template clarity.
+    - Formats money strings with thousands separators (template prefixes $).
+    - Returns a new dict (never mutates the input).
+    - Returns {} for empty/falsy input.
+    """
+    if not market_dict:
+        return {}
+
+    from copy import deepcopy
+
+    out = deepcopy(market_dict)
+
+    # Parse window dates to date objects
+    for key in ("off_market_window_start", "off_market_window_end"):
+        raw = out.get(key)
+        if raw:
+            try:
+                out[key] = date.fromisoformat(str(raw)[:10])
+            except (ValueError, TypeError):
+                pass
+
+    # Rename price-drop keys and parse dates
+    for ex in (out.get("price_drops_in_period") or {}).get("examples", []):
+        if "from" in ex:
+            ex["rent_from"] = ex.pop("from")
+        if "to" in ex:
+            ex["rent_to"] = ex.pop("to")
+        raw = ex.get("date")
+        if raw and isinstance(raw, str):
+            try:
+                ex["date"] = date.fromisoformat(raw[:10])
+            except (ValueError, TypeError):
+                pass
+
+    # Parse came-off example dates
+    for ex in (out.get("came_off_market_in_period") or {}).get("examples", []):
+        raw = ex.get("date")
+        if raw and isinstance(raw, str):
+            try:
+                ex["date"] = date.fromisoformat(raw[:10])
+            except (ValueError, TypeError):
+                pass
+
+    # Format money strings with thousands separators
+    for key in ("available_median_rent", "off_market_median_rent"):
+        if key in out:
+            out[key] = _fmt_money(out[key])
+
+    apt = out.get("apartment_context")
+    if apt and "median_rent" in apt:
+        apt["median_rent"] = _fmt_money(apt["median_rent"])
+
+    for section in ("came_off_market_in_period", "new_listings_in_period"):
+        for ex in (out.get(section) or {}).get("examples", []):
+            if "rent" in ex:
+                ex["rent"] = _fmt_money(ex["rent"])
+
+    for ex in (out.get("price_drops_in_period") or {}).get("examples", []):
+        if "rent_from" in ex:
+            ex["rent_from"] = _fmt_money(ex["rent_from"])
+        if "rent_to" in ex:
+            ex["rent_to"] = _fmt_money(ex["rent_to"])
+
+    for ex in out.get("closest_available", []):
+        if "rent" in ex:
+            ex["rent"] = _fmt_money(ex["rent"])
+
+    if "our_rent" in out:
+        out["our_rent"] = _fmt_money(out["our_rent"])
+
+    # Compute position sentence (uses formatted values already in out)
+    pos = market_position(market_dict)
+    out["position"] = pos
+    if pos:
+        dom_clause = ""
+        if out.get("available_median_dom") is not None:
+            dom_clause = (
+                f" and a median {out['available_median_dom']} days on market"
+            )
+        if pos == "at":
+            qualifier = "right at the median asking rent"
+        else:
+            qualifier = f"{pos} the median asking rent"
+        out["position_sentence"] = (
+            f"{out['available_count']} comparable homes are available within "
+            f"{out['radius_miles']} miles at a median asking rent of "
+            f"${out['available_median_rent']}{dom_clause}. "
+            f"Your listing is advertised at "
+            f"${out['our_rent']}, {qualifier}."
+        )
+    else:
+        out["position_sentence"] = None
+
+    return out
+
+
 def render_leasing_notes_html_from_snapshot(
     unit_snapshot, edited_notes=None, recommended_actions=None,
 ):
@@ -676,6 +855,7 @@ def render_leasing_notes_html_from_snapshot(
             "ai_note_blocks": _parse_ai_note_blocks(ai_note),
             "recommended_action": action,
             "recommended_action_blocks": _parse_ai_note_blocks(action),
+            "market": prepare_market_for_template(ctx.get("market") or {}),
         })
 
     return render_to_string(
@@ -817,6 +997,14 @@ def generate_portfolio_leasing_note(
     # --- Anthropic call ---
     voice_guide = _get_or_create_voice_guide("leasing")
     ai_result = _call_anthropic(voice_guide.instructions, user_prompt)
+
+    # Strip sentences containing banned phrases from AI output
+    if ai_result.get("intro"):
+        ai_result["intro"] = _drop_banned_sentences(ai_result["intro"])
+    for uid_key in list((ai_result.get("unit_summaries") or {}).keys()):
+        raw = ai_result["unit_summaries"][uid_key]
+        if raw:
+            ai_result["unit_summaries"][uid_key] = _drop_banned_sentences(raw)
 
     # Build plain-text generated_note
     intro = ai_result.get("intro", "")

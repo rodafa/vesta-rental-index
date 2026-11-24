@@ -14,7 +14,7 @@ from comms.models import EmailDraft
 from comms.services import send_draft
 from leasing.email_services import assemble_leasing_drafts
 from leasing.models import PortfolioLeasingNote
-from leasing.note_services import check_banned_phrases, render_leasing_notes_html_from_snapshot
+from leasing.note_services import check_banned_phrases, prepare_market_for_template, render_leasing_notes_html_from_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -295,9 +295,12 @@ def _leasing_note_detail(request, note_id):
             "current_action": current_action,
             "applications": raw_app_map.get(ctx["unit_id"], []),
             "price_history": price_history_map.get(ctx["unit_id"], []),
+            "market": prepare_market_for_template(ctx.get("market") or {}),
             "tone_flags": check_banned_phrases(current_text)
                          + check_banned_phrases(current_action),
         })
+
+    has_any_market = any(bool(u.get("market")) for u in units)
 
     period_label = ""
     if note.period_start and note.period_end:
@@ -308,6 +311,7 @@ def _leasing_note_detail(request, note_id):
         "period_label": period_label,
         "units": units,
         "has_snapshot": bool(unit_contexts),
+        "has_any_market": has_any_market,
         "notes_html": note.notes_html,
         "period_start": note.period_start,
         "period_end": note.period_end,

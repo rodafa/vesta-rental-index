@@ -156,3 +156,65 @@ class TestDropBannedSentences:
         result = _drop_banned_sentences(text)
         assert "honest" not in result
         assert "Great progress" in result
+
+    def test_market_is_telling_us_bullet_dropped(self):
+        text = (
+            "We had three tours this week.\n"
+            "- The market is telling us our price may be working against us\n"
+            "- We are following up with every lead."
+        )
+        result = _drop_banned_sentences(text)
+        assert "market is telling" not in result
+        assert "three tours" in result
+        assert "following up" in result
+
+    def test_paragraph_and_bullets_byte_identical_when_clean(self):
+        """No banned phrase → output is byte-identical to input."""
+        text = (
+            "We had a productive week at the property.\n"
+            "- 3 new leads came in\n"
+            "- 4 calls and 107 texts sent\n"
+            "- One showing was missed\n"
+            "We are continuing to follow up."
+        )
+        assert _drop_banned_sentences(text) == text
+
+    def test_banned_bullet_removed_others_preserved(self):
+        """Only the banned bullet disappears; paragraph + other bullets stay on own lines."""
+        text = (
+            "We had a productive week.\n"
+            "- 3 new leads came in\n"
+            "- The market is telling us prices are too high\n"
+            "- One showing completed"
+        )
+        result = _drop_banned_sentences(text)
+        assert "market is telling" not in result
+        assert result == (
+            "We had a productive week.\n"
+            "- 3 new leads came in\n"
+            "- One showing completed"
+        )
+
+    def test_banned_sentence_mid_paragraph(self):
+        """Banned sentence inside a paragraph is removed; rest of line stays joined."""
+        text = "Three leads came in. To be honest, things are slow. We are optimistic."
+        result = _drop_banned_sentences(text)
+        assert "honest" not in result
+        assert result == "Three leads came in. We are optimistic."
+
+    def test_closing_line_after_bullets_preserved(self):
+        """Action line after bullets stays on its own line."""
+        text = (
+            "Progress this week:\n"
+            "- 3 new leads came in\n"
+            "- To be honest, volume is low\n"
+            "- One tour completed\n"
+            "We are working to schedule more showings."
+        )
+        result = _drop_banned_sentences(text)
+        lines = result.split("\n")
+        assert lines[0] == "Progress this week:"
+        assert lines[1] == "- 3 new leads came in"
+        assert lines[2] == "- One tour completed"
+        assert lines[3] == "We are working to schedule more showings."
+        assert len(lines) == 4

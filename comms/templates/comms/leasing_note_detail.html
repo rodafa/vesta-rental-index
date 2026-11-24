@@ -118,6 +118,26 @@
     </div>
   </div>
 
+  <!-- Market Facts (reviewer-only) -->
+  {% if has_any_market %}
+  {% for u in units %}
+  {% if u.market %}
+  <div class="card">
+    <div class="card-head">{{ u.address }} — Market Facts</div>
+    <div class="card-body" style="font-size:13px; line-height:1.5;">
+      <p><strong>{{ u.market.beds }}BR, {{ u.market.radius_miles }}-mile radius</strong> &middot; Our rent: ${{ u.market.our_rent }}{% if u.market.our_sqft %} &middot; {{ u.market.our_sqft }} sqft{% endif %}{% if u.market.position %} &middot; <strong>{{ u.market.position }}</strong> median{% endif %}</p>
+      <p>{{ u.market.available_count }} available{% if u.market.available_median_rent %} (median ${{ u.market.available_median_rent }}{% if u.market.available_median_dom is not None %}, {{ u.market.available_median_dom }} DOM{% endif %}){% endif %} &middot; {{ u.market.off_market_count }} off-market{% if u.market.off_market_median_rent %} (median ${{ u.market.off_market_median_rent }}{% if u.market.off_market_median_dom is not None %}, {{ u.market.off_market_median_dom }} DOM{% endif %}){% endif %}</p>
+      {% if u.market.came_off_market_in_period.count %}<p>Came off market this period: {{ u.market.came_off_market_in_period.count }}</p>{% endif %}
+      {% if u.market.new_listings_in_period.count %}<p>New listings this period: {{ u.market.new_listings_in_period.count }}</p>{% endif %}
+      {% if u.market.price_drops_in_period.count %}<p>Price drops this period: {{ u.market.price_drops_in_period.count }}</p>{% endif %}
+      {% if u.market.apartment_context %}<p>Apartments: {{ u.market.apartment_context.available_count }} available{% if u.market.apartment_context.median_rent %} (median ${{ u.market.apartment_context.median_rent }}){% endif %}</p>{% endif %}
+      <p style="color:var(--ink-faint); font-size:12px;">{{ u.market.comps_returned }} returned &middot; {{ u.market.comps_in_set }} in set{% if u.market.excluded_counts %} &middot; excluded: {{ u.market.excluded_counts.apartment }} apt, {{ u.market.excluded_counts.in_apartment_complex }} in-complex, {{ u.market.excluded_counts.self }} self, {{ u.market.excluded_counts.sqft_outlier }} sqft, {{ u.market.excluded_counts.rent_null_or_zero }} rent{% endif %}</p>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% endif %}
+
   <!-- Edit Notes -->
   <div class="card">
     <div class="card-head">Edit Notes</div>

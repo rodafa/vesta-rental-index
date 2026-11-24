@@ -206,12 +206,50 @@ NO greeting, header, footer, or CTA — those belong to the owner-grain envelope
 </table>
 {% endif %}
 
-<!-- Comparable Listings (market context) -->
+{% if u.market %}
+<!-- Market Activity -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:12px auto 0;">
+  <tr>
+    <td>
+      <p style="margin:0 0 6px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:700; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Market Activity — {{ u.market.beds }}-Bedroom Homes Within {{ u.market.radius_miles }} Miles</p>
+      {% if u.market.position_sentence %}
+      <p style="margin:0 0 4px; font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222;">{{ u.market.position_sentence }}</p>
+      {% endif %}
+      {% if u.market.off_market_count %}
+      <p style="margin:0 0 4px; font-family:Georgia,serif; font-size:15px; line-height:1.6; color:#222222;">{{ u.market.off_market_count }} came off the market*{% if u.market.off_market_window_start and u.market.off_market_window_end %} between {{ u.market.off_market_window_start|date:"M j" }} and {{ u.market.off_market_window_end|date:"M j" }}{% endif %}{% if u.market.off_market_median_rent %} &middot; median ${{ u.market.off_market_median_rent }}{% endif %}</p>
+      {% endif %}
+      {% if u.market.came_off_market_in_period.count %}
+      <p style="margin:4px 0 2px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:600; color:#6EA5CD;">Came off the market* this week:</p>
+      {% for ex in u.market.came_off_market_in_period.examples %}
+      <p style="margin:0; font-family:Georgia,serif; font-size:14px; line-height:1.6; color:#222222;">{{ ex.address }} &middot; ${{ ex.rent }}</p>
+      {% endfor %}
+      {% endif %}
+      {% if u.market.new_listings_in_period.count %}
+      <p style="margin:4px 0 2px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:600; color:#6EA5CD;">New listings this week:</p>
+      {% for ex in u.market.new_listings_in_period.examples %}
+      <p style="margin:0; font-family:Georgia,serif; font-size:14px; line-height:1.6; color:#222222;">{{ ex.address }} &middot; ${{ ex.rent }} &middot; {{ ex.days_on_market }} days on market</p>
+      {% endfor %}
+      {% endif %}
+      {% if u.market.price_drops_in_period.count %}
+      <p style="margin:4px 0 2px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:600; color:#6EA5CD;">Price drops this week:</p>
+      {% for ex in u.market.price_drops_in_period.examples %}
+      <p style="margin:0; font-family:Georgia,serif; font-size:14px; line-height:1.6; color:#222222;">{{ ex.address }}: ${{ ex.rent_from }} &rarr; ${{ ex.rent_to }}</p>
+      {% endfor %}
+      {% endif %}
+      {% if u.market.apartment_context %}
+      <p style="margin:4px 0 0; font-family:Helvetica,Arial,sans-serif; font-size:11px; line-height:1.4; color:#93a4b3;">{{ u.market.apartment_context.available_count }} apartment{{ u.market.apartment_context.available_count|pluralize }} also available{% if u.market.apartment_context.median_rent %} (median ${{ u.market.apartment_context.median_rent }}){% endif %}.</p>
+      {% endif %}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<!-- Activity vs. Similar Listings (market context) -->
 {% if u.segment_benchmark %}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px; margin:12px auto 0;">
   <tr>
     <td>
-      <p style="margin:0 0 6px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:700; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Comparable Listings</p>
+      <p style="margin:0 0 6px; font-family:Helvetica,Arial,sans-serif; font-size:11px; font-weight:700; color:#6EA5CD; text-transform:uppercase; letter-spacing:0.5px;">Activity vs. Similar Listings</p>
       <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">Across {{ u.segment_benchmark.unit_count }} similar {{ u.segment_benchmark.bedrooms }}-bedroom listings, the average is {{ u.segment_benchmark.benchmark_leads_per_week }} leads and {{ u.segment_benchmark.benchmark_showings_per_week }} tours per week.</p>
       {% if u.segment_benchmark.benchmark_avg_dom is not None %}
       <p style="margin:0; font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:1.5; color:#6EA5CD;">Average days on market: {{ u.segment_benchmark.benchmark_avg_dom }}.</p>
