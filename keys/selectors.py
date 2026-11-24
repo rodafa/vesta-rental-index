@@ -15,6 +15,7 @@ from keys.services import (
     build_unit_address_index,
     normalize_address,
     normalize_unit_token,
+    unit_label,
 )
 
 _ET = zoneinfo.ZoneInfo("America/New_York")
@@ -39,6 +40,7 @@ _SOURCE_DISPLAY = {
     "rentengine_internal_notes": "RentEngine",
     "rentengine_key_access": "RentEngine",
     "keybot": "KeyBot",
+    "dashboard": "Dashboard",
 }
 
 
@@ -388,10 +390,12 @@ def unit_key_info(unit) -> dict:
             } if co else None,
         }
 
-    # Access notes: unit-level + property-level (unit IS NULL)
+    # Access notes: unit-level + property-level (unit IS NULL), exclude hidden
     notes = list(
         AccessNote.objects.filter(
             Q(unit=unit) | Q(property=prop, unit__isnull=True)
+        ).exclude(
+            hidden=True,
         ).order_by(
             F("source_date").desc(nulls_last=True),
             "-created_at",
@@ -467,11 +471,29 @@ def tag_info(tag) -> dict:
 # ── Key Health ─────────────────────────────────────────────────────
 
 
+def _unit_label(u):
+    """Deduped address for a Unit in key-health contexts."""
+    return unit_label(
+        u.address_line_1, u.property.address_line_1, u.unit_number,
+    )
+
+
+def _tag_label(tag):
+    """Deduped address for a Tag's assigned unit/property."""
+    if tag.unit:
+        return _unit_label(tag.unit)
+    if tag.property:
+        return tag.property.address_line_1 or "unknown"
+    return "unassigned"
+
+
 def key_health() -> dict:
     """Key health report: every category of key/code issue across active units.
 
     Returns a plain dict of categories → lists of dicts.  All list queries
     use explicit order_by (address, then key_id) for stable output.
+    Hidden AccessNotes are excluded (a unit whose only notes are hidden
+    counts as having NO code).
     """
     now = timezone.now()
 
@@ -490,7 +512,7 @@ def key_health() -> dict:
     has_note = AccessNote.objects.filter(
         Q(unit=OuterRef("pk"))
         | Q(property=OuterRef("property_id"), unit__isnull=True)
-    )
+    ).exclude(hidden=True)
 
     no_key = active.exclude(Exists(has_tag))
     no_code = active.exclude(Exists(has_note))
@@ -513,7 +535,7 @@ def key_health() -> dict:
     ]
 
     def _unit_dict(u):
-        return {"address": u.display_address, "unit_id": u.pk}
+        return {"address": _unit_label(u), "unit_id": u.pk}
 
     # (d) Overdue checkouts > 24h
     threshold_24h = now - timedelta(hours=24)
@@ -535,12 +557,7 @@ def key_health() -> dict:
     overdue = []
     for co in overdue_qs:
         tag = co.tag
-        if tag.unit:
-            addr = tag.unit.display_address
-        elif tag.property:
-            addr = tag.property.address_line_1 or "unknown"
-        else:
-            addr = "unassigned"
+        addr = _tag_label(tag)
         hours = int((now - co.checked_out_at).total_seconds() / 3600)
         overdue.append({
             "key_id": tag.key_id,
@@ -562,14 +579,7 @@ def key_health() -> dict:
         )
     )
     missing = [
-        {
-            "key_id": t.key_id,
-            "address": (
-                t.unit.display_address if t.unit
-                else (t.property.address_line_1 or "unknown") if t.property
-                else "unassigned"
-            ),
-        }
+        {"key_id": t.key_id, "address": _tag_label(t)}
         for t in missing_qs
     ]
 
@@ -592,11 +602,11 @@ def key_health() -> dict:
             .order_by("key_id")
             .values_list("key_id", flat=True)
         )
-        duplicates.append({"address": u.display_address, "key_ids": tag_ids})
+        duplicates.append({"address": _unit_label(u), "key_ids": tag_ids})
 
     # (g) Orphan tags: no unit, no property, non-retired
     orphans = [
-        {"key_id": t.key_id, "imported_address": t.imported_address_raw}
+        {"key_id": t.key_id, "tag_pk": t.pk, "imported_address": t.imported_address_raw}
         for t in (
             Tag.objects.filter(unit__isnull=True, property__isnull=True)
             .exclude(status="retired")
@@ -612,6 +622,14 @@ def key_health() -> dict:
     unknown_no_key_count = no_key.filter(rentengine_status="").count()
     unknown_no_code_count = no_code.filter(rentengine_status="").count()
 
+    # Coverage totals (for snapshot trend chart)
+    total_units = active.count()
+    with_key_count = total_units - no_key.count()
+    with_code_count = total_units - no_code.count()
+    with_both_count = active.filter(
+        Exists(has_tag), Exists(has_note),
+    ).count()
+
     return {
         "vacant_no_key_no_code": [_unit_dict(u) for u in vacant_both],
         "vacant_no_key": [_unit_dict(u) for u in vacant_no_key],
@@ -624,4 +642,8 @@ def key_health() -> dict:
         "occupied_no_code": [_unit_dict(u) for u in occupied_no_code],
         "unknown_no_key_count": unknown_no_key_count,
         "unknown_no_code_count": unknown_no_code_count,
+        "total_units": total_units,
+        "with_key_count": with_key_count,
+        "with_code_count": with_code_count,
+        "with_both_count": with_both_count,
     }

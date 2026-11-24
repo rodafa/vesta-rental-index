@@ -117,7 +117,7 @@ def _alert(message: str) -> None:
 
 def _snapshot_counts(health: dict) -> dict:
     """Extract integer counts from a key_health() result for snapshot storage."""
-    return {
+    counts = {
         "vacant_no_key_no_code": len(health["vacant_no_key_no_code"]),
         "vacant_no_key": len(health["vacant_no_key"]),
         "vacant_no_code": len(health["vacant_no_code"]),
@@ -130,3 +130,11 @@ def _snapshot_counts(health: dict) -> dict:
         "unknown_no_key": health["unknown_no_key_count"],
         "unknown_no_code": health["unknown_no_code_count"],
     }
+    # Coverage totals for trend chart — store only when present so the
+    # snapshot never crashes over a missing coverage key.
+    if "total_units" in health:
+        counts["total_units"] = health["total_units"]
+        counts["with_key"] = health["with_key_count"]
+        counts["with_code"] = health["with_code_count"]
+        counts["with_both"] = health["with_both_count"]
+    return counts

@@ -184,6 +184,44 @@ def normalize_unit_token(text):
 
 
 # ---------------------------------------------------------------------------
+# Unit label (address dedup for keys surfaces)
+# ---------------------------------------------------------------------------
+
+
+def unit_label(address_line_1, property_address_line_1, unit_number,
+               separator=" - "):
+    """Deduped display address for a unit in key-related surfaces.
+
+    Detects when unit_number is a redundant address variant (e.g.
+    "12 La Salle Ln" vs "12 La Salle Lane") by normalizing both and
+    comparing (street_number, base_name).  When they match, the
+    unit_number is suppressed.
+
+    *separator* controls the string between address and unit label.
+    Callers choose their context's convention (e.g. Slack uses " — ").
+
+    Does NOT modify core Unit.display_address (used by owner emails).
+    """
+    base = address_line_1 or property_address_line_1 or ""
+    if not base:
+        return ""
+    suffix = (unit_number or "").strip()
+    if not suffix:
+        return base
+
+    # Check if suffix is a redundant address variant
+    addr_num, addr_base, _ = normalize_address(base)
+    unit_num, unit_base, _ = normalize_address(suffix)
+    if addr_num and unit_num and addr_base and unit_base:
+        if (addr_num, addr_base) == (unit_num, unit_base):
+            return base
+
+    if suffix.lower().startswith("unit"):
+        return f"{base}{separator}{suffix}"
+    return f"{base}{separator}Unit {suffix}"
+
+
+# ---------------------------------------------------------------------------
 # CSV parsing
 # ---------------------------------------------------------------------------
 

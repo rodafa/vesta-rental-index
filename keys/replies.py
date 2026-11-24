@@ -1,6 +1,6 @@
 """Pure Slack mrkdwn formatters for KeyBot replies. No DB access."""
 
-from keys.services import normalize_address
+from keys.services import unit_label
 
 
 def _escape(text: str) -> str:
@@ -9,23 +9,12 @@ def _escape(text: str) -> str:
 
 
 def _display_address(address: str, unit_number: str) -> str:
-    """Format 'Address — Unit X' or just 'Address'.
+    """Format deduped address for Slack display, then escape.
 
-    If unit_number normalizes to the same (street_number, base_name) as
-    address, it's a redundant variant (e.g. "12 La Salle Ln" vs
-    "12 La Salle Lane") — show address only.
+    Delegates to unit_label for the La Salle-style dedup, using the
+    em-dash separator that Slack messages expect.
     """
-    if unit_number:
-        # Check if unit_number is a redundant address variant
-        addr_num, addr_base, _ = normalize_address(address)
-        unit_num, unit_base, _ = normalize_address(unit_number)
-        if addr_num and unit_num and addr_base and unit_base:
-            if (addr_num, addr_base) == (unit_num, unit_base):
-                return _escape(address)
-        if unit_number.lower().startswith("unit"):
-            return f"{_escape(address)} \u2014 {_escape(unit_number)}"
-        return f"{_escape(address)} \u2014 Unit {_escape(unit_number)}"
-    return _escape(address)
+    return _escape(unit_label(address, "", unit_number, separator=" \u2014 "))
 
 
 def _format_tag_line(tag: dict) -> str:

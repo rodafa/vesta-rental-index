@@ -34,6 +34,10 @@ def _empty_health():
         "occupied_no_code": [],
         "unknown_no_key_count": 0,
         "unknown_no_code_count": 0,
+        "total_units": 0,
+        "with_key_count": 0,
+        "with_code_count": 0,
+        "with_both_count": 0,
     }
 
 

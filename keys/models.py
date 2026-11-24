@@ -121,6 +121,7 @@ class AccessNote(models.Model):
         ("rentengine_internal_notes", "RentEngine Internal Notes"),
         ("rentengine_key_access", "RentEngine Key Access"),
         ("keybot", "Keybot (Slack)"),
+        ("dashboard", "Dashboard"),
     ]
     source = models.CharField(max_length=30, choices=SOURCE_CHOICES)
 
@@ -135,6 +136,12 @@ class AccessNote(models.Model):
         null=True,
         blank=True,
         help_text="Date the note was originally written.",
+    )
+
+    hidden = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Hidden notes are excluded from lookups, health checks, and the dashboard.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

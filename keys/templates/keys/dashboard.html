@@ -1,0 +1,610 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Key Health — Vesta</title>
+<style>
+  :root {
+    --navy:#1E3D58; --navy-700:#18324a; --navy-900:#122639;
+    --sky:#6EA5CD; --sky-soft:#e3eef6;
+    --green:#39B54A; --green-soft:#e4f5e7;
+    --grey-bg:#EFF5F9; --orange:#D67011; --orange-soft:#fbeadb;
+    --red:#d64011; --red-soft:#fde0d4;
+    --ink:#1E3D58; --ink-soft:#5b7185; --ink-faint:#93a4b3;
+    --line:#d6e1ea; --line-soft:#e8eef4; --white:#fff;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --r:8px; --r-sm:6px;
+    --shadow:0 1px 2px rgba(30,61,88,.06),0 2px 8px rgba(30,61,88,.05);
+    --shadow-lift:0 4px 16px rgba(30,61,88,.10);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:var(--sans);background:var(--grey-bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+  .app{display:flex;flex-direction:column;min-height:100vh;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{background:var(--navy);color:#fff;padding:0 22px;height:64px;display:flex;align-items:center;gap:26px;flex:0 0 auto;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand .mark{width:30px;height:30px;flex:0 0 auto;}
+  .brand .mark path,.brand .mark line{stroke:#fff;stroke-width:1.4;fill:none;}
+  .brand .mark .flame{stroke:var(--green);}
+  .brand-title{display:flex;flex-direction:column;line-height:1.1;}
+  .brand-title .name{font-size:15px;font-weight:700;letter-spacing:.06em;}
+  .brand-title .sub{font-size:9.5px;font-weight:500;letter-spacing:.22em;color:var(--sky);text-transform:uppercase;}
+  .topbar-divider{width:1px;height:30px;background:rgba(255,255,255,.16);}
+  .page-title{font-size:15px;font-weight:600;}
+  .spacer{margin-left:auto;}
+  .topbar-actions{display:flex;align-items:center;gap:10px;}
+
+  /* ---------- Buttons ---------- */
+  .btn{font-family:var(--sans);font-size:13px;font-weight:600;padding:8px 16px;border-radius:var(--r-sm);border:1px solid transparent;cursor:pointer;line-height:1;display:inline-flex;align-items:center;gap:7px;transition:background .14s,border-color .14s,color .14s,opacity .14s;white-space:nowrap;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-primary{background:var(--green);color:#fff;}
+  .btn-primary:hover:not(:disabled){background:#2f9d3e;}
+  .btn-quiet{background:var(--white);color:var(--ink);border-color:var(--line);}
+  .btn-quiet:hover:not(:disabled){background:var(--grey-bg);border-color:var(--sky);}
+  .btn-onnavy{background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.28);}
+  .btn-onnavy:hover:not(:disabled){background:rgba(255,255,255,.16);}
+  .btn-danger{background:var(--white);color:var(--orange);border-color:var(--orange-soft);}
+  .btn-danger:hover:not(:disabled){background:var(--orange-soft);border-color:var(--orange);}
+  .btn-sm{padding:5px 11px;font-size:12px;font-weight:600;}
+
+  /* ---------- Flash messages ---------- */
+  .flashes{padding:0 22px;flex:0 0 auto;}
+  .flash{padding:10px 16px;margin-top:10px;border-radius:var(--r-sm);font-size:13px;font-weight:500;}
+  .flash-success{background:var(--green-soft);color:#1a6b25;border:1px solid #b5e2bb;}
+  .flash-error{background:var(--red-soft);color:var(--red);border:1px solid #f5b8a3;}
+
+  /* ---------- Content ---------- */
+  .content{padding:22px;flex:1 1 auto;}
+
+  /* ---------- Scorecard ---------- */
+  .scorecard{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px;}
+  .tile{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;min-width:140px;flex:1;box-shadow:var(--shadow);}
+  .tile-label{font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;}
+  .tile-value{font-size:28px;font-weight:700;color:var(--navy);line-height:1.1;}
+  .tile-value.urgent{color:var(--orange);}
+  .tile-value.ok{color:var(--green);}
+  .tile-link{font-size:11px;color:var(--sky);text-decoration:none;margin-top:4px;display:inline-block;}
+  .tile-link:hover{text-decoration:underline;}
+
+  /* ---------- Chart ---------- */
+  .chart-wrap{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:22px;box-shadow:var(--shadow);}
+  .chart-wrap h3{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;}
+  .chart-note{font-size:12px;color:var(--ink-faint);margin-top:8px;}
+
+  /* ---------- Filters bar ---------- */
+  .filters-bar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+  .chip{font-size:12px;font-weight:600;color:var(--ink-soft);background:var(--white);border:1px solid var(--line);padding:5px 13px;border-radius:20px;cursor:pointer;text-decoration:none;transition:all .14s;}
+  .chip:hover{border-color:var(--sky);}
+  .chip.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .search-box{font:inherit;font-size:13px;padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-sm);width:220px;color:var(--ink);}
+  .search-box:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px var(--sky-soft);}
+
+  /* ---------- Table ---------- */
+  .tbl-wrap{background:var(--white);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{background:var(--grey-bg);text-align:left;padding:10px 14px;font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2;}
+  td{padding:10px 14px;border-bottom:1px solid var(--line-soft);vertical-align:top;}
+  tr:hover td{background:rgba(110,165,205,.04);}
+  .flag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;margin:1px 2px;}
+  .flag-urgent{background:var(--orange-soft);color:var(--orange);}
+  .flag-warn{background:var(--sky-soft);color:var(--navy);}
+  .vacancy-vacant{color:var(--green);font-weight:600;}
+  .vacancy-leased{color:var(--ink-soft);}
+  .vacancy-unknown{color:var(--ink-faint);font-style:italic;}
+  .note-row{font-size:12px;color:var(--ink-soft);margin-bottom:3px;}
+  .note-row.is-hidden{opacity:.5;text-decoration:line-through;}
+  .note-meta{font-size:11px;color:var(--ink-faint);}
+  .tag-line{margin-bottom:3px;}
+  .tag-id{font-weight:700;color:var(--navy);}
+  .tag-status{font-size:11px;color:var(--ink-faint);margin-left:4px;}
+  .tag-checkout{font-size:11px;color:var(--orange);}
+  .ring{font-size:11px;color:var(--ink-faint);font-style:italic;}
+
+  /* ---------- Actions (inline forms) ---------- */
+  .inline-form{display:inline;}
+  .inline-form input[type=text]{font:inherit;font-size:12px;padding:3px 7px;border:1px solid var(--line);border-radius:var(--r-sm);width:120px;}
+  .inline-form select{font:inherit;font-size:12px;padding:3px 7px;border:1px solid var(--line);border-radius:var(--r-sm);}
+
+  /* ---------- Orphans ---------- */
+  .orphans{margin-top:22px;}
+  .orphans h3{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;}
+
+  /* ---------- Create tag ---------- */
+  .create-tag{margin-top:22px;background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow);}
+  .create-tag h3{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;}
+  .form-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+  .form-row .field{display:flex;flex-direction:column;gap:4px;}
+  .form-row label{font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;}
+  .form-row input,.form-row select{font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:var(--r-sm);color:var(--ink);background:#fff;}
+  .form-row input:focus,.form-row select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px var(--sky-soft);}
+
+  /* ---------- Pagination ---------- */
+  .pagination{display:flex;gap:6px;align-items:center;justify-content:center;margin-top:16px;font-size:13px;}
+  .pagination a,.pagination span{padding:5px 11px;border-radius:var(--r-sm);text-decoration:none;}
+  .pagination a{color:var(--navy);border:1px solid var(--line);background:var(--white);}
+  .pagination a:hover{background:var(--sky-soft);border-color:var(--sky);}
+  .pagination .current{background:var(--navy);color:#fff;font-weight:600;}
+  .pagination .disabled{color:var(--ink-faint);}
+
+  /* ---------- Details expand for edit ---------- */
+  details.edit-panel{margin-top:6px;}
+  details.edit-panel>summary{font-size:11px;color:var(--sky);cursor:pointer;list-style:none;}
+  details.edit-panel>summary::-webkit-details-marker{display:none;}
+  details.edit-panel>summary:hover{text-decoration:underline;}
+  .edit-body{padding:8px 0 4px;display:flex;flex-direction:column;gap:6px;}
+
+  /* ---------- Assign search (orphans) ---------- */
+  .assign-search{position:relative;display:inline-block;}
+  .assign-results{position:absolute;left:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-lift);max-height:200px;overflow-y:auto;z-index:40;width:280px;display:none;}
+  .assign-results.open{display:block;}
+  .assign-result{padding:7px 10px;font-size:12px;cursor:pointer;}
+  .assign-result:hover{background:var(--sky-soft);}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M8 28V10l8-6 8 6v18"/>
+        <line x1="8" y1="28" x2="24" y2="28"/>
+        <path class="flame" d="M16 20c-1.6-2.4 0-5 0-5s1.6 2.6 0 5z"/>
+      </svg>
+      <div class="brand-title">
+        <span class="name">VESTA</span>
+        <span class="sub">Property Management</span>
+      </div>
+    </div>
+    <div class="topbar-divider"></div>
+    <span class="page-title">Key Health</span>
+    <div class="spacer"></div>
+    <div class="topbar-actions">
+      <form method="post" action="{% url 'logout' %}" style="margin:0;">
+        {% csrf_token %}
+        <button class="btn btn-onnavy" type="submit">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <!-- Flash messages -->
+  {% if messages %}
+  <div class="flashes">
+    {% for msg in messages %}
+    <div class="flash flash-{{ msg.tags }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="content">
+
+    <!-- ===== Scorecard ===== -->
+    <div class="scorecard">
+      <div class="tile">
+        <div class="tile-label">Total Units</div>
+        <div class="tile-value">{{ scorecard.total_units }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">With Key</div>
+        <div class="tile-value ok">{{ scorecard.with_key }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">With Code</div>
+        <div class="tile-value ok">{{ scorecard.with_code }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">With Both</div>
+        <div class="tile-value ok">{{ scorecard.with_both }}</div>
+      </div>
+    </div>
+    <div class="scorecard">
+      <div class="tile">
+        <div class="tile-label">Vacant: No Key + No Code</div>
+        <div class="tile-value{% if scorecard.vacant_no_key_no_code %} urgent{% endif %}">{{ scorecard.vacant_no_key_no_code }}</div>
+        {% if scorecard.vacant_no_key_no_code %}<a class="tile-link" href="?filter=problems">View &rarr;</a>{% endif %}
+      </div>
+      <div class="tile">
+        <div class="tile-label">Vacant: No Key</div>
+        <div class="tile-value{% if scorecard.vacant_no_key %} urgent{% endif %}">{{ scorecard.vacant_no_key }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Vacant: No Code</div>
+        <div class="tile-value{% if scorecard.vacant_no_code %} urgent{% endif %}">{{ scorecard.vacant_no_code }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Overdue Checkouts</div>
+        <div class="tile-value{% if scorecard.overdue_checkouts %} urgent{% endif %}">{{ scorecard.overdue_checkouts }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Missing Tags</div>
+        <div class="tile-value{% if scorecard.missing_tags %} urgent{% endif %}">{{ scorecard.missing_tags }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Duplicates</div>
+        <div class="tile-value{% if scorecard.duplicate_tags %} urgent{% endif %}">{{ scorecard.duplicate_tags }}</div>
+      </div>
+      <div class="tile">
+        <div class="tile-label">Orphan Tags</div>
+        <div class="tile-value{% if scorecard.orphan_tags %} urgent{% endif %}">{{ scorecard.orphan_tags }}</div>
+      </div>
+    </div>
+
+    <!-- ===== Accuracy Chart ===== -->
+    <div class="chart-wrap">
+      <h3>Key &amp; Code Coverage</h3>
+      <canvas id="coverageChart" height="80"></canvas>
+      <div class="chart-note" id="chartNote"></div>
+    </div>
+
+    <!-- ===== Filters ===== -->
+    <form class="filters-bar" method="get" action="{% url 'key-dashboard' %}">
+      <a class="chip{% if not filter_param %} active{% endif %}" href="{% url 'key-dashboard' %}">All</a>
+      <a class="chip{% if filter_param == 'problems' %} active{% endif %}" href="?filter=problems{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Problems</a>
+      <a class="chip{% if filter_param == 'vacant' %} active{% endif %}" href="?filter=vacant{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Vacant</a>
+      <a class="chip{% if filter_param == 'occupied' %} active{% endif %}" href="?filter=occupied{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Occupied</a>
+      <a class="chip{% if filter_param == 'unknown' %} active{% endif %}" href="?filter=unknown{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Unknown</a>
+      <input class="search-box" type="text" name="q" value="{{ search_param }}" placeholder="Search address or key ID">
+      {% if filter_param %}<input type="hidden" name="filter" value="{{ filter_param }}">{% endif %}
+      <button class="btn btn-quiet btn-sm" type="submit">Search</button>
+      {% if show_hidden %}
+      <a class="chip active" href="?{% if filter_param %}filter={{ filter_param }}&{% endif %}{% if search_param %}q={{ search_param|urlencode }}&{% endif %}show_hidden=0">Showing hidden</a>
+      {% else %}
+      <a class="chip" href="?{% if filter_param %}filter={{ filter_param }}&{% endif %}{% if search_param %}q={{ search_param|urlencode }}&{% endif %}show_hidden=1">Show hidden</a>
+      {% endif %}
+    </form>
+
+    <!-- ===== Unit Table ===== -->
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Address</th>
+            <th>Vacancy</th>
+            <th>Tags</th>
+            <th>Codes</th>
+            <th>Flags</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in page_obj %}
+          <tr>
+            <!-- Address -->
+            <td><strong>{{ row.address }}</strong></td>
+
+            <!-- Vacancy -->
+            <td>
+              {% if row.vacancy == "Available" %}<span class="vacancy-vacant">Vacant</span>
+              {% elif row.vacancy == "Leased" %}<span class="vacancy-leased">Leased</span>
+              {% else %}<span class="vacancy-unknown">Unknown</span>{% endif %}
+            </td>
+
+            <!-- Tags -->
+            <td>
+              {% for t in row.tags %}
+              <div class="tag-line">
+                <span class="tag-id">{{ t.key_id }}</span>
+                <span class="tag-status">{{ t.status_display }}</span>
+                {% if t.checkout %}<span class="tag-checkout">out: {{ t.checkout.name }}</span>{% endif %}
+                {% if t.ring_notes %}<div class="ring">ring: {{ t.ring_notes }}</div>{% endif %}
+              </div>
+              {% endfor %}
+              {% for t in row.property_tags %}
+              <div class="tag-line">
+                <span class="tag-id">{{ t.key_id }}</span>
+                <span class="tag-status">{{ t.status_display }} (bldg)</span>
+              </div>
+              {% endfor %}
+              {% if not row.tags and not row.property_tags %}<span class="vacancy-unknown">None</span>{% endif %}
+            </td>
+
+            <!-- Codes -->
+            <td>
+              {% for n in row.notes %}
+              <div class="note-row{% if n.hidden %} is-hidden{% endif %}">
+                {{ n.text|truncatechars:40 }}
+                <div class="note-meta">{{ n.source }}{% if n.date %} &middot; {{ n.date }}{% endif %}{% if n.author %} &middot; {{ n.author }}{% endif %}{% if n.is_property_level %} (bldg){% endif %}</div>
+              </div>
+              {% endfor %}
+              {% if not row.notes %}<span class="vacancy-unknown">None</span>{% endif %}
+            </td>
+
+            <!-- Flags -->
+            <td>
+              {% for fl in row.flags %}
+              <span class="flag{% if 'no key AND' in fl|lower or 'No key' in fl %} flag-urgent{% else %} flag-warn{% endif %}">{{ fl }}</span>
+              {% endfor %}
+            </td>
+
+            <!-- Actions -->
+            <td>
+              <details class="edit-panel">
+                <summary>Edit</summary>
+                <div class="edit-body">
+
+                  <!-- Set code -->
+                  <form class="inline-form" method="post" action="{% url 'key-set-code' %}" onsubmit="return confirm('Set this code?')">
+                    {% csrf_token %}
+                    <input type="hidden" name="_qs" value="{{ qs }}">
+                    <input type="hidden" name="unit_id" value="{{ row.unit_id }}">
+                    <input type="hidden" name="property_id" value="{{ row.property_id }}">
+                    <input type="text" name="code" placeholder="Code" required>
+                    <button class="btn btn-primary btn-sm" type="submit">Set code</button>
+                  </form>
+
+                  <!-- Tag actions -->
+                  {% for t in row.tags %}
+                  <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+                    <span class="tag-id" style="font-size:12px;">{{ t.key_id }}</span>
+
+                    {% if t.status == "on_hook" or t.status == "with_vendor" %}
+                    <form class="inline-form" method="post" action="{% url 'key-mark-missing' %}" onsubmit="return confirm('Mark {{ t.key_id }} missing?')">
+                      {% csrf_token %}<input type="hidden" name="_qs" value="{{ qs }}"><input type="hidden" name="tag_id" value="{{ t.pk }}">
+                      <button class="btn btn-danger btn-sm" type="submit">Missing</button>
+                    </form>
+                    {% endif %}
+
+                    {% if t.status == "missing" %}
+                    <form class="inline-form" method="post" action="{% url 'key-found' %}" onsubmit="return confirm('Mark {{ t.key_id }} found?')">
+                      {% csrf_token %}<input type="hidden" name="_qs" value="{{ qs }}"><input type="hidden" name="tag_id" value="{{ t.pk }}">
+                      <button class="btn btn-primary btn-sm" type="submit">Found</button>
+                    </form>
+                    {% endif %}
+
+                    {% if t.status != "retired" and t.status != "checked_out" %}
+                    <form class="inline-form" method="post" action="{% url 'key-retire' %}" onsubmit="return confirm('Retire {{ t.key_id }}?')">
+                      {% csrf_token %}<input type="hidden" name="_qs" value="{{ qs }}"><input type="hidden" name="tag_id" value="{{ t.pk }}">
+                      <button class="btn btn-danger btn-sm" type="submit">Retire</button>
+                    </form>
+                    {% endif %}
+
+                    <!-- Edit ring notes -->
+                    <form class="inline-form" method="post" action="{% url 'key-edit-ring-notes' %}" onsubmit="return confirm('Update ring notes?')">
+                      {% csrf_token %}<input type="hidden" name="_qs" value="{{ qs }}"><input type="hidden" name="tag_id" value="{{ t.pk }}">
+                      <input type="text" name="ring_notes" value="{{ t.ring_notes }}" placeholder="Ring notes" style="width:140px;">
+                      <button class="btn btn-quiet btn-sm" type="submit">Save</button>
+                    </form>
+                  </div>
+                  {% endfor %}
+
+                  <!-- Hide notes -->
+                  {% for n in row.notes %}
+                  {% if not n.hidden %}
+                  <form class="inline-form" method="post" action="{% url 'key-hide-note' %}" onsubmit="return confirm('Hide this note?')">
+                    {% csrf_token %}<input type="hidden" name="_qs" value="{{ qs }}"><input type="hidden" name="note_id" value="{{ n.pk }}">
+                    <button class="btn btn-quiet btn-sm" type="submit">Hide "{{ n.text|truncatechars:20 }}"</button>
+                  </form>
+                  {% endif %}
+                  {% endfor %}
+
+                </div>
+              </details>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--ink-faint);">No units match the current filter.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if page_obj.paginator.num_pages > 1 %}
+    <div class="pagination">
+      {% if page_obj.has_previous %}
+      <a href="?{% if filter_param %}filter={{ filter_param }}&{% endif %}{% if search_param %}q={{ search_param|urlencode }}&{% endif %}page={{ page_obj.previous_page_number }}">&laquo; Prev</a>
+      {% else %}<span class="disabled">&laquo; Prev</span>{% endif %}
+
+      <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+      {% if page_obj.has_next %}
+      <a href="?{% if filter_param %}filter={{ filter_param }}&{% endif %}{% if search_param %}q={{ search_param|urlencode }}&{% endif %}page={{ page_obj.next_page_number }}">Next &raquo;</a>
+      {% else %}<span class="disabled">Next &raquo;</span>{% endif %}
+    </div>
+    {% endif %}
+
+    <!-- ===== Orphan Tags ===== -->
+    {% if orphans %}
+    <div class="orphans">
+      <h3>Orphan Tags ({{ orphans|length }})</h3>
+      <div class="tbl-wrap" style="margin-top:10px;">
+        <table>
+          <thead><tr><th>Key ID</th><th>Imported Address</th><th>Actions</th></tr></thead>
+          <tbody>
+            {% for o in orphans %}
+            <tr>
+              <td class="tag-id">{{ o.key_id }}</td>
+              <td>{{ o.imported_address|default:"&mdash;" }}</td>
+              <td>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                  <!-- Assign: address search -->
+                  <div class="assign-search">
+                    <input type="text" class="search-box" style="width:180px;font-size:12px;" placeholder="Search unit to assign" data-orphan-key-id="{{ o.key_id }}" oninput="orphanSearch(this)">
+                    <div class="assign-results" id="results-{{ forloop.counter }}"></div>
+                  </div>
+                  <!-- Retire -->
+                  <form class="inline-form" method="post" action="{% url 'key-retire' %}" onsubmit="return confirm('Retire {{ o.key_id }}?')">
+                    {% csrf_token %}<input type="hidden" name="_qs" value="{{ qs }}"><input type="hidden" name="tag_id" value="{{ o.tag_pk }}">
+                    <button class="btn btn-danger btn-sm" type="submit">Retire</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ===== Create Tag ===== -->
+    <div class="create-tag">
+      <h3>Create New Tag</h3>
+      <form class="form-row" method="post" action="{% url 'key-create-tag' %}" id="createTagForm" onsubmit="return confirmCreateTag()">
+        {% csrf_token %}
+        <input type="hidden" name="_qs" value="{{ qs }}">
+        <input type="hidden" name="unit_id" id="createTagUnitId" value="">
+        <input type="hidden" name="property_id" id="createTagPropertyId" value="">
+        <div class="field">
+          <label>Box</label>
+          <select name="box" required><option value="A">A</option><option value="B">B</option></select>
+        </div>
+        <div class="field">
+          <label>Number (1-200)</label>
+          <input type="number" name="number" min="1" max="200" required style="width:90px;">
+        </div>
+        <div class="field" style="position:relative;">
+          <label>Unit (type address)</label>
+          <div class="assign-search">
+            <input type="text" class="search-box" style="width:220px;font-size:13px;" id="createTagSearch" placeholder="Search address" autocomplete="off" oninput="createTagUnitSearch(this)">
+            <div class="assign-results" id="createTagResults"></div>
+          </div>
+          <div id="createTagSelected" style="font-size:12px;color:var(--green);margin-top:2px;"></div>
+        </div>
+        <button class="btn btn-primary" type="submit">Create tag</button>
+        <button type="button" class="btn btn-quiet btn-sm" onclick="clearCreateTagUnit()" style="font-size:11px;">Clear unit</button>
+      </form>
+    </div>
+
+  </div><!-- .content -->
+</div><!-- .app -->
+
+<script>
+// ---- Coverage chart ----
+const raw = JSON.parse('{{ chart_data|escapejs }}');
+const ctx = document.getElementById('coverageChart');
+const noteEl = document.getElementById('chartNote');
+
+if (raw.length >= 2) {
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: raw.map(d => d.date),
+      datasets: [
+        {label: '% with key', data: raw.map(d => d.total ? Math.round(d.with_key / d.total * 100) : 0), borderColor: '#1E3D58', borderWidth: 2, tension: .3, pointRadius: 2},
+        {label: '% with code', data: raw.map(d => d.total ? Math.round(d.with_code / d.total * 100) : 0), borderColor: '#6EA5CD', borderWidth: 2, tension: .3, pointRadius: 2},
+        {label: '% with both', data: raw.map(d => d.total ? Math.round(d.with_both / d.total * 100) : 0), borderColor: '#39B54A', borderWidth: 2, tension: .3, pointRadius: 2},
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {legend: {position: 'bottom', labels: {boxWidth: 12, font: {size: 12}}}},
+      scales: {y: {min: 0, max: 100, ticks: {callback: v => v + '%'}}}
+    }
+  });
+} else {
+  // Not enough history — show today's numbers
+  const s = {{ scorecard.total_units }} > 0 ? {
+    key: Math.round({{ scorecard.with_key }} / {{ scorecard.total_units }} * 100),
+    code: Math.round({{ scorecard.with_code }} / {{ scorecard.total_units }} * 100),
+    both: Math.round({{ scorecard.with_both }} / {{ scorecard.total_units }} * 100),
+  } : {key:0, code:0, both:0};
+  ctx.style.display = 'none';
+  noteEl.innerHTML = 'Coverage today: <strong>' + s.key + '% with key</strong>, <strong>' + s.code + '% with code</strong>, <strong>' + s.both + '% with both</strong>. History builds daily from Nov 23.';
+}
+
+// ---- Orphan tag assign search ----
+let searchTimeout;
+function orphanSearch(input) {
+  clearTimeout(searchTimeout);
+  const q = input.value.trim();
+  const resultsDiv = input.nextElementSibling;
+  if (q.length < 2) { resultsDiv.classList.remove('open'); return; }
+  searchTimeout = setTimeout(() => {
+    fetch('{% url "key-search-units" %}?q=' + encodeURIComponent(q))
+      .then(r => r.json())
+      .then(data => {
+        if (!data.results.length) {
+          resultsDiv.innerHTML = '<div class="assign-result" style="color:var(--ink-faint)">No matches</div>';
+        } else {
+          resultsDiv.innerHTML = data.results.map(u =>
+            '<div class="assign-result" data-unit-id="' + u.unit_id + '">' + u.address + '</div>'
+          ).join('');
+          resultsDiv.querySelectorAll('.assign-result[data-unit-id]').forEach(el => {
+            el.addEventListener('click', () => {
+              // Find the orphan's key_id from the input's data attr and the tag_pk from the hidden input
+              const row = input.closest('tr');
+              const tagPk = row.querySelector('input[name=tag_id]').value;
+              submitAssign(tagPk, el.dataset.unitId);
+              resultsDiv.classList.remove('open');
+            });
+          });
+        }
+        resultsDiv.classList.add('open');
+      });
+  }, 300);
+}
+
+function submitAssign(tagId, unitId) {
+  if (!confirm('Assign this tag to the selected unit?')) return;
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '{% url "key-assign" %}';
+  form.innerHTML = '<input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">'
+    + '<input type="hidden" name="_qs" value="{{ qs }}">'
+    + '<input type="hidden" name="tag_id" value="' + tagId + '">'
+    + '<input type="hidden" name="unit_id" value="' + unitId + '">';
+  document.body.appendChild(form);
+  form.submit();
+}
+
+// ---- Create tag unit search ----
+let createTagTimeout;
+function createTagUnitSearch(input) {
+  clearTimeout(createTagTimeout);
+  const q = input.value.trim();
+  const resultsDiv = document.getElementById('createTagResults');
+  if (q.length < 2) { resultsDiv.classList.remove('open'); return; }
+  createTagTimeout = setTimeout(() => {
+    fetch('{% url "key-search-units" %}?q=' + encodeURIComponent(q))
+      .then(r => r.json())
+      .then(data => {
+        if (!data.results.length) {
+          resultsDiv.innerHTML = '<div class="assign-result" style="color:var(--ink-faint)">No matches</div>';
+        } else {
+          resultsDiv.innerHTML = data.results.map(u =>
+            '<div class="assign-result" data-unit-id="' + u.unit_id + '">' + u.address + '</div>'
+          ).join('');
+          resultsDiv.querySelectorAll('.assign-result[data-unit-id]').forEach(el => {
+            el.addEventListener('click', () => {
+              document.getElementById('createTagUnitId').value = el.dataset.unitId;
+              document.getElementById('createTagPropertyId').value = '';
+              document.getElementById('createTagSelected').textContent = el.textContent;
+              document.getElementById('createTagSearch').value = el.textContent;
+              resultsDiv.classList.remove('open');
+            });
+          });
+        }
+        resultsDiv.classList.add('open');
+      });
+  }, 300);
+}
+
+function clearCreateTagUnit() {
+  document.getElementById('createTagUnitId').value = '';
+  document.getElementById('createTagPropertyId').value = '';
+  document.getElementById('createTagSelected').textContent = '';
+  document.getElementById('createTagSearch').value = '';
+}
+
+function confirmCreateTag() {
+  const unitId = document.getElementById('createTagUnitId').value;
+  const label = unitId ? ' assigned to ' + document.getElementById('createTagSelected').textContent : ' (unassigned)';
+  return confirm('Create this tag' + label + '?');
+}
+
+// Close assign results when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('.assign-search')) {
+    document.querySelectorAll('.assign-results.open').forEach(el => el.classList.remove('open'));
+  }
+});
+</script>
+</body>
+</html>

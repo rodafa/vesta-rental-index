@@ -50,4 +50,6 @@ urlpatterns = [
     path("dashboard/utilities/", include("utilities.urls")),
     # Slack — KeyBot inbound events
     path("slack/keybot/", include("keys.urls")),
+    # Keys dashboard
+    path("dashboard/keys/", include("keys.dashboard_urls")),
 ]
