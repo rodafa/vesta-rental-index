@@ -690,3 +690,326 @@ class SearchUnitsTests(_DashboardFixture):
         for item in data["results"]:
             self.assertIn("unit_id", item)
             self.assertIn("address", item)
+
+    def test_search_result_has_property_id(self):
+        resp = self.client.get(reverse("key-search-units"), {"q": "Elm"})
+        data = resp.json()
+        self.assertTrue(len(data["results"]) >= 1)
+        for item in data["results"]:
+            self.assertIn("property_id", item)
+            self.assertEqual(item["property_id"], self.prop.pk)
+
+
+# ---------------------------------------------------------------------------
+# Assign by key_id
+# ---------------------------------------------------------------------------
+
+
+class ActionAssignByKeyIdTests(_DashboardFixture):
+
+    def setUp(self):
+        self.client.login(username="admin", password="pw")
+        self.orphan = Tag.objects.create(box="B", number=98)
+
+    def test_assign_by_key_id(self):
+        resp = self.client.post(reverse("key-assign"), {
+            "key_id": "B-098",
+            "unit_id": self.unit_vacant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.orphan.refresh_from_db()
+        self.assertEqual(self.orphan.unit_id, self.unit_vacant.pk)
+
+        kc = KeyChange.objects.filter(tag=self.orphan, field="unit").first()
+        self.assertIsNotNone(kc)
+
+    def test_assign_unknown_key_id_error(self):
+        resp = self.client.post(reverse("key-assign"), {
+            "key_id": "B-199",
+            "unit_id": self.unit_vacant.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        # No tag B-199 exists, so no assignment happens
+
+
+# ---------------------------------------------------------------------------
+# Flags
+# ---------------------------------------------------------------------------
+
+
+class FlagTests(TestCase):
+    """Test all flag conditions in _build_rows."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="flag_admin", password="pw", role="admin",
+        )
+
+    def setUp(self):
+        self.client.login(username="flag_admin", password="pw")
+
+    def _make_unit(self, unit_number, status="Available"):
+        prop = Property.objects.create(
+            name="28 Bass St", address_line_1="28 Bass St",
+            rentvine_id=7000 + Property.objects.count(),
+        )
+        return Unit.objects.create(
+            property=prop, address_line_1="28 Bass St",
+            unit_number=unit_number,
+            rentvine_id=7500 + Unit.objects.count(),
+            rentengine_status=status,
+        )
+
+    def _get_flags(self, unit):
+        resp = self.client.get(reverse("key-dashboard"))
+        for row in resp.context["page_obj"]:
+            if row["unit_id"] == unit.pk:
+                return row["flags"]
+        return None
+
+    def test_unit_duplicate_tags(self):
+        unit = self._make_unit("2")
+        Tag.objects.create(box="A", number=38, unit=unit)
+        Tag.objects.create(box="A", number=134, unit=unit)
+        flags = self._get_flags(unit)
+        self.assertIn("Duplicate tags", flags)
+
+    def test_property_duplicate_tags(self):
+        unit = self._make_unit("1")
+        Tag.objects.create(box="A", number=50, property=unit.property)
+        Tag.objects.create(box="A", number=51, property=unit.property)
+        flags = self._get_flags(unit)
+        self.assertIn("Duplicate tags (bldg)", flags)
+
+    def test_missing_tag_flag(self):
+        unit = self._make_unit("1")
+        Tag.objects.create(box="A", number=60, unit=unit, status="missing")
+        flags = self._get_flags(unit)
+        self.assertIn("Missing tag", flags)
+
+    def test_overdue_checkout_flag(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        unit = self._make_unit("1")
+        tag = Tag.objects.create(box="A", number=70, unit=unit,
+                                 status="checked_out")
+        Checkout.objects.create(
+            tag=tag,
+            checked_out_by_slack_id="U_TEST",
+            checked_out_by_name="Test",
+            checked_out_at=timezone.now() - timedelta(hours=30),
+        )
+        flags = self._get_flags(unit)
+        self.assertIn("Overdue checkout", flags)
+
+    def test_no_overdue_flag_within_24h(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        unit = self._make_unit("1")
+        tag = Tag.objects.create(box="A", number=71, unit=unit,
+                                 status="checked_out")
+        Checkout.objects.create(
+            tag=tag,
+            checked_out_by_slack_id="U_TEST",
+            checked_out_by_name="Test",
+            checked_out_at=timezone.now() - timedelta(hours=12),
+        )
+        flags = self._get_flags(unit)
+        self.assertNotIn("Overdue checkout", flags)
+
+    def test_vacant_no_key_flag(self):
+        unit = self._make_unit("1", status="Available")
+        # Has code (note) but no key (no tag)
+        AccessNote.objects.create(
+            unit=unit, source="dashboard", source_ref="f1",
+            text="1234",
+        )
+        flags = self._get_flags(unit)
+        self.assertIn("No key", flags)
+        self.assertNotIn("No key AND no code", flags)
+
+    def test_vacant_no_code_flag(self):
+        unit = self._make_unit("1", status="Available")
+        # Has key (tag) but no code (no note)
+        Tag.objects.create(box="A", number=80, unit=unit)
+        flags = self._get_flags(unit)
+        self.assertIn("No code", flags)
+
+    def test_vacant_no_key_and_no_code_flag(self):
+        unit = self._make_unit("1", status="Available")
+        # No tag, no note
+        flags = self._get_flags(unit)
+        self.assertIn("No key AND no code", flags)
+
+    def test_unknown_no_key_flag(self):
+        unit = self._make_unit("1", status="")
+        # Has code but no key
+        AccessNote.objects.create(
+            unit=unit, source="dashboard", source_ref="f2",
+            text="code999",
+        )
+        flags = self._get_flags(unit)
+        self.assertIn("No key", flags)
+
+    def test_unknown_no_code_flag(self):
+        unit = self._make_unit("1", status="")
+        # Has key but no code
+        Tag.objects.create(box="A", number=81, unit=unit)
+        flags = self._get_flags(unit)
+        self.assertIn("No code", flags)
+
+    def test_occupied_no_key_flag(self):
+        unit = self._make_unit("1", status="Leased")
+        # Has code but no key
+        AccessNote.objects.create(
+            unit=unit, source="dashboard", source_ref="f3",
+            text="1234",
+        )
+        flags = self._get_flags(unit)
+        self.assertIn("Occupied, no key", flags)
+
+    def test_occupied_no_code_flag(self):
+        unit = self._make_unit("1", status="Leased")
+        # Has key but no code
+        Tag.objects.create(box="A", number=82, unit=unit)
+        flags = self._get_flags(unit)
+        self.assertIn("Occupied, no code", flags)
+
+
+# ---------------------------------------------------------------------------
+# Sort order
+# ---------------------------------------------------------------------------
+
+
+class SortOrderTests(TestCase):
+    """Table rows sort by street name, then house number (numeric), then unit."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="sort_admin", password="pw", role="admin",
+        )
+        # Different streets and house numbers
+        p1 = Property.objects.create(
+            name="5 Elm St", address_line_1="5 Elm St", rentvine_id=6001,
+        )
+        p2 = Property.objects.create(
+            name="12 Elm St", address_line_1="12 Elm St", rentvine_id=6002,
+        )
+        p3 = Property.objects.create(
+            name="3 Bass Lane", address_line_1="3 Bass Lane", rentvine_id=6003,
+        )
+        # Units in scrambled insertion order
+        cls.u_12elm_2 = Unit.objects.create(
+            property=p2, address_line_1="12 Elm St", unit_number="2",
+            rentvine_id=6012, rentengine_status="Available",
+        )
+        cls.u_5elm = Unit.objects.create(
+            property=p1, address_line_1="5 Elm St", unit_number="1",
+            rentvine_id=6011, rentengine_status="Available",
+        )
+        cls.u_3bass = Unit.objects.create(
+            property=p3, address_line_1="3 Bass Lane", unit_number="1",
+            rentvine_id=6013, rentengine_status="Available",
+        )
+        cls.u_12elm_1 = Unit.objects.create(
+            property=p2, address_line_1="12 Elm St", unit_number="1",
+            rentvine_id=6014, rentengine_status="Available",
+        )
+
+    def setUp(self):
+        self.client.login(username="sort_admin", password="pw")
+
+    def test_sort_order(self):
+        resp = self.client.get(reverse("key-dashboard"))
+        rows = list(resp.context["page_obj"])
+        addresses = [r["address"] for r in rows]
+        # Bass < Elm alphabetically
+        bass_idx = next(i for i, a in enumerate(addresses) if "Bass" in a)
+        elm_idxs = [i for i, a in enumerate(addresses) if "Elm" in a]
+        for ei in elm_idxs:
+            self.assertLess(bass_idx, ei, "Bass should sort before Elm")
+        # 5 Elm before 12 Elm (numeric)
+        elm5_idx = next(i for i, a in enumerate(addresses) if "5 Elm" in a)
+        elm12_idxs = [i for i, a in enumerate(addresses) if "12 Elm" in a]
+        for ei in elm12_idxs:
+            self.assertLess(elm5_idx, ei, "5 Elm should sort before 12 Elm")
+        # 12 Elm Unit 1 before 12 Elm Unit 2
+        elm12_addrs = [(i, a) for i, a in enumerate(addresses) if "12 Elm" in a]
+        self.assertEqual(len(elm12_addrs), 2)
+        self.assertIn("Unit 1", elm12_addrs[0][1])
+        self.assertIn("Unit 2", elm12_addrs[1][1])
+
+
+# ---------------------------------------------------------------------------
+# Note dedup
+# ---------------------------------------------------------------------------
+
+
+class NoteDedupTests(TestCase):
+    """Identical text in unit + property notes → one merged entry."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_user(
+            username="dedup_admin", password="pw", role="admin",
+        )
+        cls.prop = Property.objects.create(
+            name="50 Oak St", address_line_1="50 Oak St", rentvine_id=5000,
+        )
+        cls.unit = Unit.objects.create(
+            property=cls.prop, address_line_1="50 Oak St",
+            unit_number="1", rentvine_id=5001,
+            rentengine_status="Available",
+        )
+        # Same text at unit-level and property-level
+        AccessNote.objects.create(
+            unit=cls.unit, source="rentengine_key_access",
+            source_ref="d1", text="gate code 1234",
+        )
+        AccessNote.objects.create(
+            property=cls.prop, source="rentvine_property_note",
+            source_ref="d2", text="gate code 1234",
+        )
+        # Different text at property-level only
+        AccessNote.objects.create(
+            property=cls.prop, source="rentvine_property_note",
+            source_ref="d3", text="mailbox combo 5678",
+        )
+
+    def setUp(self):
+        self.client.login(username="dedup_admin", password="pw")
+
+    def test_merged_note_shown_once(self):
+        resp = self.client.get(reverse("key-dashboard"))
+        for row in resp.context["page_obj"]:
+            if row["unit_id"] == self.unit.pk:
+                texts = [n["text"] for n in row["notes"]]
+                self.assertEqual(
+                    texts.count("gate code 1234"), 1,
+                    "Duplicate note text should appear only once",
+                )
+                break
+
+    def test_merged_note_has_is_merged(self):
+        resp = self.client.get(reverse("key-dashboard"))
+        for row in resp.context["page_obj"]:
+            if row["unit_id"] == self.unit.pk:
+                gate_note = next(
+                    n for n in row["notes"] if n["text"] == "gate code 1234"
+                )
+                self.assertTrue(gate_note["is_merged"])
+                break
+
+    def test_non_duplicate_note_not_merged(self):
+        resp = self.client.get(reverse("key-dashboard"))
+        for row in resp.context["page_obj"]:
+            if row["unit_id"] == self.unit.pk:
+                mailbox_note = next(
+                    n for n in row["notes"] if n["text"] == "mailbox combo 5678"
+                )
+                self.assertFalse(mailbox_note["is_merged"])
+                break

@@ -6,11 +6,13 @@ Never logs code text or note text.
 
 import json
 import logging
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.utils import timezone
 from django.db.models import F, Q
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
@@ -21,7 +23,7 @@ from keys.models import (
     AccessNote, Checkout, KeyHealthSnapshot, PendingKeyChange, Tag,
 )
 from keys.selectors import find_units, key_health
-from keys.services import unit_label
+from keys.services import normalize_address, normalize_unit_token, unit_label
 from keys.updates import (
     do_assign, do_create_tag, do_edit_ring_notes, do_found,
     do_hide_note, do_mark_missing, do_retire, do_set_code,
@@ -30,6 +32,22 @@ from keys.updates import (
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 100
+
+
+def _unit_sort_key(u):
+    """Sort key: (street base name, house number int, unit token)."""
+    addr = u.address_line_1 or u.property.address_line_1 or ""
+    num_str, base, _ = normalize_address(addr)
+    try:
+        num = int(num_str)
+    except (ValueError, TypeError):
+        num = 0
+    tok = normalize_unit_token(u.unit_number)
+    try:
+        tok_num = int(tok)
+        return (base, num, 0, tok_num, "")
+    except (ValueError, TypeError):
+        return (base, num, 1, 0, tok)
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +169,8 @@ def _build_rows(*, show_hidden=False):
     units = list(
         Unit.objects.filter(is_active=True, rentvine_id__isnull=False)
         .select_related("property")
-        .order_by("property__address_line_1", "unit_number")
     )
+    units.sort(key=_unit_sort_key)
     if not units:
         return []
 
@@ -264,8 +282,12 @@ def _build_rows(*, show_hidden=False):
             "date": note.source_date,
             "author": author,
             "is_property_level": note.unit_id is None,
+            "is_merged": False,
             "hidden": note.hidden,
         }
+
+    now = timezone.now()
+    overdue_threshold = now - timedelta(hours=24)
 
     rows = []
     for u in units:
@@ -273,26 +295,64 @@ def _build_rows(*, show_hidden=False):
         p_tags = tags_by_prop.get(u.property_id, [])
         u_notes = notes_by_unit.get(u.pk, [])
         p_notes = notes_by_prop.get(u.property_id, [])
-        all_notes = (u_notes + p_notes)[:5]
+
+        # Note dedup: identical text in unit + property → one "merged" entry
+        u_texts = {n.text for n in u_notes}
+        merged_texts = {n.text for n in p_notes} & u_texts
+        deduped = []
+        for n in u_notes:
+            d = _note_dict(n)
+            if n.text in merged_texts:
+                d["is_merged"] = True
+            deduped.append(d)
+        for n in p_notes:
+            if n.text not in merged_texts:
+                deduped.append(_note_dict(n))
+        all_notes = deduped[:5]
 
         has_key = bool(u_tags or p_tags)
         has_code = bool(u_notes or p_notes)
         vacancy = u.rentengine_status or ""
 
+        # Flags — all vacancy states, matching key_health definitions
         flags = []
-        if vacancy == "Available":
-            if not has_key and not has_code:
+        if not has_key and not has_code:
+            if vacancy == "Available":
                 flags.append("No key AND no code")
-            elif not has_key:
+            elif vacancy == "Leased":
+                flags.append("Occupied, no key")
+                flags.append("Occupied, no code")
+            else:
                 flags.append("No key")
-            elif not has_code:
                 flags.append("No code")
+        elif not has_key:
+            if vacancy == "Leased":
+                flags.append("Occupied, no key")
+            else:
+                flags.append("No key")
+        elif not has_code:
+            if vacancy == "Leased":
+                flags.append("Occupied, no code")
+            else:
+                flags.append("No code")
+
+        # Duplicate tags (unit-level and property-level)
         if len(u_tags) >= 2:
             flags.append("Duplicate tags")
-        if not has_key and vacancy == "Leased":
-            flags.append("Occupied, no key")
-        if not has_code and vacancy == "Leased":
-            flags.append("Occupied, no code")
+        if len(p_tags) >= 2:
+            flags.append("Duplicate tags (bldg)")
+
+        # Missing tag
+        all_tags = u_tags + p_tags
+        if any(t.status == "missing" for t in all_tags):
+            flags.append("Missing tag")
+
+        # Overdue checkout (>24h)
+        for t in all_tags:
+            co = co_map.get(t.pk)
+            if co and co.checked_out_at < overdue_threshold:
+                flags.append("Overdue checkout")
+                break
 
         rows.append({
             "unit_id": u.pk,
@@ -308,7 +368,7 @@ def _build_rows(*, show_hidden=False):
             ),
             "tags": [_tag_dict(t) for t in u_tags],
             "property_tags": [_tag_dict(t) for t in p_tags],
-            "notes": [_note_dict(n) for n in all_notes],
+            "notes": all_notes,
             "flags": flags,
             "has_key": has_key,
             "has_code": has_code,
@@ -364,7 +424,17 @@ def action_assign(request):
         return deny
 
     tag_id = request.POST.get("tag_id")
+    key_id = request.POST.get("key_id", "").strip()
     unit_id = request.POST.get("unit_id")
+
+    # Resolve key_id → tag_id
+    if not tag_id and key_id:
+        tag = Tag.objects.filter(key_id=key_id).first()
+        if not tag:
+            messages.error(request, f"No tag found with key ID '{key_id}'.")
+            return _back(request)
+        tag_id = tag.pk
+
     if not tag_id or not unit_id:
         messages.error(request, "Tag and unit are required.")
         return _back(request)
@@ -579,6 +649,7 @@ def search_units(request):
         "results": [
             {
                 "unit_id": u.pk,
+                "property_id": u.property_id,
                 "address": unit_label(
                     u.address_line_1, u.property.address_line_1,
                     u.unit_number,

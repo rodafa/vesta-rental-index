@@ -8,7 +8,7 @@ from datetime import timedelta
 from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
 
-from core.models import Unit
+from core.models import Property, Unit
 from keys.models import AccessNote, Checkout, PendingKeyChange, Tag
 from keys.services import (
     _SUFFIX_SET,
@@ -603,6 +603,35 @@ def key_health() -> dict:
             .values_list("key_id", flat=True)
         )
         duplicates.append({"address": _unit_label(u), "key_ids": tag_ids})
+
+    # (f2) Property-level duplicate tags: properties with 2+ non-retired
+    # property-level tags (unit IS NULL).
+    dupe_props = (
+        Property.objects
+        .filter(rentvine_id__isnull=False)
+        .annotate(
+            prop_tag_count=Count(
+                "key_tags",
+                filter=Q(key_tags__status__in=["on_hook", "checked_out",
+                                                "with_vendor", "missing"])
+                & Q(key_tags__unit__isnull=True),
+            ),
+        )
+        .filter(prop_tag_count__gte=2)
+        .order_by("address_line_1")
+    )
+    for p in dupe_props:
+        tag_ids = list(
+            Tag.objects.filter(property=p, unit__isnull=True)
+            .exclude(status="retired")
+            .order_by("key_id")
+            .values_list("key_id", flat=True)
+        )
+        duplicates.append({
+            "address": p.address_line_1 or "unknown",
+            "key_ids": tag_ids,
+            "is_property_level": True,
+        })
 
     # (g) Orphan tags: no unit, no property, non-retired
     orphans = [

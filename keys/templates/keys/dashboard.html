@@ -113,9 +113,6 @@
   .orphans{margin-top:22px;}
   .orphans h3{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;}
 
-  /* ---------- Create tag ---------- */
-  .create-tag{margin-top:22px;background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow);}
-  .create-tag h3{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;}
   .form-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
   .form-row .field{display:flex;flex-direction:column;gap:4px;}
   .form-row label{font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;}
@@ -143,6 +140,12 @@
   .assign-results.open{display:block;}
   .assign-result{padding:7px 10px;font-size:12px;cursor:pointer;}
   .assign-result:hover{background:var(--sky-soft);}
+
+  /* ---------- Action bar ---------- */
+  .action-bar{display:flex;gap:10px;margin-bottom:16px;}
+  .action-panel{display:none;background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:16px;box-shadow:var(--shadow);}
+  .action-panel.open{display:block;}
+  .panel-selected{font-size:12px;color:var(--green);margin-top:2px;min-height:16px;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
@@ -183,6 +186,90 @@
   {% endif %}
 
   <div class="content">
+
+    <!-- ===== Action Bar ===== -->
+    <div class="action-bar">
+      <button class="btn btn-primary btn-sm" type="button" onclick="togglePanel('panelAddKey')">+ Add key</button>
+      <button class="btn btn-primary btn-sm" type="button" onclick="togglePanel('panelAddCode')">+ Add code</button>
+      <button class="btn btn-quiet btn-sm" type="button" onclick="togglePanel('panelAssignKey')">Assign existing key</button>
+    </div>
+
+    <!-- Add Key panel -->
+    <div class="action-panel" id="panelAddKey">
+      <form class="form-row" method="post" action="{% url 'key-create-tag' %}" onsubmit="return confirm('Create this tag?')">
+        {% csrf_token %}
+        <input type="hidden" name="_qs" value="{{ qs }}">
+        <input type="hidden" name="unit_id" id="addKeyUnitId" value="">
+        <input type="hidden" name="property_id" id="addKeyPropertyId" value="">
+        <div class="field">
+          <label>Box</label>
+          <select name="box" required><option value="A">A</option><option value="B">B</option></select>
+        </div>
+        <div class="field">
+          <label>Number (1–200)</label>
+          <input type="number" name="number" min="1" max="200" required style="width:90px;">
+        </div>
+        <div class="field" style="position:relative;">
+          <label>Unit (optional)</label>
+          <div class="assign-search">
+            <input type="text" class="search-box" style="width:220px;font-size:13px;" id="addKeySearch" placeholder="Search address" autocomplete="off" oninput="panelUnitSearch(this,'addKeyResults','addKeyUnitId','addKeyPropertyId','addKeySelected')">
+            <div class="assign-results" id="addKeyResults"></div>
+          </div>
+          <div id="addKeySelected" class="panel-selected"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Create</button>
+        <button type="button" class="btn btn-quiet btn-sm" onclick="clearPanelUnit('addKeyUnitId','addKeyPropertyId','addKeySelected','addKeySearch')">Clear</button>
+      </form>
+    </div>
+
+    <!-- Add Code panel -->
+    <div class="action-panel" id="panelAddCode">
+      <form class="form-row" method="post" action="{% url 'key-set-code' %}" onsubmit="return confirm('Set this code?')">
+        {% csrf_token %}
+        <input type="hidden" name="_qs" value="{{ qs }}">
+        <input type="hidden" name="unit_id" id="addCodeUnitId" value="">
+        <input type="hidden" name="property_id" id="addCodePropertyId" value="">
+        <div class="field" style="position:relative;">
+          <label>Unit</label>
+          <div class="assign-search">
+            <input type="text" class="search-box" style="width:220px;font-size:13px;" id="addCodeSearch" placeholder="Search address" autocomplete="off" oninput="panelUnitSearch(this,'addCodeResults','addCodeUnitId','addCodePropertyId','addCodeSelected')">
+            <div class="assign-results" id="addCodeResults"></div>
+          </div>
+          <div id="addCodeSelected" class="panel-selected"></div>
+        </div>
+        <div class="field">
+          <label><input type="checkbox" id="addCodeWholeProp" onchange="toggleWholeProp()"> Whole property</label>
+        </div>
+        <div class="field">
+          <label>Code</label>
+          <input type="text" name="code" required placeholder="Code text" style="width:160px;">
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Save code</button>
+        <button type="button" class="btn btn-quiet btn-sm" onclick="clearPanelUnit('addCodeUnitId','addCodePropertyId','addCodeSelected','addCodeSearch')">Clear</button>
+      </form>
+    </div>
+
+    <!-- Assign Existing Key panel -->
+    <div class="action-panel" id="panelAssignKey">
+      <form class="form-row" method="post" action="{% url 'key-assign' %}" onsubmit="return confirm('Assign this key to the selected unit?')">
+        {% csrf_token %}
+        <input type="hidden" name="_qs" value="{{ qs }}">
+        <input type="hidden" name="unit_id" id="assignKeyUnitId" value="">
+        <div class="field">
+          <label>Key ID</label>
+          <input type="text" name="key_id" required placeholder="e.g. A-038" style="width:100px;">
+        </div>
+        <div class="field" style="position:relative;">
+          <label>Assign to unit</label>
+          <div class="assign-search">
+            <input type="text" class="search-box" style="width:220px;font-size:13px;" id="assignKeySearch" placeholder="Search address" autocomplete="off" oninput="panelUnitSearch(this,'assignKeyResults','assignKeyUnitId',null,'assignKeySelected')">
+            <div class="assign-results" id="assignKeyResults"></div>
+          </div>
+          <div id="assignKeySelected" class="panel-selected"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit">Assign</button>
+      </form>
+    </div>
 
     <!-- ===== Scorecard ===== -->
     <div class="scorecard">
@@ -309,7 +396,7 @@
               {% for n in row.notes %}
               <div class="note-row{% if n.hidden %} is-hidden{% endif %}">
                 {{ n.text|truncatechars:40 }}
-                <div class="note-meta">{{ n.source }}{% if n.date %} &middot; {{ n.date }}{% endif %}{% if n.author %} &middot; {{ n.author }}{% endif %}{% if n.is_property_level %} (bldg){% endif %}</div>
+                <div class="note-meta">{{ n.source }}{% if n.date %} &middot; {{ n.date }}{% endif %}{% if n.author %} &middot; {{ n.author }}{% endif %}{% if n.is_merged %} (unit + bldg){% elif n.is_property_level %} (bldg){% endif %}</div>
               </div>
               {% endfor %}
               {% if not row.notes %}<span class="vacancy-unknown">None</span>{% endif %}
@@ -318,7 +405,7 @@
             <!-- Flags -->
             <td>
               {% for fl in row.flags %}
-              <span class="flag{% if 'no key AND' in fl|lower or 'No key' in fl %} flag-urgent{% else %} flag-warn{% endif %}">{{ fl }}</span>
+              <span class="flag{% if 'no key and' in fl|lower or 'missing' in fl|lower or 'overdue' in fl|lower %} flag-urgent{% else %} flag-warn{% endif %}">{{ fl }}</span>
               {% endfor %}
             </td>
 
@@ -443,35 +530,6 @@
     </div>
     {% endif %}
 
-    <!-- ===== Create Tag ===== -->
-    <div class="create-tag">
-      <h3>Create New Tag</h3>
-      <form class="form-row" method="post" action="{% url 'key-create-tag' %}" id="createTagForm" onsubmit="return confirmCreateTag()">
-        {% csrf_token %}
-        <input type="hidden" name="_qs" value="{{ qs }}">
-        <input type="hidden" name="unit_id" id="createTagUnitId" value="">
-        <input type="hidden" name="property_id" id="createTagPropertyId" value="">
-        <div class="field">
-          <label>Box</label>
-          <select name="box" required><option value="A">A</option><option value="B">B</option></select>
-        </div>
-        <div class="field">
-          <label>Number (1-200)</label>
-          <input type="number" name="number" min="1" max="200" required style="width:90px;">
-        </div>
-        <div class="field" style="position:relative;">
-          <label>Unit (type address)</label>
-          <div class="assign-search">
-            <input type="text" class="search-box" style="width:220px;font-size:13px;" id="createTagSearch" placeholder="Search address" autocomplete="off" oninput="createTagUnitSearch(this)">
-            <div class="assign-results" id="createTagResults"></div>
-          </div>
-          <div id="createTagSelected" style="font-size:12px;color:var(--green);margin-top:2px;"></div>
-        </div>
-        <button class="btn btn-primary" type="submit">Create tag</button>
-        <button type="button" class="btn btn-quiet btn-sm" onclick="clearCreateTagUnit()" style="font-size:11px;">Clear unit</button>
-      </form>
-    </div>
-
   </div><!-- .content -->
 </div><!-- .app -->
 
@@ -554,29 +612,36 @@ function submitAssign(tagId, unitId) {
   form.submit();
 }
 
-// ---- Create tag unit search ----
-let createTagTimeout;
-function createTagUnitSearch(input) {
-  clearTimeout(createTagTimeout);
-  const q = input.value.trim();
-  const resultsDiv = document.getElementById('createTagResults');
+// ---- Action bar panels ----
+function togglePanel(id) {
+  document.querySelectorAll('.action-panel').forEach(function(p) {
+    if (p.id === id) p.classList.toggle('open');
+    else p.classList.remove('open');
+  });
+}
+
+let panelSearchTimeout;
+function panelUnitSearch(input, resultsId, unitIdField, propIdField, selectedId) {
+  clearTimeout(panelSearchTimeout);
+  var q = input.value.trim();
+  var resultsDiv = document.getElementById(resultsId);
   if (q.length < 2) { resultsDiv.classList.remove('open'); return; }
-  createTagTimeout = setTimeout(() => {
+  panelSearchTimeout = setTimeout(function() {
     fetch('{% url "key-search-units" %}?q=' + encodeURIComponent(q))
-      .then(r => r.json())
-      .then(data => {
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
         if (!data.results.length) {
           resultsDiv.innerHTML = '<div class="assign-result" style="color:var(--ink-faint)">No matches</div>';
         } else {
-          resultsDiv.innerHTML = data.results.map(u =>
-            '<div class="assign-result" data-unit-id="' + u.unit_id + '">' + u.address + '</div>'
-          ).join('');
-          resultsDiv.querySelectorAll('.assign-result[data-unit-id]').forEach(el => {
-            el.addEventListener('click', () => {
-              document.getElementById('createTagUnitId').value = el.dataset.unitId;
-              document.getElementById('createTagPropertyId').value = '';
-              document.getElementById('createTagSelected').textContent = el.textContent;
-              document.getElementById('createTagSearch').value = el.textContent;
+          resultsDiv.innerHTML = data.results.map(function(u) {
+            return '<div class="assign-result" data-unit-id="' + u.unit_id + '" data-property-id="' + u.property_id + '">' + u.address + '</div>';
+          }).join('');
+          resultsDiv.querySelectorAll('.assign-result[data-unit-id]').forEach(function(el) {
+            el.addEventListener('click', function() {
+              document.getElementById(unitIdField).value = el.dataset.unitId;
+              if (propIdField) document.getElementById(propIdField).value = el.dataset.propertyId;
+              document.getElementById(selectedId).textContent = el.textContent;
+              input.value = el.textContent;
               resultsDiv.classList.remove('open');
             });
           });
@@ -586,17 +651,19 @@ function createTagUnitSearch(input) {
   }, 300);
 }
 
-function clearCreateTagUnit() {
-  document.getElementById('createTagUnitId').value = '';
-  document.getElementById('createTagPropertyId').value = '';
-  document.getElementById('createTagSelected').textContent = '';
-  document.getElementById('createTagSearch').value = '';
+function clearPanelUnit(unitIdField, propIdField, selectedId, searchId) {
+  document.getElementById(unitIdField).value = '';
+  if (propIdField) document.getElementById(propIdField).value = '';
+  document.getElementById(selectedId).textContent = '';
+  document.getElementById(searchId).value = '';
 }
 
-function confirmCreateTag() {
-  const unitId = document.getElementById('createTagUnitId').value;
-  const label = unitId ? ' assigned to ' + document.getElementById('createTagSelected').textContent : ' (unassigned)';
-  return confirm('Create this tag' + label + '?');
+function toggleWholeProp() {
+  var cb = document.getElementById('addCodeWholeProp');
+  if (cb.checked) {
+    document.getElementById('addCodeUnitId').value = '';
+    document.getElementById('addCodeSelected').textContent = 'Whole property (no unit)';
+  }
 }
 
 // Close assign results when clicking outside
