@@ -1,7 +1,8 @@
 """
-Shared type-coercion helpers used by multiple integration mappers.
+Shared helpers used by multiple integration mappers.
 """
 
+import re
 from datetime import date, datetime, timezone
 
 
@@ -55,3 +56,46 @@ def safe_datetime(value):
     except (TypeError, ValueError):
         pass
     return None
+
+
+# ---------------------------------------------------------------------------
+# Address normalisation (ported from integrations.property_meld.services)
+# ---------------------------------------------------------------------------
+
+_ABBREVIATIONS = {
+    "street": "st",
+    "avenue": "ave",
+    "boulevard": "blvd",
+    "drive": "dr",
+    "lane": "ln",
+    "road": "rd",
+    "court": "ct",
+    "place": "pl",
+    "circle": "cir",
+    "terrace": "ter",
+    "trail": "trl",
+    "highway": "hwy",
+    "parkway": "pkwy",
+    "north": "n",
+    "south": "s",
+    "east": "e",
+    "west": "w",
+    "northeast": "ne",
+    "northwest": "nw",
+    "southeast": "se",
+    "southwest": "sw",
+    "apartment": "apt",
+    "suite": "ste",
+    "unit": "unit",
+}
+
+
+def normalize_address(address):
+    """Normalize an address for matching: lowercase, strip, standardize abbreviations."""
+    if not address:
+        return ""
+    text = address.lower().strip()
+    text = re.sub(r"[.,#]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    words = text.split()
+    return " ".join(_ABBREVIATIONS.get(w, w) for w in words)

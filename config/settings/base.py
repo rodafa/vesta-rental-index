@@ -147,15 +147,6 @@ RENTENGINE = {
     "ACCOUNT_ID": os.environ.get("RENTENGINE_ACCOUNT_ID", ""),
 }
 
-PROPERTY_MELD = {
-    "BASE_URL": os.environ.get(
-        "PROPERTY_MELD_BASE_URL", "https://api.propertymeld.com/api/v2"
-    ),
-    "CLIENT_ID": os.environ.get("PROPERTY_MELD_CLIENT_ID", ""),
-    "CLIENT_SECRET": os.environ.get("PROPERTY_MELD_CLIENT_SECRET", ""),
-    "MANAGEMENT_ID": os.environ.get("PROPERTY_MELD_MANAGEMENT_ID", ""),
-}
-
 MASON_API_KEY = os.environ.get("MASON_API_KEY", "")
 
 # Temporary feature flag: when True, weekly maintenance notes pull work-order

@@ -13,13 +13,24 @@ from decimal import Decimal
 from django.db.models import Q, Sum
 from django.utils.html import strip_tags
 
-from integrations.property_meld.mappers import EMAIL_CANCELED_BUCKET, EMAIL_CLOSED_BUCKET
-
 from .models import Meld, WorkOrder
 from .sanitizers import sanitize_banned_words
 from .zinspector import parse_zinspector_description
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Meld status bucket constants (formerly in integrations.property_meld.mappers)
+# ---------------------------------------------------------------------------
+
+EMAIL_CLOSED_BUCKET = {"COMPLETED"}
+
+EMAIL_CANCELED_BUCKET = {
+    "MANAGER_CANCELED",
+    "TENANT_CANCELED",
+    "MAINTENANCE_COULD_NOT_COMPLETE",
+    "VENDOR_COULD_NOT_COMPLETE",
+}
 
 # Regex to collapse whitespace runs left after HTML stripping.
 _WHITESPACE_RUN = re.compile(r"\s+")

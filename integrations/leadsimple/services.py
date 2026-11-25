@@ -11,7 +11,7 @@ from datetime import date, datetime, time
 import zoneinfo
 
 from integrations.leadsimple.stage_map import RESOLVED_STAGES
-from integrations.property_meld.services import normalize_address
+from integrations.utils import normalize_address
 
 logger = logging.getLogger(__name__)
 
