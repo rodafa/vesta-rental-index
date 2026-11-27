@@ -62,13 +62,14 @@
 
   /* ---------- Scorecard ---------- */
   .scorecard{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px;}
-  .tile{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;min-width:140px;flex:1;box-shadow:var(--shadow);}
+  .tile{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:14px 18px;min-width:140px;flex:1;box-shadow:var(--shadow);cursor:pointer;transition:border-color .14s,box-shadow .14s;}
+  a.tile{text-decoration:none;color:inherit;display:block;}
+  .tile:hover{border-color:var(--sky);box-shadow:var(--shadow-lift);}
+  .tile.tile-active{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy);}
   .tile-label{font-size:11px;font-weight:600;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;}
   .tile-value{font-size:28px;font-weight:700;color:var(--navy);line-height:1.1;}
   .tile-value.urgent{color:var(--orange);}
   .tile-value.ok{color:var(--green);}
-  .tile-link{font-size:11px;color:var(--sky);text-decoration:none;margin-top:4px;display:inline-block;}
-  .tile-link:hover{text-decoration:underline;}
 
   /* ---------- Chart ---------- */
   .chart-wrap{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:22px;box-shadow:var(--shadow);}
@@ -273,53 +274,56 @@
 
     <!-- ===== Scorecard ===== -->
     <div class="scorecard">
-      <div class="tile">
+      <a class="tile" href="{% url 'key-dashboard' %}{% if search_param %}?q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">Total Units</div>
         <div class="tile-value">{{ scorecard.total_units }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'with_key' %} tile-active{% endif %}" href="?filter=with_key{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">With Key</div>
         <div class="tile-value ok">{{ scorecard.with_key }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'with_code' %} tile-active{% endif %}" href="?filter=with_code{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">With Code</div>
         <div class="tile-value ok">{{ scorecard.with_code }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'with_both' %} tile-active{% endif %}" href="?filter=with_both{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">With Both</div>
         <div class="tile-value ok">{{ scorecard.with_both }}</div>
-      </div>
+      </a>
     </div>
     <div class="scorecard">
-      <div class="tile">
+      <a class="tile{% if filter_param == 'vacant_no_key_no_code' %} tile-active{% endif %}" href="?filter=vacant_no_key_no_code{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">Vacant: No Key + No Code</div>
         <div class="tile-value{% if scorecard.vacant_no_key_no_code %} urgent{% endif %}">{{ scorecard.vacant_no_key_no_code }}</div>
-        {% if scorecard.vacant_no_key_no_code %}<a class="tile-link" href="?filter=problems">View &rarr;</a>{% endif %}
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'vacant_no_key' %} tile-active{% endif %}" href="?filter=vacant_no_key{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">Vacant: No Key</div>
         <div class="tile-value{% if scorecard.vacant_no_key %} urgent{% endif %}">{{ scorecard.vacant_no_key }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'vacant_no_code' %} tile-active{% endif %}" href="?filter=vacant_no_code{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">Vacant: No Code</div>
         <div class="tile-value{% if scorecard.vacant_no_code %} urgent{% endif %}">{{ scorecard.vacant_no_code }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'overdue' %} tile-active{% endif %}" href="?filter=overdue{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">Overdue Checkouts</div>
         <div class="tile-value{% if scorecard.overdue_checkouts %} urgent{% endif %}">{{ scorecard.overdue_checkouts }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'missing' %} tile-active{% endif %}" href="?filter=missing{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
         <div class="tile-label">Missing Tags</div>
         <div class="tile-value{% if scorecard.missing_tags %} urgent{% endif %}">{{ scorecard.missing_tags }}</div>
-      </div>
-      <div class="tile">
-        <div class="tile-label">Duplicates</div>
+      </a>
+      <a class="tile{% if filter_param == 'duplicates' %} tile-active{% endif %}" href="?filter=duplicates{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
+        <div class="tile-label">Duplicate Tags</div>
         <div class="tile-value{% if scorecard.duplicate_tags %} urgent{% endif %}">{{ scorecard.duplicate_tags }}</div>
-      </div>
-      <div class="tile">
+      </a>
+      <a class="tile{% if filter_param == 'building_tags' %} tile-active{% endif %}" href="?filter=building_tags{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">
+        <div class="tile-label">Building Tags</div>
+        <div class="tile-value{% if scorecard.building_tags %} urgent{% endif %}">{{ scorecard.building_tags }}</div>
+      </a>
+      <a class="tile" href="#orphans">
         <div class="tile-label">Orphan Tags</div>
         <div class="tile-value{% if scorecard.orphan_tags %} urgent{% endif %}">{{ scorecard.orphan_tags }}</div>
-      </div>
+      </a>
     </div>
 
     <!-- ===== Accuracy Chart ===== -->
@@ -336,6 +340,7 @@
       <a class="chip{% if filter_param == 'vacant' %} active{% endif %}" href="?filter=vacant{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Vacant</a>
       <a class="chip{% if filter_param == 'occupied' %} active{% endif %}" href="?filter=occupied{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Occupied</a>
       <a class="chip{% if filter_param == 'unknown' %} active{% endif %}" href="?filter=unknown{% if search_param %}&q={{ search_param|urlencode }}{% endif %}">Unknown</a>
+      {% if tile_filter_label %}<a class="chip active" href="{% url 'key-dashboard' %}{% if search_param %}?q={{ search_param|urlencode }}{% endif %}">{{ tile_filter_label }} &times;</a>{% endif %}
       <input class="search-box" type="text" name="q" value="{{ search_param }}" placeholder="Search address or key ID">
       {% if filter_param %}<input type="hidden" name="filter" value="{{ filter_param }}">{% endif %}
       <button class="btn btn-quiet btn-sm" type="submit">Search</button>
@@ -498,7 +503,7 @@
 
     <!-- ===== Orphan Tags ===== -->
     {% if orphans %}
-    <div class="orphans">
+    <div class="orphans" id="orphans">
       <h3>Orphan Tags ({{ orphans|length }})</h3>
       <div class="tbl-wrap" style="margin-top:10px;">
         <table>

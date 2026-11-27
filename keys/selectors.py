@@ -602,10 +602,12 @@ def key_health() -> dict:
             .order_by("key_id")
             .values_list("key_id", flat=True)
         )
-        duplicates.append({"address": _unit_label(u), "key_ids": tag_ids})
+        duplicates.append({
+            "address": _unit_label(u), "key_ids": tag_ids, "unit_id": u.pk,
+        })
 
-    # (f2) Property-level duplicate tags: properties with 2+ non-retired
-    # property-level tags (unit IS NULL).
+    # (f2) Building tags to sort: properties with 2+ non-retired
+    # property-level tags (unit IS NULL).  One entry per property.
     dupe_props = (
         Property.objects
         .filter(rentvine_id__isnull=False)
@@ -620,6 +622,7 @@ def key_health() -> dict:
         .filter(prop_tag_count__gte=2)
         .order_by("address_line_1")
     )
+    building_tags = []
     for p in dupe_props:
         tag_ids = list(
             Tag.objects.filter(property=p, unit__isnull=True)
@@ -627,10 +630,10 @@ def key_health() -> dict:
             .order_by("key_id")
             .values_list("key_id", flat=True)
         )
-        duplicates.append({
+        building_tags.append({
             "address": p.address_line_1 or "unknown",
             "key_ids": tag_ids,
-            "is_property_level": True,
+            "property_id": p.pk,
         })
 
     # (g) Orphan tags: no unit, no property, non-retired
@@ -666,6 +669,7 @@ def key_health() -> dict:
         "overdue_checkouts": overdue,
         "missing_tags": missing,
         "duplicate_tags": duplicates,
+        "building_tags": building_tags,
         "orphan_tags": orphans,
         "occupied_no_key": [_unit_dict(u) for u in occupied_no_key],
         "occupied_no_code": [_unit_dict(u) for u in occupied_no_code],

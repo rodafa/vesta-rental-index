@@ -780,7 +780,7 @@ class FlagTests(TestCase):
         Tag.objects.create(box="A", number=50, property=unit.property)
         Tag.objects.create(box="A", number=51, property=unit.property)
         flags = self._get_flags(unit)
-        self.assertIn("Duplicate tags (bldg)", flags)
+        self.assertIn("Building tags", flags)
 
     def test_missing_tag_flag(self):
         unit = self._make_unit("1")

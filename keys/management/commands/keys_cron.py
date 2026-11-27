@@ -124,6 +124,7 @@ def _snapshot_counts(health: dict) -> dict:
         "overdue_checkouts": len(health["overdue_checkouts"]),
         "missing_tags": len(health["missing_tags"]),
         "duplicate_tags": len(health["duplicate_tags"]),
+        "building_tags": len(health.get("building_tags", [])),
         "orphan_tags": len(health["orphan_tags"]),
         "occupied_no_key": len(health["occupied_no_key"]),
         "occupied_no_code": len(health["occupied_no_code"]),

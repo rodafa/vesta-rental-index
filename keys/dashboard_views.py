@@ -94,6 +94,7 @@ def key_dashboard(request):
         "overdue_checkouts": len(health["overdue_checkouts"]),
         "missing_tags": len(health["missing_tags"]),
         "duplicate_tags": len(health["duplicate_tags"]),
+        "building_tags": len(health["building_tags"]),
         "orphan_tags": len(health["orphan_tags"]),
         "occupied_no_key": len(health["occupied_no_key"]),
         "occupied_no_code": len(health["occupied_no_code"]),
@@ -126,7 +127,42 @@ def key_dashboard(request):
     f = request.GET.get("filter", "")
     q = request.GET.get("q", "").strip()
 
-    if f == "problems":
+    # Tile filters — sets built from health data for exact matching
+    _tile_unit_ids = {
+        "vacant_no_key_no_code": {i["unit_id"] for i in health["vacant_no_key_no_code"]},
+        "vacant_no_key": {i["unit_id"] for i in health["vacant_no_key"]},
+        "vacant_no_code": {i["unit_id"] for i in health["vacant_no_code"]},
+        "occupied_no_key": {i["unit_id"] for i in health["occupied_no_key"]},
+        "occupied_no_code": {i["unit_id"] for i in health["occupied_no_code"]},
+        "duplicates": {d["unit_id"] for d in health["duplicate_tags"]},
+    }
+    _tile_prop_ids = {
+        "building_tags": {d["property_id"] for d in health["building_tags"]},
+    }
+
+    if f in _tile_unit_ids:
+        ids = _tile_unit_ids[f]
+        rows = [r for r in rows if r["unit_id"] in ids]
+    elif f in _tile_prop_ids:
+        ids = _tile_prop_ids[f]
+        rows = [r for r in rows if r["property_id"] in ids]
+    elif f == "overdue":
+        rows = [r for r in rows if "Overdue checkout" in r["flags"]]
+    elif f == "missing":
+        rows = [r for r in rows if "Missing tag" in r["flags"]]
+    elif f == "with_key":
+        rows = [r for r in rows if r["has_key"]]
+    elif f == "with_code":
+        rows = [r for r in rows if r["has_code"]]
+    elif f == "with_both":
+        rows = [r for r in rows if r["has_key"] and r["has_code"]]
+    elif f == "without_key":
+        rows = [r for r in rows if not r["has_key"]]
+    elif f == "without_code":
+        rows = [r for r in rows if not r["has_code"]]
+    elif f == "without_both":
+        rows = [r for r in rows if not (r["has_key"] and r["has_code"])]
+    elif f == "problems":
         rows = [r for r in rows if r["flags"]]
     elif f == "vacant":
         rows = [r for r in rows if r["vacancy"] == "Available"]
@@ -146,6 +182,26 @@ def key_dashboard(request):
             )
         ]
 
+    # Label for active tile-filter chip (empty for general filters)
+    _TILE_LABELS = {
+        "vacant_no_key_no_code": "Vacant: No Key + No Code",
+        "vacant_no_key": "Vacant: No Key",
+        "vacant_no_code": "Vacant: No Code",
+        "overdue": "Overdue Checkouts",
+        "missing": "Missing Tags",
+        "duplicates": "Duplicate Tags",
+        "building_tags": "Building Tags",
+        "with_key": "With Key",
+        "with_code": "With Code",
+        "with_both": "With Both",
+        "without_key": "Without Key",
+        "without_code": "Without Code",
+        "without_both": "Without Both",
+        "occupied_no_key": "Occupied: No Key",
+        "occupied_no_code": "Occupied: No Code",
+    }
+    tile_filter_label = _TILE_LABELS.get(f, "")
+
     paginator = Paginator(rows, _PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get("page", "1"))
 
@@ -157,6 +213,7 @@ def key_dashboard(request):
         "filter_param": f,
         "search_param": q,
         "show_hidden": show_hidden,
+        "tile_filter_label": tile_filter_label,
         "qs": request.GET.urlencode(),
     })
 
@@ -340,7 +397,7 @@ def _build_rows(*, show_hidden=False):
         if len(u_tags) >= 2:
             flags.append("Duplicate tags")
         if len(p_tags) >= 2:
-            flags.append("Duplicate tags (bldg)")
+            flags.append("Building tags")
 
         # Missing tag
         all_tags = u_tags + p_tags

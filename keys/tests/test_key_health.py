@@ -29,6 +29,7 @@ def _empty_health():
         "overdue_checkouts": [],
         "missing_tags": [],
         "duplicate_tags": [],
+        "building_tags": [],
         "orphan_tags": [],
         "occupied_no_key": [],
         "occupied_no_code": [],
@@ -203,6 +204,24 @@ class _KeyHealthFixture(TestCase):
             source="keybot", text="lockbox 0000",
         )
 
+        # (f2) Building tags to sort — 4 property-level tags (unit=NULL)
+        cls.prop_bldg = Property.objects.create(
+            name="11 Lambda St", address_line_1="11 Lambda St",
+            rentvine_id=1200,
+        )
+        cls.unit_bldg = Unit.objects.create(
+            property=cls.prop_bldg, address_line_1="11 Lambda St",
+            unit_number="1", rentvine_id=12001,
+        )
+        Tag.objects.create(box="B", number=70, property=cls.prop_bldg)
+        Tag.objects.create(box="B", number=71, property=cls.prop_bldg)
+        Tag.objects.create(box="B", number=72, property=cls.prop_bldg)
+        Tag.objects.create(box="B", number=73, property=cls.prop_bldg)
+        AccessNote.objects.create(
+            unit=cls.unit_bldg, property=cls.prop_bldg,
+            source="keybot", text="lockbox 8888",
+        )
+
 
 # ── Selector tests ─────────────────────────────────────────────────
 
@@ -255,6 +274,29 @@ class KeyHealthSelectorTests(_KeyHealthFixture):
         self.assertIn("4 Delta St", addrs)
         self.assertEqual(len(h["duplicate_tags"]), 2)
 
+    def test_duplicate_tags_are_unit_level_only(self):
+        """duplicate_tags must NOT contain property-level entries."""
+        h = key_health()
+        for d in h["duplicate_tags"]:
+            self.assertIn("unit_id", d)
+            self.assertNotIn("property_id", d)
+
+    def test_building_tags(self):
+        """Property with 4 property-level tags appears in building_tags."""
+        h = key_health()
+        self.assertEqual(len(h["building_tags"]), 1)
+        entry = h["building_tags"][0]
+        self.assertEqual(entry["address"], "11 Lambda St")
+        self.assertEqual(entry["property_id"], self.prop_bldg.pk)
+        self.assertEqual(len(entry["key_ids"]), 4)
+
+    def test_building_tags_not_in_duplicate_tags(self):
+        """building_tags entries must not appear in duplicate_tags."""
+        h = key_health()
+        dup_addrs = {d["address"] for d in h["duplicate_tags"]}
+        bldg_addrs = {d["address"] for d in h["building_tags"]}
+        self.assertFalse(dup_addrs & bldg_addrs)
+
     def test_duplicate_key_ids_sorted(self):
         h = key_health()
         for d in h["duplicate_tags"]:
@@ -290,6 +332,107 @@ class KeyHealthSelectorTests(_KeyHealthFixture):
         ]:
             all_unit_ids.update(i["unit_id"] for i in h[key])
         self.assertNotIn(self.unit_ok.pk, all_unit_ids)
+
+
+# ── Tile filter tests ──────────────────────────────────────────────
+
+
+class TileFilterTests(_KeyHealthFixture):
+    """Each tile filter returns exactly the rows in that key_health category."""
+
+    def setUp(self):
+        from keys.dashboard_views import _build_rows
+
+        self.health = key_health()
+        self.rows = _build_rows()
+
+    def _ids(self, rows):
+        return {r["unit_id"] for r in rows}
+
+    def _health_ids(self, key):
+        return {i["unit_id"] for i in self.health[key]}
+
+    def _filter_rows(self, f):
+        """Apply tile-filter logic (mirrors the view)."""
+        _unit_ids = {
+            "vacant_no_key_no_code": self._health_ids("vacant_no_key_no_code"),
+            "vacant_no_key": self._health_ids("vacant_no_key"),
+            "vacant_no_code": self._health_ids("vacant_no_code"),
+            "occupied_no_key": self._health_ids("occupied_no_key"),
+            "occupied_no_code": self._health_ids("occupied_no_code"),
+            "duplicates": {d["unit_id"] for d in self.health["duplicate_tags"]},
+        }
+        _prop_ids = {
+            "building_tags": {d["property_id"] for d in self.health["building_tags"]},
+        }
+        if f in _unit_ids:
+            return [r for r in self.rows if r["unit_id"] in _unit_ids[f]]
+        if f in _prop_ids:
+            return [r for r in self.rows if r["property_id"] in _prop_ids[f]]
+        if f == "overdue":
+            return [r for r in self.rows if "Overdue checkout" in r["flags"]]
+        if f == "missing":
+            return [r for r in self.rows if "Missing tag" in r["flags"]]
+        if f == "with_key":
+            return [r for r in self.rows if r["has_key"]]
+        if f == "with_code":
+            return [r for r in self.rows if r["has_code"]]
+        if f == "with_both":
+            return [r for r in self.rows if r["has_key"] and r["has_code"]]
+        return self.rows
+
+    def test_vacant_no_key_no_code(self):
+        got = self._ids(self._filter_rows("vacant_no_key_no_code"))
+        self.assertEqual(got, self._health_ids("vacant_no_key_no_code"))
+
+    def test_vacant_no_key(self):
+        got = self._ids(self._filter_rows("vacant_no_key"))
+        self.assertEqual(got, self._health_ids("vacant_no_key"))
+
+    def test_vacant_no_code(self):
+        got = self._ids(self._filter_rows("vacant_no_code"))
+        self.assertEqual(got, self._health_ids("vacant_no_code"))
+
+    def test_overdue(self):
+        got = self._filter_rows("overdue")
+        # unit_d has 2 overdue checkouts
+        self.assertEqual(self._ids(got), {self.unit_d.pk})
+
+    def test_missing(self):
+        got = self._filter_rows("missing")
+        self.assertEqual(self._ids(got), {self.unit_e.pk})
+
+    def test_duplicates(self):
+        got = self._ids(self._filter_rows("duplicates"))
+        expected = {d["unit_id"] for d in self.health["duplicate_tags"]}
+        self.assertEqual(got, expected)
+
+    def test_building_tags(self):
+        got = self._filter_rows("building_tags")
+        self.assertEqual(self._ids(got), {self.unit_bldg.pk})
+
+    def test_with_key(self):
+        got = self._filter_rows("with_key")
+        self.assertTrue(all(r["has_key"] for r in got))
+        self.assertEqual(len(got), self.health["with_key_count"])
+
+    def test_with_code(self):
+        got = self._filter_rows("with_code")
+        self.assertTrue(all(r["has_code"] for r in got))
+        self.assertEqual(len(got), self.health["with_code_count"])
+
+    def test_with_both(self):
+        got = self._filter_rows("with_both")
+        self.assertTrue(all(r["has_key"] and r["has_code"] for r in got))
+        self.assertEqual(len(got), self.health["with_both_count"])
+
+    def test_occupied_no_key(self):
+        got = self._ids(self._filter_rows("occupied_no_key"))
+        self.assertEqual(got, self._health_ids("occupied_no_key"))
+
+    def test_occupied_no_code(self):
+        got = self._ids(self._filter_rows("occupied_no_code"))
+        self.assertEqual(got, self._health_ids("occupied_no_code"))
 
 
 # ── Formatter tests ────────────────────────────────────────────────
@@ -373,6 +516,33 @@ class FormatKeyHealthTests(TestCase):
         text, blocks = format_key_health(_empty_health())
         self.assertIsInstance(text, str)
         self.assertIsInstance(blocks, list)
+
+    def test_building_tags_section(self):
+        """building_tags appear as a separate section in the Slack report."""
+        health = _empty_health()
+        health["building_tags"] = [
+            {"address": "50 Main St", "key_ids": ["A-010", "A-011", "A-012"]},
+        ]
+        text, blocks = format_key_health(health)
+        self.assertIn("building tags to sort", text.lower())
+        self.assertIn("50 Main St", text)
+        _validate_blocks(self, blocks)
+
+    def test_building_tags_separate_from_duplicates(self):
+        """Both sections render independently in the same report."""
+        health = _empty_health()
+        health["duplicate_tags"] = [
+            {"address": "10 Unit St", "key_ids": ["A-001", "A-002"]},
+        ]
+        health["building_tags"] = [
+            {"address": "20 Bldg St", "key_ids": ["B-001", "B-002"]},
+        ]
+        text, blocks = format_key_health(health)
+        self.assertIn("duplicate tags", text.lower())
+        self.assertIn("building tags to sort", text.lower())
+        self.assertIn("10 Unit St", text)
+        self.assertIn("20 Bldg St", text)
+        _validate_blocks(self, blocks)
 
     def test_72h_marker(self):
         health = _empty_health()

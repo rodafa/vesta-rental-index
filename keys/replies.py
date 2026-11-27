@@ -509,13 +509,27 @@ def format_key_health(health: dict) -> tuple[str, list]:
         urgent_text_sections.append("\n".join(lines))
         urgent_line_groups.append(lines)
 
-    # (f) Duplicate tags
+    # (f) Duplicate tags (unit-level)
     items = health["duplicate_tags"]
     if items:
         n = len(items)
         lines = [
             f"\u26a0\ufe0f {n} unit{'s' if n != 1 else ''}"
             f" with duplicate tags:"
+        ]
+        for d in items:
+            ids = ", ".join(d["key_ids"])
+            lines.append(f"\u2022 {_escape(d['address'])} \u2014 {ids}")
+        urgent_text_sections.append("\n".join(lines))
+        urgent_line_groups.append(lines)
+
+    # (f2) Building tags to sort (property-level)
+    items = health.get("building_tags", [])
+    if items:
+        n = len(items)
+        lines = [
+            f"\U0001f3e2 {n} propert{'ies' if n != 1 else 'y'}"
+            f" with building tags to sort:"
         ]
         for d in items:
             ids = ", ".join(d["key_ids"])
