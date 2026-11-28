@@ -501,6 +501,145 @@ class ActionCreateTagTests(_DashboardFixture):
         self.assertFalse(Tag.objects.filter(key_id="A-250").exists())
 
 
+class CreateTagWithCodeAndRingNotesTests(_DashboardFixture):
+    """Extended + Add key panel: tag, code, and ring notes in one submit."""
+
+    def setUp(self):
+        self.client.login(username="admin", password="pw")
+        self.url = reverse("key-create-tag")
+
+    def test_key_only(self):
+        """Key only — no AccessNote, one KeyChange (created)."""
+        before_notes = AccessNote.objects.count()
+        before_kc = KeyChange.objects.count()
+
+        resp = self.client.post(self.url, {
+            "box": "B", "number": "101",
+            "unit_id": self.unit_vacant.pk,
+            "property_id": self.prop.pk,
+        })
+        self.assertEqual(resp.status_code, 302)
+        tag = Tag.objects.get(key_id="B-101")
+        self.assertEqual(tag.unit_id, self.unit_vacant.pk)
+        self.assertEqual(tag.ring_notes, "")
+        self.assertEqual(AccessNote.objects.count(), before_notes)
+        self.assertEqual(KeyChange.objects.count(), before_kc + 1)
+
+    def test_key_plus_code(self):
+        """Key + code → Tag + AccessNote (source='dashboard') + 2 KeyChange."""
+        before_kc = KeyChange.objects.count()
+
+        resp = self.client.post(self.url, {
+            "box": "B", "number": "102",
+            "unit_id": self.unit_vacant.pk,
+            "property_id": self.prop.pk,
+            "code": "5544",
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        tag = Tag.objects.get(key_id="B-102")
+        self.assertEqual(tag.unit_id, self.unit_vacant.pk)
+
+        note = AccessNote.objects.filter(
+            source="dashboard", text="5544",
+        ).first()
+        self.assertIsNotNone(note)
+        self.assertEqual(note.unit_id, self.unit_vacant.pk)
+
+        # 2 KeyChange rows: "created" + "access_note"
+        self.assertEqual(KeyChange.objects.count(), before_kc + 2)
+        self.assertTrue(
+            KeyChange.objects.filter(tag=tag, field="created").exists(),
+        )
+        self.assertTrue(
+            KeyChange.objects.filter(
+                field="access_note", reason="set_code",
+            ).exists(),
+        )
+
+    def test_key_plus_code_plus_ring_notes(self):
+        """Key + code + ring notes → three KeyChange rows."""
+        before_kc = KeyChange.objects.count()
+
+        resp = self.client.post(self.url, {
+            "box": "B", "number": "103",
+            "unit_id": self.unit_vacant.pk,
+            "property_id": self.prop.pk,
+            "code": "7788",
+            "ring_notes": "2 keys + mailbox key",
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        tag = Tag.objects.get(key_id="B-103")
+        self.assertEqual(tag.ring_notes, "2 keys + mailbox key")
+
+        note = AccessNote.objects.filter(
+            source="dashboard", text="7788",
+        ).first()
+        self.assertIsNotNone(note)
+        self.assertEqual(note.unit_id, self.unit_vacant.pk)
+
+        # 3 KeyChange rows: "created" + "ring_notes" + "access_note"
+        self.assertEqual(KeyChange.objects.count(), before_kc + 3)
+
+    def test_duplicate_key_id_saves_nothing(self):
+        """Duplicate key ID with code + ring notes → nothing saved."""
+        before_tags = Tag.objects.count()
+        before_notes = AccessNote.objects.count()
+        before_kc = KeyChange.objects.count()
+
+        resp = self.client.post(self.url, {
+            "box": "A", "number": "1",  # A-001 already exists
+            "unit_id": self.unit_vacant.pk,
+            "property_id": self.prop.pk,
+            "code": "9999",
+            "ring_notes": "should not save",
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(Tag.objects.count(), before_tags)
+        self.assertEqual(AccessNote.objects.count(), before_notes)
+        self.assertEqual(KeyChange.objects.count(), before_kc)
+
+    def test_whole_property_code_on_property(self):
+        """'Whole property' checked → AccessNote on property, unit NULL."""
+        resp = self.client.post(self.url, {
+            "box": "B", "number": "104",
+            "unit_id": self.unit_vacant.pk,
+            "property_id": self.prop.pk,
+            "code": "3322",
+            "whole_property": "1",
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        # Tag still assigned to the unit
+        tag = Tag.objects.get(key_id="B-104")
+        self.assertEqual(tag.unit_id, self.unit_vacant.pk)
+
+        # Code goes to the property, not the unit
+        note = AccessNote.objects.filter(
+            source="dashboard", text="3322",
+        ).first()
+        self.assertIsNotNone(note)
+        self.assertIsNone(note.unit_id)
+        self.assertEqual(note.property_id, self.prop.pk)
+
+    def test_code_without_unit_selected_error(self):
+        """Code given with no unit selected → error, nothing saved."""
+        before_tags = Tag.objects.count()
+        before_notes = AccessNote.objects.count()
+        before_kc = KeyChange.objects.count()
+
+        resp = self.client.post(self.url, {
+            "box": "B", "number": "105",
+            # no unit_id, no property_id
+            "code": "1111",
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(Tag.objects.count(), before_tags)
+        self.assertEqual(AccessNote.objects.count(), before_notes)
+        self.assertEqual(KeyChange.objects.count(), before_kc)
+
+
 class ActionHideNoteTests(_DashboardFixture):
 
     def setUp(self):

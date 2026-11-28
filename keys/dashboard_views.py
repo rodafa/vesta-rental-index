@@ -600,6 +600,9 @@ def action_create_tag(request):
     number_str = request.POST.get("number", "").strip()
     unit_id = request.POST.get("unit_id") or None
     property_id = request.POST.get("property_id") or None
+    code = request.POST.get("code", "").strip()
+    ring_notes = request.POST.get("ring_notes", "").strip()
+    whole_property = request.POST.get("whole_property") == "1"
 
     if box not in ("A", "B"):
         messages.error(request, "Box must be A or B.")
@@ -613,20 +616,73 @@ def action_create_tag(request):
         messages.error(request, "Number must be 1\u2013200.")
         return _back(request)
 
+    if code and not property_id:
+        messages.error(request, "Select a unit before adding a code.")
+        return _back(request)
+
+    key_id = f"{box}-{number:03d}"
+    actor = _actor(request.user)
+    ref = _ref(request.user)
+    error = None
+
     with transaction.atomic():
         error = do_create_tag(
             box=box,
             number=number,
             unit_id=int(unit_id) if unit_id else None,
             property_id=int(property_id) if property_id else None,
-            actor_name=_actor(request.user),
-            source_ref=_ref(request.user),
+            actor_name=actor,
+            source_ref=ref,
         )
+
+        if not error and ring_notes:
+            tag = Tag.objects.get(key_id=key_id)
+            error = do_edit_ring_notes(
+                tag_id=tag.pk,
+                ring_notes=ring_notes,
+                actor_name=actor,
+                source_ref=ref,
+            )
+
+        if not error and code:
+            error = do_set_code(
+                unit_id=None if whole_property else (int(unit_id) if unit_id else None),
+                property_id=int(property_id),
+                code=code,
+                source="dashboard",
+                actor_name=actor,
+                source_ref=ref,
+            )
+
+        if error:
+            transaction.set_rollback(True)
 
     if error:
         messages.error(request, error)
     else:
-        messages.success(request, f"Tag {box}-{number:03d} created.")
+        extras = []
+        if code:
+            extras.append("code")
+        if ring_notes:
+            extras.append("ring notes")
+        if unit_id:
+            try:
+                unit = Unit.objects.select_related("property").get(
+                    pk=int(unit_id),
+                )
+                addr = unit_label(
+                    unit.address_line_1, unit.property.address_line_1,
+                    unit.unit_number,
+                )
+                msg = f"{key_id} added to {addr}"
+            except Unit.DoesNotExist:
+                msg = f"Tag {key_id} created"
+        else:
+            msg = f"Tag {key_id} created"
+        if extras:
+            msg += " with " + " and ".join(extras)
+        msg += "."
+        messages.success(request, msg)
     return _back(request)
 
 
